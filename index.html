@@ -1254,7 +1254,10 @@ async function addWO() {
   const iss = document.getElementById('woi').value.trim();
   const techName = document.getElementById('wot').value;
   const p = document.getElementById('wop').value;
-  const woType = document.getElementById('wotype').value;
+  // Get work type from JC data (submission_type), fallback to hidden field or 'running_repair'
+  const jcData = window._jcLookup?.[v] || {};
+  const submType = jcData.submission_type || '';
+  const woType = submType.toLowerCase().includes('oos') ? 'oos' : 'running_repair';
   if(!v||!iss||!techName){document.getElementById('wo-msg').innerHTML='<div class="alert al-error">Fill all fields and select a technician.</div>';return;}
   const techUser = ALL_USERS.find(u=>u.name===techName);
   const woNum = 'WO-'+String(Date.now()).slice(-6);
@@ -1530,16 +1533,6 @@ function selectVehicle(idx) {
   document.getElementById('veh-selected').style.display='block';
   document.getElementById('veh-selected').innerHTML =
     `✓ <strong>${v.reg_number}</strong> — ${model}${rider?' · Rider: '+rider:''}${odo?' · '+odo:''}${oos}`;
-  // Auto-set work type based on vehicle status — always locked
-  const woTypeEl = document.getElementById('wotype');
-  if (v.bike_status === 'OOS') {
-    woTypeEl.value = 'oos';
-    woTypeEl.disabled = true;
-  } else {
-    woTypeEl.value = 'running_repair';
-    woTypeEl.disabled = true;
-  }
-  onWOTypeChange();
   // Show JC info if available
   const jcInfoEl = document.getElementById('veh-jc-info');
   if (jcInfoEl && window._jcInfoFn) {
@@ -1972,13 +1965,6 @@ async function renderWorkOrdersAsync() {
           <div id="veh-selected" style="display:none;margin-top:6px;padding:8px 10px;background:var(--blue-lt);border-radius:6px;font-size:12px;color:var(--blue)"></div>
           <div id="veh-jc-info"></div>
         </div>
-        <div class="form-group" style="margin:0">
-          <label class="form-label">Work Type</label>
-          <select class="form-select" id="wotype" onchange="onWOTypeChange()">
-            <option value="running_repair">Running Repair</option>
-            <option value="oos">OOS (Out of Service)</option>
-          </select>
-        </div>
       </div>
       <div class="form-row" style="margin-top:12px">
         <div class="form-group" style="margin:0"><label class="form-label">Issue / Service</label><input class="form-input" id="woi" placeholder="Describe the problem"/></div>
@@ -1993,8 +1979,8 @@ async function renderWorkOrdersAsync() {
           ${avail.length===0?`<option disabled>No technicians present at this hub</option>`:avail.map(t=>`<option value="${t}">${t}</option>`).join('')}
         </select>
       </div>
-      <div id="oos-note" style="display:none;background:var(--red-lt);border:1px solid #fca5a5;border-radius:var(--r);padding:10px 14px;font-size:13px;color:var(--red);margin-bottom:8px">⚠️ OOS — vehicle will be marked out of service until resolved.</div>
-      <button class="btn btn-blue" style="margin-top:4px" onclick="addWO()">Assign Work Order</button>
+      <input type="hidden" id="wotype" value=""/>
+      <button class="btn btn-blue" style="margin-top:12px" onclick="addWO()">Assign Work Order</button>
     </div>
     <div id="wo-msg"></div>
 
@@ -2147,11 +2133,8 @@ async function renderWorkOrdersWideAsync(role) {
       </div>
       <div class="form-row" style="margin-top:10px">
         <div class="form-group" style="margin:0"><label class="form-label">Issue</label><input class="form-input" id="woi" placeholder="Describe job"/></div>
-        <div class="form-group" style="margin:0"><label class="form-label">Work Type</label>
-          <select class="form-select" id="wotype" onchange="onWOTypeChange()"><option value="running_repair">Running Repair</option><option value="oos">OOS</option></select>
-        </div>
       </div>
-      <div id="oos-note" style="display:none;background:var(--red-lt);border:1px solid #fca5a5;border-radius:var(--r);padding:8px 12px;font-size:12px;color:var(--red);margin-top:8px">⚠️ OOS — vehicle marked out of service.</div>
+      <input type="hidden" id="wotype" value=""/>
       <button class="btn btn-blue" style="margin-top:12px" onclick="addWO('${selectedHub}')">Assign Work Order</button>
       <div id="wo-msg" style="margin-top:8px"></div>
     </div>` : ''}
