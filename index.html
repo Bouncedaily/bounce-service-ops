@@ -486,9 +486,8 @@ let _demoMode = false;
 
 // ─ FETCH USER BY MOBILE ─
 async function fetchUserByMobile(mobile) {
-  const data = await sb(`users?mobile=eq.${mobile}&select=id,name,role,mobile,city_id&limit=1`);
+  const data = await sb(`users?mobile=eq.${mobile}&select=id,name,role,mobile,city_id,assigned_hub_name&limit=1`);
   if (data && data.length) return data[0];
-  // Fallback to demo data if Supabase unreachable
   return DEMO_USERS[mobile] || null;
 }
 
@@ -716,12 +715,19 @@ function proceedAfterAuth(u) {
   const initials = u.name.split(' ').map(x=>x[0]).join('').slice(0,2);
   const previewHTML = `<div class="up-avatar">${initials}</div><div><div class="up-name">${u.name}</div><div class="up-role">${ROLE_LABEL[u.role]||u.role}</div></div>`;
   if (u.role === 'hub_manager') {
+    // If user has an assigned hub in DB, skip hub selection entirely
+    if (u.assigned_hub_name) {
+      state.pendingUser = u;
+      state.pendingUser._autoHub = u.assigned_hub_name;
+    }
     document.getElementById('user-preview').innerHTML = previewHTML;
     const sel = document.getElementById('hub-select');
     sel.innerHTML = '<option value="">Select hub...</option>';
     const cityHubs = u.city_id ? HUBS.filter(h=>h.city_id===u.city_id) : HUBS;
     (cityHubs.length ? cityHubs : HUBS).forEach(h=>{
-      const o=document.createElement('option'); o.value=h.name; o.textContent=h.name; sel.appendChild(o);
+      const o=document.createElement('option'); o.value=h.name; o.textContent=h.name;
+      if (h.name === u.assigned_hub_name) o.selected = true;
+      sel.appendChild(o);
     });
     goStep('step-hub');
   } else {
@@ -1757,8 +1763,9 @@ function modalBackdropClick(e) { if(e.target===document.getElementById('modal'))
 // ─ SUPABASE: load draft JC for a hub ──────────────────────────────────
 async function loadDraftJCForHub(hubName) {
   if (_demoMode) return [];
+  // Only fetch non-Billed JCs — much faster and what we actually need
   const rows = await sb(
-    `draft_jc?hub_name=eq.${encodeURIComponent(hubName)}&select=job_card_number,dms_jc_id,reg_number,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date&order=job_card_opened_date.desc&limit=500`
+    `draft_jc?hub_name=eq.${encodeURIComponent(hubName)}&current_jc_status=neq.Billed&select=job_card_number,dms_jc_id,reg_number,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date&order=job_card_opened_date.desc&limit=200`
   );
   return rows || [];
 }
@@ -1766,7 +1773,7 @@ async function loadDraftJCForHub(hubName) {
 async function loadDraftJCForCity(cityName) {
   if (_demoMode) return [];
   const rows = await sb(
-    `draft_jc?city=eq.${encodeURIComponent(cityName)}&select=job_card_number,dms_jc_id,reg_number,hub_name,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date&order=job_card_opened_date.desc&limit=2000`
+    `draft_jc?city=eq.${encodeURIComponent(cityName)}&current_jc_status=neq.Billed&select=job_card_number,dms_jc_id,reg_number,hub_name,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date&order=job_card_opened_date.desc&limit=500`
   );
   return rows || [];
 }
@@ -1774,7 +1781,7 @@ async function loadDraftJCForCity(cityName) {
 async function loadAllDraftJC() {
   if (_demoMode) return [];
   const rows = await sb(
-    `draft_jc?select=job_card_number,dms_jc_id,reg_number,city,hub_name,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date&order=job_card_opened_date.desc&limit=5000`
+    `draft_jc?current_jc_status=neq.Billed&select=job_card_number,dms_jc_id,reg_number,city,hub_name,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date&order=job_card_opened_date.desc&limit=1000`
   );
   return rows || [];
 }
