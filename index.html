@@ -820,6 +820,21 @@ async function finishLogin() {
     await loadAllHubsData();
     btn.textContent = 'Go to Dashboard'; btn.disabled = false;
   }
+  // Log login activity
+  if (!_demoMode) {
+    sb('login_activity', { method:'POST', prefer:'return=minimal',
+      body: JSON.stringify({
+        user_id:   state.user.id,
+        user_name: state.user.name,
+        mobile:    state.user.mobile,
+        role:      state.user.role,
+        action:    'login',
+        hub_name:  state.hub || null,
+        city:      null
+      })
+    });
+    sb(`users?id=eq.${state.user.id}`, { method:'PATCH', body: JSON.stringify({last_login_at: new Date().toISOString()}) });
+  }
   document.getElementById('login-page').style.display='none';
   document.getElementById('app-shell').style.display='block';
   renderTopbar(); renderNav();
@@ -875,6 +890,15 @@ function doLogout() {
 }
 
 function _doLogoutNow() {
+  if (state.user && !_demoMode) {
+    sb('login_activity', { method:'POST', prefer:'return=minimal',
+      body: JSON.stringify({
+        user_id: state.user.id, user_name: state.user.name,
+        mobile: state.user.mobile, role: state.user.role, action: 'logout',
+        hub_name: state.hub || null
+      })
+    });
+  }
   state.user=null; state.hub=null; state.myCheckin=null; state.myCheckout=null;
   clearInterval(window._refreshT);
   window._jcCache = {};
