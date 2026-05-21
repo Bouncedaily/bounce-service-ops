@@ -31,6 +31,17 @@ const mapBike = b => ({
   first_deployment_date: clean(b["1st Deployment Date"]),
 });
 
+// Parse "0.50 hrs" / "0 mins" strings to float hours
+function parseLabour(v) {
+  if (v == null || v === "") return null;
+  const s = String(v).trim().toLowerCase();
+  const minsMatch = s.match(/^([\d.]+)\s*min/);
+  if (minsMatch) return Math.round(parseFloat(minsMatch[1]) / 60 * 1000) / 1000;
+  const hrsMatch = s.match(/^([\d.]+)/);
+  if (hrsMatch) return Math.round(parseFloat(hrsMatch[1]) * 1000) / 1000;
+  return null;
+}
+
 const mapJC = r => ({
   job_card_number: clean(r["Job Card Number"]),
   dms_jc_id: r["DMS JC ID"]!=null?String(r["DMS JC ID"]):null,
@@ -38,7 +49,7 @@ const mapJC = r => ({
   current_jc_status: clean(r["Current JC Status"]), parts_to_be_changed: clean(r["Parts to be Changed"]),
   technician_name: clean(r["Technician Name"]), reason_for_ending: clean(r["Reason for Ending"]),
   overall_tat_days: toNum(r["Overall TAT (Days)"]), submission_type: clean(r["Submission Type"]),
-  labour_time_hours: toNum(r["Labour Time (Hours)"]),
+  labour_time_hours: parseLabour(r["Labour Time (Hours)"]),  // fixed string parsing
   job_card_opened_date: clean(r["Job Card Opened Date"]), job_card_billed_date: clean(r["Job Card Billed Date"]),
   bike_status: clean(r["Bike Status"]), synced_at: new Date().toISOString(),
 });
