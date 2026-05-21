@@ -403,6 +403,13 @@ async function bootstrap() {
     ALL_USERS = Object.values(DEMO_USERS);
     TECHNICIANS = ALL_USERS.filter(u=>u.role==='technician').map(u=>u.name);
   }
+  // Load cities into cache for sync lookups
+  if (!_demoMode) {
+    const cityRows = await sb('cities?select=id,name&order=name');
+    window._cities = cityRows || [{id:'1784d900-6622-4095-a825-1dbd6a649b75',name:'Bangalore'},{id:'b0c2ce0b-39d8-40e8-a3cb-4eb7e76846eb',name:'Hyderabad'},{id:'d13dbf17-ce4d-4be9-b2e5-21fe6ff67c99',name:'NCR'},{id:'59d6939a-666c-4f0c-bc52-1d72deed24f2',name:'Indore'}];
+  } else {
+    window._cities = [{id:'1784d900-6622-4095-a825-1dbd6a649b75',name:'Bangalore'},{id:'b0c2ce0b-39d8-40e8-a3cb-4eb7e76846eb',name:'Hyderabad'},{id:'d13dbf17-ce4d-4be9-b2e5-21fe6ff67c99',name:'NCR'},{id:'59d6939a-666c-4f0c-bc52-1d72deed24f2',name:'Indore'}];
+  }
   // Vehicles loaded later per hub
   console.log(_demoMode ? 'Demo mode (Supabase unreachable)' : 'Live mode', '— hubs:', HUBS.length, '— users:', ALL_USERS.length);
 }
@@ -889,12 +896,28 @@ function navigate(page) {
   // Async pages
   if (page==='workorders' && role==='hub_manager') {
     c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading work orders...</div>';
-    renderWorkOrdersAsync().then(html=>{ if(currentPage===page) c.innerHTML=html; });
+    (async () => {
+      try {
+        const html = await renderWorkOrdersAsync();
+        if (currentPage===page) c.innerHTML = html;
+      } catch(e) {
+        console.error('renderWorkOrdersAsync error:', e);
+        if (currentPage===page) c.innerHTML = `<div class="empty-state"><div style="font-size:32px;margin-bottom:12px">⚠️</div><div style="font-weight:600;margin-bottom:6px">Failed to load work orders</div><div style="font-size:13px;color:var(--g400);margin-bottom:16px">${e.message}</div><button class="btn btn-blue" onclick="window._jcCache={};navigate('workorders')">Retry</button></div>`;
+      }
+    })();
     return;
   }
   if (page==='workorders' && (role==='area_manager'||role==='head')) {
     c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading work orders...</div>';
-    renderWorkOrdersWideAsync(role).then(html=>{ if(currentPage===page) c.innerHTML=html; });
+    (async () => {
+      try {
+        const html = await renderWorkOrdersWideAsync(role);
+        if (currentPage===page) c.innerHTML = html;
+      } catch(e) {
+        console.error('renderWorkOrdersWideAsync error:', e);
+        if (currentPage===page) c.innerHTML = `<div class="empty-state"><div style="font-size:32px;margin-bottom:12px">⚠️</div><div style="font-weight:600;margin-bottom:6px">Failed to load work orders</div><div style="font-size:13px;color:var(--g400);margin-bottom:16px">${e.message}</div><button class="btn btn-blue" onclick="window._jcCache={};navigate('workorders')">Retry</button></div>`;
+      }
+    })();
     return;
   }
   if (page==='attendance' && (role==='area_manager'||role==='head')) {
@@ -1797,6 +1820,7 @@ async function loadAllDraftJC() {
 // ─ WORK ORDER PAGE (Hub Manager) — with JC Details ─────────────────────
 async function renderWorkOrdersAsync() {
   const myHub = state.hub;
+  if (!myHub) return '<div class="empty-state">No hub selected. Please log out and log in again.</div>';
   const avail = Object.entries(state.attendance)
     .filter(([,a]) => a.status==='present' && a.hub===myHub)
     .map(([name]) => name);
@@ -1929,7 +1953,7 @@ async function renderWorkOrdersWideAsync(role) {
   const userCityId = state.user.city_id;
   const userCity   = userCityId ? (HUBS.find(h=>h.city_id===userCityId) ? ['Bangalore','Hyderabad','NCR','Indore'].find(c=>HUBS.filter(h=>h.city_id===userCityId).length>0) : '') : '';
   // Get city name from cities list
-  const myCityName = await getCityName(userCityId);
+  const myCityName = getCityNameSync(userCityId);
   const allCities  = [...new Set(HUBS.map(h=>h.city_id))];
   const cityNames  = role==='head' ? ['Bangalore','Hyderabad','NCR','Indore'] : [myCityName];
 
@@ -1940,7 +1964,7 @@ async function renderWorkOrdersWideAsync(role) {
   });
   const selectedHub  = role==='head' ? (_headSelectedHub||'') : (_areaSelectedHub||'');
   const hubsForCity  = role==='head'
-    ? (selectedCity ? await getHubsForCity(selectedCity) : cityHubs)
+    ? (selectedCity ? getHubsForCitySync(selectedCity) : cityHubs)
     : cityHubs;
 
   if (!window._jcCache) window._jcCache = {};
@@ -2033,20 +2057,21 @@ async function renderWorkOrdersWideAsync(role) {
       : `<div class="tw"><table><thead>${TH}</thead><tbody>${assigned.map(j=>tableRow(j,true)).join('')}</tbody></table></div>`}`;
 }
 
-async function getCityName(cityId) {
+// Sync helpers — use cached data, no extra Supabase calls
+function getCityNameSync(cityId) {
   if (!cityId) return '';
-  const r = await sb(`cities?id=eq.${cityId}&select=name&limit=1`);
-  return r && r.length ? r[0].name : '';
+  const c = window._cities?.find(c=>c.id===cityId);
+  return c ? c.name : '';
 }
-
-async function getHubsForCity(cityName) {
-  const r = await sb(`hubs?select=id,name,city_id&order=name`);
-  if (!r) return HUBS;
-  // Filter by city name via cities join — simplified: match hubs by city_id
-  const cityRow = await sb(`cities?name=eq.${encodeURIComponent(cityName)}&select=id&limit=1`);
-  if (!cityRow || !cityRow.length) return r;
-  return r.filter(h=>h.city_id===cityRow[0].id);
+function getHubsForCitySync(cityName) {
+  if (!cityName) return HUBS;
+  const city = window._cities?.find(c=>c.name===cityName);
+  if (!city) return HUBS;
+  return HUBS.filter(h=>h.city_id===city.id);
 }
+// Keep async versions as wrappers for backward compat
+async function getCityName(cityId) { return getCityNameSync(cityId); }
+async function getHubsForCity(cityName) { return getHubsForCitySync(cityName); }
 
 // ─ AREA MANAGER ATTENDANCE WITH HUB FILTER ───────────────────────────────
 let _areaAttHub = '';
