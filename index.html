@@ -1294,11 +1294,53 @@ async function addWO() {
   const iss = document.getElementById('woi').value.trim();
   const techName = document.getElementById('wot').value;
   const p = document.getElementById('wop').value;
-  // Get work type from JC data (submission_type), fallback to hidden field or 'running_repair'
-  const jcData = window._jcLookup?.[v] || {};
+  const woMsg = document.getElementById('wo-msg');
+
+  if(!v||!iss||!techName){
+    woMsg.innerHTML='<div class="alert al-error">Fill all fields and select a technician.</div>';
+    return;
+  }
+
+  // ── Block 1: Check if vehicle has "JC not opened in DMS" status ──
+  const allJcRows = window._jcCache?.[state.hub] || [];
+  const vehicleJC = allJcRows.find(j => j.reg_number === v);
+  if (vehicleJC && vehicleJC.current_jc_status === 'JC not opened in DMS') {
+    woMsg.innerHTML = '';
+    alertOpenJCFirst(v);
+    return;
+  }
+
+  // ── Block 2: Check if vehicle is already assigned (duplicate prevention) ──
+  const existingJob = state.jobs.find(j => j.vehicle === v);
+  if (existingJob) {
+    if (existingJob.status === 'In Progress') {
+      woMsg.innerHTML = `<div class="alert al-error">❌ ${v} is already In Progress with <strong>${existingJob.tech}</strong>. Cannot assign again.</div>`;
+      return;
+    }
+    if (existingJob.status === 'Done') {
+      woMsg.innerHTML = `<div class="alert al-error">❌ ${v} is already completed by <strong>${existingJob.tech}</strong>. Cannot assign again.</div>`;
+      return;
+    }
+    if (existingJob.status === 'Open') {
+      woMsg.innerHTML = `<div class="alert al-warn">⚠️ ${v} is already assigned to <strong>${existingJob.tech}</strong> (not started). Reassigning to <strong>${techName}</strong>...</div>`;
+      // Allow reassignment — update existing instead of creating new
+      existingJob.tech = techName;
+      const techUser = ALL_USERS.find(u=>u.name===techName);
+      if (!_demoMode && existingJob.db_id && techUser) {
+        await sb(`work_orders?id=eq.${existingJob.db_id}`, {
+          method:'PATCH', body:JSON.stringify({assigned_tech_id: techUser.id})
+        });
+      }
+      await loadJobsForHub(state.hubId);
+      setTimeout(()=>navigate('workorders'), 900);
+      return;
+    }
+  }
+
+  // Get work type from JC data
+  const jcData = window._jcLookup?.[v] || vehicleJC || {};
   const submType = jcData.submission_type || '';
   const woType = submType.toLowerCase().includes('oos') ? 'oos' : 'running_repair';
-  if(!v||!iss||!techName){document.getElementById('wo-msg').innerHTML='<div class="alert al-error">Fill all fields and select a technician.</div>';return;}
   const techUser = ALL_USERS.find(u=>u.name===techName);
   const woNum = 'WO-'+String(Date.now()).slice(-6);
   const btn = document.querySelector('.wo-form-wrap .btn-blue');
