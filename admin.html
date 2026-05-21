@@ -120,7 +120,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 <!-- LOGIN -->
 <div id="login-page" style="display:flex" class="login-page">
   <div class="login-card">
-    <div class="admin-badge">⚙️ Admin Portal</div>
+    <div class="admin-badge">Admin Portal</div>
     <div class="login-title">Bounce Service Ops</div>
     <div class="login-sub">Admin access only — enter your mobile number</div>
     <div id="login-alert"></div>
@@ -152,14 +152,32 @@ input:checked+.slider:before{transform:translateX(18px)}
   <div class="layout">
     <div class="sidebar">
       <div class="si-section">Overview</div>
-      <div class="si active" onclick="nav('dashboard')">📊 Dashboard</div>
+      <div class="si active" onclick="nav('dashboard')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </div>
       <div class="si-section">User Management</div>
-      <div class="si" onclick="nav('users')">👥 All Users</div>
-      <div class="si" onclick="nav('add-user')">➕ Add User</div>
+      <div class="si" onclick="nav('users')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+        All Users
+      </div>
+      <div class="si" onclick="nav('add-user')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+        Add User
+      </div>
       <div class="si-section">System</div>
-      <div class="si" onclick="nav('hubs')">🗺️ Hub Locations</div>
-      <div class="si" onclick="nav('permissions')">🔐 Permissions</div>
-      <div class="si" onclick="nav('login-activity')">📋 Login Activity</div>
+      <div class="si" onclick="nav('hubs')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="9"/></svg>
+        Hub Locations
+      </div>
+      <div class="si" onclick="nav('permissions')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+        Permissions
+      </div>
+      <div class="si" onclick="nav('login-activity')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        Login Activity
+      </div>
     </div>
     <div class="content" id="content"></div>
   </div>
@@ -631,7 +649,7 @@ function renderHubs() {
           <td class="mono" style="font-size:12px">${h.lat||'<span style="color:var(--red)">Not set</span>'}</td>
           <td class="mono" style="font-size:12px">${h.lng||'<span style="color:var(--red)">Not set</span>'}</td>
           <td style="font-size:12px;color:var(--g500)">${h.address||'—'}</td>
-          <td><span class="badge ${hasCoords?'b-active':'b-inactive'}">${hasCoords?'✓ Configured':'⚠️ Missing'}</span></td>
+          <td><span class="badge ${hasCoords?'b-active':'b-inactive'}">${hasCoords?'Configured':'Not configured'}</span></td>
           <td><button class="btn btn-outline btn-sm" onclick="editHubCoords('${h.id}','${h.name}',${h.lat||0},${h.lng||0},'${h.address||''}')">Edit</button></td>
         </tr>`;
       }).join('')}
@@ -639,7 +657,7 @@ function renderHubs() {
     </table></div>
     <div class="card" style="background:var(--blue-lt);border-color:#bcd0f7;margin-top:4px">
       <div style="font-size:13px;color:var(--blue-dk);line-height:1.8">
-        <strong>💡 How to get coordinates:</strong><br>
+        <strong>How to get coordinates:</strong><br>
         Open Google Maps → right-click on the hub location → click the coordinates shown at top (e.g. 12.9972, 77.6997) → paste here.<br>
         Technicians must be within <strong>200 metres</strong> of these coordinates to check in/out.
       </div>
@@ -662,7 +680,7 @@ function editHubCoords(hubId, hubName, lat, lng, address) {
       <input class="form-input" id="h-addr" value="${address||''}" placeholder="e.g. Near Hoodi Circle, Bangalore"/>
     </div>
     <div style="font-size:12px;color:var(--g400);margin-bottom:14px">
-      💡 Right-click hub location on Google Maps → copy coordinates
+      Right-click hub location on Google Maps → copy coordinates
     </div>
     <div style="display:flex;gap:8px">
       <button class="btn btn-purple" onclick="saveHubCoords('${hubId}')">Save Coordinates</button>

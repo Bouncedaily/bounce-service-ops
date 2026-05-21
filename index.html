@@ -324,7 +324,7 @@ tr:hover td{background:var(--g50)}
     <button class="btn-capture" id="pm-capture-btn" onclick="capturePhoto()">📷 Capture</button>
     <button class="btn-retake" id="pm-retake-btn" onclick="retakePhoto()">Retake</button>
   </div>
-  <button class="btn-photo-done" id="pm-done-btn" onclick="finishPhotoSession()">✓ Done — Submit</button>
+  <button class="btn-photo-done" id="pm-done-btn" onclick="finishPhotoSession()">Done — Submit</button>
   <button style="margin-top:12px;background:none;border:none;color:rgba(255,255,255,.5);font-size:13px;cursor:pointer;font-family:inherit" onclick="cancelPhotoSession()">Cancel</button>
 </div>
 
@@ -871,7 +871,7 @@ function doLogout() {
       ).join('');
       document.getElementById('modal-inner').innerHTML = `
         <button class="modal-close" onclick="closeModal();_doLogoutNow()">✕</button>
-        <div class="modal-title">⚠️ Unclosed Job Cards</div>
+        <div class="modal-title">Unclosed Job Cards</div>
         <div class="modal-sub">Please ask your Service Manager to close these job cards in DMS before you leave.</div>
         <div style="margin:12px 0;max-height:200px;overflow-y:auto">${jobList}</div>
         <div class="al-warn alert" style="margin-bottom:12px">
@@ -1274,7 +1274,7 @@ function renderWorkOrders() {
       </div>
 
       <div id="oos-note" style="display:none;background:var(--red-lt);border:1px solid #fca5a5;border-radius:var(--r);padding:10px 14px;font-size:13px;color:var(--red);margin-bottom:8px">
-        ⚠️ OOS — vehicle will be marked out of service until resolved.
+        OOS — vehicle will be marked out of service until resolved.
       </div>
       <button class="btn btn-blue" style="margin-top:4px" onclick="addWO()">Assign Work Order</button>
     </div>
@@ -1463,15 +1463,19 @@ function renderMyAttendance() {
       </div>
       <div id="att-status-msg"></div>
       ${!checked
-        ? `<button class="btn btn-green" id="btn-checkin" style="padding:14px 40px;font-size:16px;border-radius:12px;min-width:180px" onclick="doGeoCheckin('checkin')">
-            ✅ &nbsp;IN</button>
-           <div style="font-size:12px;color:var(--g400);margin-top:10px">Tap IN — we'll verify your location automatically</div>`
+        ? `<button class="btn btn-green" id="btn-checkin" style="padding:14px 40px;font-size:16px;border-radius:12px;min-width:180px;display:flex;align-items:center;gap:10px;margin:0 auto" onclick="doGeoCheckin('checkin')">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            Check In</button>
+           <div style="font-size:12px;color:var(--g400);margin-top:10px">Tap to check in — location verified automatically</div>`
         : !checkedOut
-        ? `<div style="margin-bottom:14px"><span class="badge b-present" style="font-size:13px;padding:6px 16px">✓ Checked in at ${state.myCheckin}</span></div>
-           <button class="btn btn-red" id="btn-checkout" style="padding:14px 40px;font-size:16px;border-radius:12px;min-width:180px" onclick="doGeoCheckin('checkout')">
-            🔴 &nbsp;OUT</button>
-           <div style="font-size:12px;color:var(--g400);margin-top:10px">Tap OUT when leaving the hub</div>`
-        : `<div style="font-size:36px;margin-bottom:8px">✅</div>
+        ? `<div style="margin-bottom:14px"><span class="badge b-present" style="font-size:13px;padding:6px 16px">Checked in at ${state.myCheckin}</span></div>
+           <button class="btn btn-red" id="btn-checkout" style="padding:14px 40px;font-size:16px;border-radius:12px;min-width:180px;display:flex;align-items:center;gap:10px;margin:0 auto" onclick="doGeoCheckin('checkout')">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            Check Out</button>
+           <div style="font-size:12px;color:var(--g400);margin-top:10px">Tap when leaving the hub</div>`
+        : `<div style="margin-bottom:12px">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="20 6 9 17 4 12"/></svg>
+           </div>
            <span class="badge b-done" style="font-size:14px;padding:8px 20px">Attendance complete</span>
            <div style="font-size:13px;color:var(--g500);margin-top:8px">${state.myCheckin} → ${state.myCheckout}</div>`}
     </div>
@@ -1562,7 +1566,7 @@ function renderMyJobs() {
             ${isActive ? `<button class="btn btn-green btn-sm" onclick="endJobWithPhotos(${gi})">
               📷 Complete
             </button>` : ''}
-            ${j.status==='Done'?`<span style="font-size:12px;color:var(--green);font-weight:500">✓ Done</span>`:''}
+            ${j.status==='Done'?`<span style="font-size:12px;color:var(--green);font-weight:500">Done</span>`:''}
           </div>
         </div>
       </div>`;
@@ -1710,10 +1714,10 @@ function selectVehicle(idx) {
       const statusText = existingJob.status === 'Done'
         ? `Completed by <strong>${existingJob.tech}</strong>`
         : `In Progress by <strong>${existingJob.tech}</strong>`;
-      if (woMsg) woMsg.innerHTML = `<div class="alert al-warn">⚠️ ${v.reg_number} is already assigned — ${statusText}. Cannot reassign.</div>`;
+      if (woMsg) woMsg.innerHTML = `<div class="alert al-warn">${v.reg_number} is already assigned — ${statusText}. Cannot reassign.</div>`;
       if (assignBtn) { assignBtn.disabled = true; assignBtn.style.opacity = '0.4'; }
     } else if (existingJob.status === 'Open') {
-      if (woMsg) woMsg.innerHTML = `<div class="alert al-info">ℹ️ ${v.reg_number} is assigned to <strong>${existingJob.tech}</strong> (not started). You can reassign.</div>`;
+      if (woMsg) woMsg.innerHTML = `<div class="alert al-info">${v.reg_number} is assigned to <strong>${existingJob.tech}</strong> (not started). You can reassign.</div>`;
       if (assignBtn) { assignBtn.disabled = false; assignBtn.style.opacity = '1'; }
     }
   } else {
@@ -1760,7 +1764,7 @@ function setAttMsg(type, msg) {
 async function doGeoCheckin(mode) {
   const btn = document.getElementById(mode==='checkin' ? 'btn-checkin' : 'btn-checkout');
   if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
-  setAttMsg('loading', '📍 Getting your location...');
+  setAttMsg('loading', 'Getting your location...');
 
   // 1. Get GPS position
   let position;
@@ -1778,7 +1782,7 @@ async function doGeoCheckin(mode) {
       : err.code === 2
       ? 'Location unavailable. Please try again outdoors or near a window.'
       : 'Location timed out. Please try again.';
-    setAttMsg('error', '❌ ' + errMsg);
+    setAttMsg('error', errMsg);
     if (btn) { btn.disabled=false; btn.style.opacity='1'; }
     return;
   }
@@ -1787,7 +1791,7 @@ async function doGeoCheckin(mode) {
   const userLng = position.coords.longitude;
   const accuracy = Math.round(position.coords.accuracy);
 
-  setAttMsg('loading', `📍 Location found (±${accuracy}m accuracy). Verifying hub...`);
+  setAttMsg('loading', `Location found (±${accuracy}m accuracy). Verifying hub...`);
 
   // 2. Fetch hub coordinates from Supabase
   let hubLat = null, hubLng = null, hubName = state.hub;
@@ -1811,10 +1815,10 @@ async function doGeoCheckin(mode) {
 
   // 5. Check geofence
   if (distanceM <= GEOFENCE_RADIUS_M) {
-    setAttMsg('success', `✅ Location verified — you are ${distanceM}m from ${hubName}. Marking attendance...`);
+    setAttMsg('success', `Location verified — you are ${distanceM}m from ${hubName}. Marking attendance...`);
     await processCheckin(mode, userLat, userLng, accuracy, distanceM, true);
   } else {
-    setAttMsg('error', `❌ You are ${distanceM}m away from ${hubName}. Must be within ${GEOFENCE_RADIUS_M}m to check ${mode==='checkin'?'in':'out'}. Please move closer to the hub and try again.`);
+    setAttMsg('error', `You are ${distanceM}m away from ${hubName}. Must be within ${GEOFENCE_RADIUS_M}m to check ${mode==='checkin'?'in':'out'}. Move closer to the hub and try again.`);
     if (btn) { btn.disabled=false; btn.style.opacity='1'; }
     // Log failed attempt
     if (!_demoMode && state.user) {
@@ -2257,7 +2261,7 @@ async function renderWorkOrdersAsync() {
       <td style="font-size:12px">${j.job_card_opened_date?new Date(j.job_card_opened_date).toLocaleDateString('en-IN'):'—'}</td>
       <td>
         ${j.current_jc_status==='JC not opened in DMS'
-          ? `<button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" onclick="alertOpenJCFirst('${j.reg_number}')">⚠️ Open JC in DMS</button>`
+          ? `<button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" onclick="alertOpenJCFirst('${j.reg_number}')">Open JC in DMS</button>`
           : `<select class="sel-sm" style="min-width:130px" onchange="assignTechFromJC('${j.job_card_number}','${j.reg_number}',this.value)">
               <option value="">Assign tech...</option>
               ${avail.length===0?`<option disabled>None present</option>`:avail.map(t=>`<option value="${t}">${t}</option>`).join('')}
@@ -2633,8 +2637,8 @@ function closeJCSection(jobs, hubName) {
       <td style="font-size:12px">${j.tech}</td>
       <td style="font-size:12px;color:${statusColor};font-weight:500">${statusLabel}</td>
       <td>${notBilled
-        ? `<span style="font-size:11px;padding:3px 10px;background:var(--red-lt);color:var(--red);border-radius:20px;font-weight:600">⚠️ Close in DMS</span>`
-        : `<span style="font-size:11px;padding:3px 10px;background:var(--green-lt);color:var(--green);border-radius:20px;font-weight:600">✓ Done</span>`}
+        ? `<span style="font-size:11px;padding:3px 10px;background:var(--red-lt);color:var(--red);border-radius:20px;font-weight:600">Close in DMS</span>`
+        : `<span style="font-size:11px;padding:3px 10px;background:var(--green-lt);color:var(--green);border-radius:20px;font-weight:600">Done</span>`}
       </td>
     </tr>`;
   }).join('');
