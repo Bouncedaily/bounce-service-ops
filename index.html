@@ -844,6 +844,37 @@ async function refreshPage(page) {
 }
 
 function doLogout() {
+  // Technician: warn if completed jobs not closed in DMS
+  if (state.user?.role === 'technician') {
+    const doneJobs = state.jobs.filter(j => j.status === 'Done');
+    if (doneJobs.length > 0) {
+      const jobList = doneJobs.map(j =>
+        `<div style="padding:6px 0;border-bottom:1px solid var(--g100);font-size:13px">
+          <strong>${j.vehicle}</strong>
+          ${j.jc_number ? `<span class="mono" style="color:var(--g400);font-size:12px;margin-left:6px">${j.jc_number}</span>` : ''}
+        </div>`
+      ).join('');
+      document.getElementById('modal-inner').innerHTML = `
+        <button class="modal-close" onclick="closeModal();_doLogoutNow()">✕</button>
+        <div class="modal-title">⚠️ Unclosed Job Cards</div>
+        <div class="modal-sub">Please ask your Service Manager to close these job cards in DMS before you leave.</div>
+        <div style="margin:12px 0;max-height:200px;overflow-y:auto">${jobList}</div>
+        <div class="al-warn alert" style="margin-bottom:12px">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          Ask your SM to close the above job card(s) in DMS.
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-outline btn-full" onclick="closeModal()">Go Back</button>
+          <button class="btn btn-red btn-full" onclick="closeModal();_doLogoutNow()">Logout Anyway</button>
+        </div>`;
+      document.getElementById('modal').style.display='flex';
+      return; // wait for user choice
+    }
+  }
+  _doLogoutNow();
+}
+
+function _doLogoutNow() {
   state.user=null; state.hub=null; state.myCheckin=null; state.myCheckout=null;
   clearInterval(window._refreshT);
   window._jcCache = {};
@@ -1882,8 +1913,8 @@ async function renderWorkOrdersAsync() {
   const jcRows = window._jcCache[myHub];
   // Only show bikes where bike_status is OOS (vehicles currently out of service)
   const oosJcRows  = jcRows.filter(j => j.bike_status?.toLowerCase() === 'oos');
-  const unassigned = oosJcRows.filter(j=>j.current_jc_status==='Job Open');
-  const assigned   = oosJcRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open');
+  const unassigned = oosJcRows.filter(j=>j.current_jc_status==='Job Open' || j.current_jc_status==='JC not opened in DMS');
+  const assigned   = oosJcRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open' && j.current_jc_status!=='JC not opened in DMS');
 
   // Build JC lookup by reg_number for vehicle search enrichment
   window._jcLookup = {};
@@ -1945,10 +1976,12 @@ async function renderWorkOrdersAsync() {
       <td style="font-size:12px">${j.submission_type||'—'}</td>
       <td style="font-size:12px">${j.job_card_opened_date?new Date(j.job_card_opened_date).toLocaleDateString('en-IN'):'—'}</td>
       <td>
-        <select class="sel-sm" style="min-width:130px" onchange="assignTechFromJC('${j.job_card_number}','${j.reg_number}',this.value)">
-          <option value="">Assign tech...</option>
-          ${avail.length===0?`<option disabled>None present</option>`:avail.map(t=>`<option value="${t}">${t}</option>`).join('')}
-        </select>
+        ${j.current_jc_status==='JC not opened in DMS'
+          ? `<button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" onclick="alertOpenJCFirst('${j.reg_number}')">⚠️ Open JC in DMS</button>`
+          : `<select class="sel-sm" style="min-width:130px" onchange="assignTechFromJC('${j.job_card_number}','${j.reg_number}',this.value)">
+              <option value="">Assign tech...</option>
+              ${avail.length===0?`<option disabled>None present</option>`:avail.map(t=>`<option value="${t}">${t}</option>`).join('')}
+            </select>`}
       </td>
     </tr>`;
   };
@@ -2069,14 +2102,29 @@ function assignTechFromJC(jcNum, regNum, techName) {
   document.getElementById('woi').focus();
 }
 
-function changeTechAlert(jcNum) {
+function changeTechAlert(jcNum, techName) {
+  const msg = techName
+    ? `This job card is assigned to <strong>${techName}</strong> in DMS. Please change the technician's name in DMS for job card <strong>${jcNum}</strong>. Changes will reflect here on the next data sync.`
+    : `Please change the Technician Name in DMS for job card <strong>${jcNum}</strong>. Changes will reflect here on the next data sync.`;
   document.getElementById('modal-inner').innerHTML = `
     <button class="modal-close" onclick="closeModal()">✕</button>
-    <div class="modal-title">Change Technician</div>
+    <div class="modal-title">Change Technician in DMS</div>
     <div class="modal-sub">Job Card: <strong>${jcNum}</strong></div>
     <div class="al-warn alert" style="margin-bottom:0">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      Please change the Technician Name in DMS for this job card. Changes in DMS will reflect here on the next data sync.
+      ${msg}
+    </div>`;
+  document.getElementById('modal').style.display='flex';
+}
+
+function alertOpenJCFirst(regNum) {
+  document.getElementById('modal-inner').innerHTML = `
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div class="modal-title">Open Job Card in DMS First</div>
+    <div class="modal-sub">Vehicle: <strong>${regNum}</strong></div>
+    <div class="al-error alert" style="margin-bottom:0">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      This vehicle does not have an open job card in DMS yet. Please open a job card in DMS for <strong>${regNum}</strong> before assigning a technician.
     </div>`;
   document.getElementById('modal').style.display='flex';
 }
@@ -2119,8 +2167,8 @@ async function renderWorkOrdersWideAsync(role) {
 
   // Only show bikes where bike_status is OOS (vehicles currently out of service)
   const oosJcRows  = jcRows.filter(j => j.bike_status?.toLowerCase() === 'oos');
-  const unassigned = oosJcRows.filter(j=>j.current_jc_status==='Job Open');
-  const assigned   = oosJcRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open');
+  const unassigned = oosJcRows.filter(j=>j.current_jc_status==='Job Open' || j.current_jc_status==='JC not opened in DMS');
+  const assigned   = oosJcRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open' && j.current_jc_status!=='JC not opened in DMS');
 
   // Get present technicians for the selected hub (for assignment)
   const availTechs = selectedHub
@@ -2142,7 +2190,7 @@ async function renderWorkOrdersWideAsync(role) {
       <td style="font-size:12px">${j.submission_type||'—'}</td>
       <td style="font-size:12px">${formatDate(j.job_card_opened_date)}</td>
       <td style="font-size:12px">${j.technician_name||'—'}</td>
-      ${showChange?`<td><button class="btn btn-outline btn-sm" onclick="changeTechAlert('${j.job_card_number}')">Change Tech</button></td>`:'<td>—</td>'}
+      ${showChange?`<td><button class="btn btn-outline btn-sm" onclick="changeTechAlert('${j.job_card_number}','${j.technician_name||''}')">Change Tech</button></td>`:'<td>—</td>'}
     </tr>`;
   };
 
