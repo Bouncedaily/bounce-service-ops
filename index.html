@@ -627,12 +627,32 @@ async function loadMyJobs() {
     rows = await sb(`work_orders?assigned_tech_id=eq.${state.user.id}&select=id,wo_number,vehicle_reg,issue,priority,status,wo_type,assigned_at,hubs(name)&order=assigned_at.desc`) || [];
   }
   state.jobs = [];
+  // Collect all reg numbers to fetch JC details in one query
+  const regNums = [...new Set(rows.map(r=>r.vehicle_reg).filter(Boolean))];
+  let jcMap = {};
+  if (!_demoMode && regNums.length) {
+    const regFilter = regNums.map(r=>`"${r}"`).join(',');
+    const jcRows = await sb(`draft_jc?reg_number=in.(${regFilter})&select=reg_number,job_card_number,parts_to_be_changed,submission_type,current_jc_status&order=job_card_opened_date.desc`) || [];
+    // Map by reg_number — take most recent JC per vehicle
+    jcRows.forEach(j=>{ if (!jcMap[j.reg_number]) jcMap[j.reg_number] = j; });
+  }
   rows.forEach(r => {
+    const jc = jcMap[r.vehicle_reg] || {};
     state.jobs.push({
-      db_id: r.id, id: r.wo_number, vehicle: r.vehicle_reg,
-      issue: r.issue, tech: state.user.name, hub: r.hubs?.name||'',
-      priority: r.priority, status: r.status, wo_type: r.wo_type||'running_repair',
-      time: new Date(r.assigned_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false})
+      db_id:              r.id,
+      id:                 r.wo_number,
+      vehicle:            r.vehicle_reg,
+      issue:              r.issue,
+      tech:               state.user.name,
+      hub:                r.hubs?.name||'',
+      priority:           r.priority,
+      status:             r.status,
+      wo_type:            r.wo_type||'running_repair',
+      time:               new Date(r.assigned_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false}),
+      // JC details from draft_jc
+      jc_number:          jc.job_card_number || null,
+      parts_to_be_changed:jc.parts_to_be_changed || null,
+      submission_type:    jc.submission_type || r.wo_type==='oos' ? 'OOS' : 'Running Repair',
     });
   });
 }
@@ -1391,17 +1411,25 @@ function renderMyJobs() {
       return `<div class="card" style="${isActive?'border-color:var(--blue);border-width:2px':''}">
         <div class="fl jc-sb g12" style="align-items:flex-start">
           <div style="flex:1;min-width:0">
-            <div class="mono" style="font-size:11px;color:var(--g400);margin-bottom:4px">${j.id} · ${j.time}</div>
-            <div style="font-size:16px;font-weight:600;margin-bottom:4px">${j.issue}</div>
-            <div style="font-size:12px;color:var(--g500);margin-bottom:4px">${j.vehicle}</div>
-            ${j.jc_number ? `<div style="font-size:12px;margin-bottom:4px"><span style="color:var(--g400)">JC:</span> <span class="mono">${j.jc_number}</span> &nbsp;·&nbsp; <span style="color:var(--g400)">Type:</span> ${j.submission_type||'—'}</div>` : ''}
-            ${j.parts_to_be_changed ? `<div style="margin-bottom:8px;display:flex;gap:4px;flex-wrap:wrap">
-              ${j.parts_to_be_changed.split(',').map(p=>p.trim()).filter(Boolean).map(p=>`<span style="font-size:11px;padding:2px 8px;background:var(--amber-lt);color:var(--amber);border-radius:20px;font-weight:500">${p}</span>`).join('')}
-            </div>` : '<div style="margin-bottom:8px"></div>'}
-            <div class="fl g8" style="flex-wrap:wrap">
+            <div style="margin-bottom:2px">
+              <strong style="font-size:15px;color:var(--g900)">${j.vehicle}</strong>
+              ${j.jc_number ? `<span class="mono" style="font-size:12px;color:var(--g400);margin-left:8px">${j.jc_number}</span>` : ''}
+            </div>
+            <div style="font-size:14px;font-weight:500;color:var(--g700);margin-bottom:6px">${j.issue}</div>
+            <div style="font-size:12px;color:var(--g500);margin-bottom:6px">
+              ${j.submission_type ? `<span style="background:var(--g100);padding:2px 8px;border-radius:20px;font-size:11px">${j.submission_type}</span>` : ''}
+              <span style="color:var(--g300);margin:0 4px">·</span>
+              <span class="mono" style="font-size:11px;color:var(--g400)">${j.time}</span>
+            </div>
+            ${j.parts_to_be_changed ? `<div style="margin-bottom:8px">
+              <div style="font-size:11px;color:var(--g500);font-weight:600;margin-bottom:4px">PARTS TO CHANGE</div>
+              <div style="display:flex;gap:4px;flex-wrap:wrap">
+                ${j.parts_to_be_changed.split(',').map(p=>p.trim()).filter(Boolean).map(p=>`<span style="font-size:11px;padding:3px 9px;background:var(--amber-lt);color:var(--amber);border-radius:20px;font-weight:500">${p}</span>`).join('')}
+              </div>
+            </div>` : ''}
+            <div class="fl g8" style="flex-wrap:wrap;margin-top:4px">
               <span class="badge ${sc}">${j.status}</span>
               <span class="badge ${pc}">${j.priority}</span>
-              <span class="badge ${tc}">${j.wo_type==='oos'?'OOS':'Running Repair'}</span>
             </div>
             ${startPhotos.length ? `<div style="margin-top:10px;font-size:11px;color:var(--green);font-weight:600;margin-bottom:4px">✓ START PHOTOS</div>
             <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -1618,9 +1646,14 @@ function startCamera() {
     })
     .catch(err => {
       console.error('Camera error:', err);
-      // Fallback: allow file upload
-      document.getElementById('pm-capture-btn').textContent = '📁 Upload Photo';
-      document.getElementById('pm-capture-btn').onclick = uploadPhoto;
+      document.getElementById('scan-alert') && (document.getElementById('scan-alert').innerHTML = '');
+      // Show error message, no file upload fallback
+      const wrap = document.getElementById('pm-video')?.parentElement;
+      if (wrap) wrap.innerHTML = `<div style="padding:40px;text-align:center;color:#fff;font-size:14px">
+        <div style="font-size:32px;margin-bottom:12px">📷</div>
+        <div style="font-weight:600;margin-bottom:8px">Camera not available</div>
+        <div style="font-size:12px;opacity:.7">Please allow camera access in your browser settings and try again.</div>
+      </div>`;
     });
 }
 
@@ -1658,22 +1691,7 @@ function capturePhoto() {
   checkAllCaptured();
 }
 
-function uploadPhoto() {
-  const input = document.createElement('input');
-  input.type='file'; input.accept='image/*'; input.capture='environment';
-  input.onchange = e => {
-    const file = e.target.files[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => {
-      const side = _photoSession.sides[_photoSession.currentSide];
-      _photoSession.captured[side] = ev.target.result;
-      renderPhotoThumbs();
-      confirmPhoto();
-    };
-    reader.readAsDataURL(file);
-  };
-  input.click();
-}
+
 
 function retakePhoto() {
   const video = document.getElementById('pm-video');
