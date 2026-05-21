@@ -763,10 +763,16 @@ async function finishLogin() {
     state.hubId = hubObj ? hubObj.id : null;
     const btn = document.querySelector('#step-hub .btn-blue');
     btn.textContent = 'Loading...'; btn.disabled = true;
+    // Load everything in parallel
     await Promise.all([
       loadAttendanceForHub(state.hubId),
       loadJobsForHub(state.hubId),
-      loadVehiclesForHub(state.hub)
+      loadVehiclesForHub(state.hub),
+      // Pre-fetch JC data so WO tab is instant
+      loadDraftJCForHub(state.hub).then(rows => {
+        if (!window._jcCache) window._jcCache = {};
+        window._jcCache[state.hub] = rows;
+      })
     ]);
     btn.textContent = 'Continue'; btn.disabled = false;
   } else if (state.user.role === 'technician') {
@@ -812,6 +818,7 @@ async function refreshPage(page) {
 function doLogout() {
   state.user=null; state.hub=null; state.myCheckin=null; state.myCheckout=null;
   clearInterval(window._refreshT);
+  window._jcCache = {};
   document.getElementById('app-shell').style.display='none';
   document.getElementById('login-page').style.display='flex';
   document.getElementById('mobile-input').value='';
@@ -1793,7 +1800,12 @@ async function renderWorkOrdersAsync() {
     .filter(([,a]) => a.status==='present' && a.hub===myHub)
     .map(([name]) => name);
   const hubJobs = state.jobs.filter(j=>j.hub===myHub);
-  const jcRows  = await loadDraftJCForHub(myHub);
+  // Use cached JC data if already loaded for this hub
+  if (!window._jcCache) window._jcCache = {};
+  if (!window._jcCache[myHub]) {
+    window._jcCache[myHub] = await loadDraftJCForHub(myHub);
+  }
+  const jcRows = window._jcCache[myHub];
   const unassigned = jcRows.filter(j=>j.current_jc_status==='Job Open');
   const assigned   = jcRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open');
 
@@ -1835,6 +1847,9 @@ async function renderWorkOrdersAsync() {
   return `
     <div class="page-hd">
       <div class="page-hd-text"><div class="page-title">Work Orders</div><div class="page-sub">${myHub}</div></div>
+      <button class="btn-refresh" onclick="window._jcCache={};navigate('workorders')" title="Refresh">
+        <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> Refresh
+      </button>
     </div>
     <div class="wo-form-wrap">
       <div class="wo-form-title">Assign new work order</div>
@@ -1927,14 +1942,18 @@ async function renderWorkOrdersWideAsync(role) {
     ? (selectedCity ? await getHubsForCity(selectedCity) : cityHubs)
     : cityHubs;
 
-  let jcRows = [];
-  if (selectedHub) {
-    jcRows = await loadDraftJCForHub(selectedHub);
-  } else if (selectedCity || role==='area_manager') {
-    jcRows = await loadDraftJCForCity(role==='area_manager' ? myCityName : selectedCity);
-  } else {
-    jcRows = await loadAllDraftJC();
+  if (!window._jcCache) window._jcCache = {};
+  const cacheKey = selectedHub || selectedCity || 'all';
+  if (!window._jcCache[cacheKey]) {
+    if (selectedHub) {
+      window._jcCache[cacheKey] = await loadDraftJCForHub(selectedHub);
+    } else if (selectedCity || role==='area_manager') {
+      window._jcCache[cacheKey] = await loadDraftJCForCity(role==='area_manager' ? myCityName : selectedCity);
+    } else {
+      window._jcCache[cacheKey] = await loadAllDraftJC();
+    }
   }
+  const jcRows = window._jcCache[cacheKey];
 
   const unassigned = jcRows.filter(j=>j.current_jc_status==='Job Open');
   const assigned   = jcRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open');
