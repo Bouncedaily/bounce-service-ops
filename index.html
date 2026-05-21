@@ -1916,9 +1916,18 @@ async function doGeoCheckin(mode) {
 
   setAttMsg('loading', `Location found (±${accuracy}m accuracy). Verifying hub...`);
 
-  // 2. Fetch hub coordinates from Supabase
+  // 2. Skip geofence for demo/test numbers
+  const TEST_MOBILES = ['9043207769','9876543210','9100000001','9000000001','9000000002',
+                        '9123456789','9123456790','9123456791','9123456792','9123456793'];
+  if (_demoMode || TEST_MOBILES.includes(state.user?.mobile)) {
+    setAttMsg('success', `Location check bypassed for test account. Marking attendance...`);
+    await processCheckin(mode, userLat, userLng, accuracy, null, true);
+    return;
+  }
+
+  // 3. Fetch hub coordinates from Supabase
   let hubLat = null, hubLng = null, hubName = state.hub;
-  if (!_demoMode && state.hub) {
+  if (state.hub) {
     const hubData = await sb(`hubs?name=eq.${encodeURIComponent(state.hub)}&select=lat,lng,name&limit=1`);
     if (hubData && hubData.length && hubData[0].lat) {
       hubLat = hubData[0].lat;
@@ -1926,9 +1935,9 @@ async function doGeoCheckin(mode) {
     }
   }
 
-  // 3. If no coordinates configured — warn but allow (admin hasn't set hub coords yet)
+  // 4. If no coordinates configured — warn but allow
   if (hubLat === null || hubLng === null) {
-    setAttMsg('warn', `⚠️ Hub location not configured yet. Marking attendance without geofence check.`);
+    setAttMsg('warn', `Hub location not configured yet. Marking attendance without geofence check.`);
     await processCheckin(mode, userLat, userLng, accuracy, null, true);
     return;
   }
