@@ -1504,8 +1504,8 @@ function filterVehicles(query) {
   });
   // OOS vehicles first, then active
   _vehResults = [
-    ...matched.filter(v=>v.bike_status==='OOS'),
-    ...matched.filter(v=>v.bike_status!=='OOS')
+    ...matched.filter(v=>v.bike_status?.toLowerCase()==='oos'),
+    ...matched.filter(v=>v.bike_status?.toLowerCase()!=='oos')
   ].slice(0, 50);
   cnt.textContent = VEHICLES.length > 0 ? `${_vehResults.length} found` : '';
   if (!_vehResults.length) {
@@ -1881,7 +1881,7 @@ async function renderWorkOrdersAsync() {
   }
   const jcRows = window._jcCache[myHub];
   // Only show bikes where bike_status is OOS (vehicles currently out of service)
-  const oosJcRows  = jcRows.filter(j => j.bike_status === 'OOS' || j.bike_status === 'inactive');
+  const oosJcRows  = jcRows.filter(j => j.bike_status?.toLowerCase() === 'oos');
   const unassigned = oosJcRows.filter(j=>j.current_jc_status==='Job Open');
   const assigned   = oosJcRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open');
 
@@ -2118,7 +2118,7 @@ async function renderWorkOrdersWideAsync(role) {
   const jcRows = window._jcCache[cacheKey];
 
   // Only show bikes where bike_status is OOS (vehicles currently out of service)
-  const oosJcRows  = jcRows.filter(j => j.bike_status === 'OOS' || j.bike_status === 'inactive');
+  const oosJcRows  = jcRows.filter(j => j.bike_status?.toLowerCase() === 'oos');
   const unassigned = oosJcRows.filter(j=>j.current_jc_status==='Job Open');
   const assigned   = oosJcRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open');
 
