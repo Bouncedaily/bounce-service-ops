@@ -835,6 +835,18 @@ async function finishLogin() {
     });
     sb(`users?id=eq.${state.user.id}`, { method:'PATCH', body: JSON.stringify({last_login_at: new Date().toISOString()}) });
   }
+  // Persist session so page refresh doesn't log out
+  try {
+    localStorage.setItem('bounce_session', JSON.stringify({
+      user:      state.user,
+      hub:       state.hub,
+      hubId:     state.hubId,
+      myCheckin: state.myCheckin,
+      myCheckout:state.myCheckout,
+      myAttId:   state.myAttId || null
+    }));
+  } catch(e) {}
+
   document.getElementById('login-page').style.display='none';
   document.getElementById('app-shell').style.display='block';
   renderTopbar(); renderNav();
@@ -899,7 +911,9 @@ function _doLogoutNow() {
       })
     });
   }
+  try { localStorage.removeItem('bounce_session'); } catch(e) {}
   state.user=null; state.hub=null; state.myCheckin=null; state.myCheckout=null;
+  state.myAttId=null; state.hubId=null; state.attendance={}; state.jobs=[];
   clearInterval(window._refreshT);
   window._jcCache = {};
   document.getElementById('app-shell').style.display='none';
@@ -1871,6 +1885,7 @@ async function processCheckin(mode, lat, lng, accuracy, distanceM, withinFence) 
     }
     state.myCheckin  = t12;
     state.myAttId    = attId || 'demo-att';
+    try { const s=JSON.parse(localStorage.getItem('bounce_session')||'{}'); s.myCheckin=t12; s.myAttId=state.myAttId; localStorage.setItem('bounce_session',JSON.stringify(s)); } catch(e) {}
     state.attendance[state.user.name] = {
       status:'present', checkin:t24, checkout:null,
       hub:state.hub, hub_id:state.hubId, att_id:attId,
@@ -1892,6 +1907,7 @@ async function processCheckin(mode, lat, lng, accuracy, distanceM, withinFence) 
       });
     }
     state.myCheckout = t12;
+    try { const s=JSON.parse(localStorage.getItem('bounce_session')||'{}'); s.myCheckout=t12; localStorage.setItem('bounce_session',JSON.stringify(s)); } catch(e) {}
     state.attendance[state.user.name] = {
       ...state.attendance[state.user.name], checkout:t24, geo_checkout:geoData
     };
@@ -2665,7 +2681,59 @@ function closeJCSection(jobs, hubName) {
 }
 
 // ─ INIT ─
-bootstrap().then(()=>{ console.log('Bounce Service Ops ready — hubs:', HUBS.length, '— users:', ALL_USERS.length); });
+bootstrap().then(async () => {
+  console.log('Bounce Service Ops ready — hubs:', HUBS.length, '— users:', ALL_USERS.length);
+
+  // Restore session from localStorage if available
+  try {
+    const saved = localStorage.getItem('bounce_session');
+    if (saved) {
+      const sess = JSON.parse(saved);
+      if (sess && sess.user && sess.user.id) {
+        // Re-validate user is still active in DB
+        const check = await fetchUserByMobile(sess.user.mobile);
+        if (!check || check.is_active === false) {
+          localStorage.removeItem('bounce_session');
+          return;
+        }
+        // Restore state
+        state.user       = sess.user;
+        state.hub        = sess.hub || null;
+        state.hubId      = sess.hubId || null;
+        state.myCheckin  = sess.myCheckin || null;
+        state.myCheckout = sess.myCheckout || null;
+        state.myAttId    = sess.myAttId || null;
+
+        // Load fresh data
+        if (state.user.role === 'hub_manager' && state.hubId) {
+          await Promise.all([
+            loadAttendanceForHub(state.hubId),
+            loadJobsForHub(state.hubId),
+            loadVehiclesForHub(state.hub),
+            loadDraftJCForHub(state.hub).then(rows => {
+              if (!window._jcCache) window._jcCache = {};
+              window._jcCache[state.hub] = rows;
+            })
+          ]);
+        } else if (state.user.role === 'technician') {
+          await loadMyAttendance(state.user.id);
+          await loadMyJobs();
+        } else {
+          await loadAllHubsData();
+        }
+
+        // Show app
+        document.getElementById('login-page').style.display = 'none';
+        document.getElementById('app-shell').style.display  = 'block';
+        renderTopbar(); renderNav();
+        navigate(state.user.role !== 'technician' ? 'dashboard' : 'my-attendance');
+      }
+    }
+  } catch(e) {
+    console.warn('Session restore failed:', e);
+    localStorage.removeItem('bounce_session');
+  }
+});
 </script>
 </body>
 </html>
