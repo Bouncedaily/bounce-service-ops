@@ -1099,7 +1099,8 @@ function renderDashboard() {
               <td style="font-size:12px">${nextJob?`<span class="badge b-open">${nextJob.id}</span> ${nextJob.issue}`:'<span style="color:var(--g300)">—</span>'}</td>
             </tr>`;
           }).join('')}</tbody>
-        </table></div>`}`;
+        </table></div>`}
+    ${!isWide ? closeJCSection(visibleJobs, state.hub) : ''}`;
 }
 
 function renderAttendance() {
@@ -1487,7 +1488,14 @@ function filterVehicles(query) {
   const q = query.trim().toLowerCase();
   const dd = document.getElementById('veh-dropdown');
   const cnt = document.getElementById('veh-count');
-  if (!q) { dd.style.display='none'; cnt.textContent=''; return; }
+  if (!q) {
+    dd.style.display='none'; cnt.textContent='';
+    const woMsg = document.getElementById('wo-msg');
+    const assignBtn = document.querySelector('.wo-form-wrap .btn-blue');
+    if (woMsg) woMsg.innerHTML = '';
+    if (assignBtn) { assignBtn.disabled=false; assignBtn.style.opacity='1'; }
+    return;
+  }
   const matched = VEHICLES.filter(v => {
     const reg = (v.reg_number||'').toLowerCase();
     const model = (v.model_name||v.model||'').toLowerCase();
@@ -1545,6 +1553,25 @@ function selectVehicle(idx) {
   const jcInfoEl = document.getElementById('veh-jc-info');
   if (jcInfoEl && window._jcInfoFn) {
     jcInfoEl.innerHTML = window._jcInfoFn(v.reg_number) || '';
+  }
+  // Check if vehicle is already assigned in work orders
+  const existingJob = state.jobs.find(j => j.vehicle === v.reg_number);
+  const assignBtn = document.querySelector('.wo-form-wrap .btn-blue');
+  const woMsg = document.getElementById('wo-msg');
+  if (existingJob) {
+    if (existingJob.status === 'In Progress' || existingJob.status === 'Done') {
+      const statusText = existingJob.status === 'Done'
+        ? `Completed by <strong>${existingJob.tech}</strong>`
+        : `In Progress by <strong>${existingJob.tech}</strong>`;
+      if (woMsg) woMsg.innerHTML = `<div class="alert al-warn">⚠️ ${v.reg_number} is already assigned — ${statusText}. Cannot reassign.</div>`;
+      if (assignBtn) { assignBtn.disabled = true; assignBtn.style.opacity = '0.4'; }
+    } else if (existingJob.status === 'Open') {
+      if (woMsg) woMsg.innerHTML = `<div class="alert al-info">ℹ️ ${v.reg_number} is assigned to <strong>${existingJob.tech}</strong> (not started). You can reassign.</div>`;
+      if (assignBtn) { assignBtn.disabled = false; assignBtn.style.opacity = '1'; }
+    }
+  } else {
+    if (woMsg) woMsg.innerHTML = '';
+    if (assignBtn) { assignBtn.disabled = false; assignBtn.style.opacity = '1'; }
   }
 }
 
@@ -2234,6 +2261,57 @@ function renderAttendanceWide(role) {
 // ─ DASHBOARD WITH CITY/HUB FILTERS & IDLE/OOS WIDGETS ───────────────────
 let _dashFilterCity = '';
 let _dashFilterHub  = '';
+
+// ─ CLOSE JC SECTION ─
+// Shows completed work orders that need job card closure in DMS
+function closeJCSection(jobs, hubName) {
+  const doneJobs = jobs.filter(j => j.status === 'Done');
+  if (!doneJobs.length) return '';
+
+  // Cross-reference with draft_jc to find jobs not yet billed
+  const jcCache = window._jcCache?.[hubName] || [];
+  const jcMap = {};
+  jcCache.forEach(j => { if (j.reg_number) jcMap[j.reg_number] = j; });
+
+  // Jobs that are Done in our system — show with JC details if available
+  const rows = doneJobs.map(j => {
+    const jc = jcMap[j.vehicle] || {};
+    const notBilled = jc.current_jc_status && jc.current_jc_status !== 'Billed';
+    const statusColor = notBilled ? 'var(--red)' : 'var(--green)';
+    const statusLabel = notBilled ? jc.current_jc_status : (jc.current_jc_status || 'Check DMS');
+    return `<tr>
+      <td><strong>${j.vehicle}</strong></td>
+      <td class="mono" style="font-size:11px;color:var(--g400)">${jc.job_card_number || '—'}</td>
+      <td class="mono" style="font-size:11px;color:var(--g400)">${jc.dms_jc_id || '—'}</td>
+      <td style="font-size:12px">${j.tech}</td>
+      <td style="font-size:12px;color:${statusColor};font-weight:500">${statusLabel}</td>
+      <td>${notBilled
+        ? `<span style="font-size:11px;padding:3px 10px;background:var(--red-lt);color:var(--red);border-radius:20px;font-weight:600">⚠️ Close in DMS</span>`
+        : `<span style="font-size:11px;padding:3px 10px;background:var(--green-lt);color:var(--green);border-radius:20px;font-weight:600">✓ Done</span>`}
+      </td>
+    </tr>`;
+  }).join('');
+
+  const pendingClose = doneJobs.filter(j => {
+    const jc = jcMap[j.vehicle];
+    return jc && jc.current_jc_status && jc.current_jc_status !== 'Billed';
+  }).length;
+
+  return `
+    <div style="margin-top:24px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="font-size:15px;font-weight:600;color:var(--g800)">
+          Close Job Cards
+          ${pendingClose>0 ? `<span style="margin-left:8px;font-size:11px;padding:3px 10px;background:var(--red-lt);color:var(--red);border-radius:20px;font-weight:600">${pendingClose} pending</span>` : ''}
+        </div>
+        <div style="font-size:12px;color:var(--g400)">Completed today — close in DMS to bill</div>
+      </div>
+      <div class="tw"><table>
+        <thead><tr><th>Vehicle</th><th>JC Number</th><th>DMS JC ID</th><th>Technician</th><th>DMS Status</th><th>Action</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+}
 
 // ─ INIT ─
 bootstrap().then(()=>{ console.log('Bounce Service Ops ready — hubs:', HUBS.length, '— users:', ALL_USERS.length); });
