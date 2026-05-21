@@ -829,7 +829,6 @@ const AREA_NAV = [
 const HEAD_NAV = [
   {id:'dashboard', lbl:'Dashboard',   ic:'grid'},
   {id:'attendance',lbl:'Attendance',  ic:'users'},
-  {id:'workorders',lbl:'Work Orders', ic:'clipboard'},
 ];
 const TECH_NAV = [
   {id:'my-attendance',lbl:'My Attendance',ic:'clock'},
@@ -871,13 +870,37 @@ function navigate(page) {
   clearInterval(_clockT);
   document.querySelectorAll('.si,.bnt').forEach(e=>e.classList.remove('active'));
   ['si-','bt-'].forEach(p=>{ const e=document.getElementById(p+page); if(e) e.classList.add('active'); });
+  const role = state.user?.role;
+  const c = document.getElementById('content');
+  // Async pages
+  if (page==='workorders' && role==='hub_manager') {
+    c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading work orders...</div>';
+    renderWorkOrdersAsync().then(html=>{ if(currentPage===page) c.innerHTML=html; });
+    return;
+  }
+  if (page==='workorders' && (role==='area_manager'||role==='head')) {
+    c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading work orders...</div>';
+    renderWorkOrdersWideAsync(role).then(html=>{ if(currentPage===page) c.innerHTML=html; });
+    return;
+  }
+  if (page==='attendance' && (role==='area_manager'||role==='head')) {
+    c.innerHTML = renderAttendanceWide(role); return;
+  }
   const fns = {
     dashboard:renderDashboard, attendance:renderAttendance,
-    workorders:renderWorkOrders, 'qr-hub':renderQRHub,
+    'qr-hub':renderQRHub,
     'my-attendance':renderMyAttendance, 'my-jobs':renderMyJobs
   };
-  document.getElementById('content').innerHTML = (fns[page]||(() => ''))();
+  c.innerHTML = (fns[page]||(() => ''))();
   if (page==='qr-hub') generateManagerQR();
+  if (page==='dashboard') {
+    // Load OOS count from vehicles table
+    const hubFilter = state.hub ? `&hub_name=eq.${encodeURIComponent(state.hub)}` : '';
+    sb(`vehicles?bike_status=eq.OOS&select=reg_number${hubFilter}`).then(rows=>{
+      const el = document.getElementById('oos-count');
+      if (el) el.textContent = rows ? rows.length : '—';
+    });
+  }
   if (page==='my-attendance') {
     document.getElementById('live-clock').textContent = nowFmt();
     _clockT = setInterval(()=>{ const e=document.getElementById('live-clock'); if(e) e.textContent=nowFmt(); else clearInterval(_clockT); },10000);
@@ -927,9 +950,19 @@ function renderDashboard() {
   const subTitle = role==='head' ? 'All Cities' : role==='area_manager' ? 'All Hubs — Your City' : state.hub;
 
   // Tech snapshot — hub manager sees their hub; wider roles see all
-  const snapEntries = isWide
-    ? Object.entries(state.attendance)
-    : Object.entries(state.attendance).filter(([,a])=>a.hub===state.hub);
+  const filterHub  = isWide ? _dashFilterHub  : state.hub;
+  const snapEntries = Object.entries(state.attendance).filter(([,a])=>{
+    if (filterHub) return a.hub===filterHub;
+    if (isWide && _dashFilterCity) {
+      const hubsInCity = HUBS.filter(h=>{
+        // match by city name approximation
+        return h.name && a.hub && h.name===a.hub;
+      });
+      return true; // show all, city filter is visual
+    }
+    if (!isWide) return a.hub===state.hub;
+    return true;
+  });
 
   return `
     <div class="page-hd">
@@ -938,6 +971,17 @@ function renderDashboard() {
         <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> Refresh
       </button>
     </div>
+    ${isWide ? `<div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+      ${role==='head'?`<select class="form-select" style="width:150px" onchange="_dashFilterCity=this.value;_dashFilterHub='';navigate('dashboard')">
+        <option value="">All Cities</option>
+        ${ ['Bangalore','Hyderabad','NCR','Indore'].map(c=>`<option value="${c}" ${c===_dashFilterCity?'selected':''}>${c}</option>`).join('') }
+      </select>`:''}
+      <select class="form-select" style="width:180px" onchange="_dashFilterHub=this.value;navigate('dashboard')">
+        <option value="">All Hubs</option>
+        ${HUBS.filter(h=>role==='area_manager'?h.city_id===state.user.city_id:true)
+          .map(h=>`<option value="${h.name}" ${h.name===_dashFilterHub?'selected':''}>${h.name}</option>`).join('')}
+      </select>
+    </div>` : ''}
     <div class="metrics">
       <div class="metric"><div class="metric-lbl">Technicians</div><div class="metric-val">${total||'—'}</div></div>
       <div class="metric"><div class="metric-lbl">Present</div><div class="metric-val mv-green">${present}</div></div>
@@ -945,6 +989,18 @@ function renderDashboard() {
       <div class="metric"><div class="metric-lbl">On Leave</div><div class="metric-val mv-amber">${onLeave}</div></div>
       <div class="metric"><div class="metric-lbl">Jobs Open</div><div class="metric-val mv-blue">${open}</div></div>
       <div class="metric"><div class="metric-lbl">Jobs Done</div><div class="metric-val mv-green">${done}</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px">
+      <div class="card" style="margin:0;border-left:4px solid var(--amber)">
+        <div class="metric-lbl">Idle Technicians</div>
+        <div class="metric-val mv-amber" style="font-size:28px">${snapEntries.filter(([t,a])=>a.status==='present'&&!visibleJobs.find(j=>j.tech===t&&j.status!=='Done')).length}</div>
+        <div style="font-size:12px;color:var(--g400);margin-top:4px">Present but no active job</div>
+      </div>
+      <div class="card" style="margin:0;border-left:4px solid var(--red)">
+        <div class="metric-lbl">Vehicles in OOS</div>
+        <div id="oos-count" class="metric-val mv-red" style="font-size:28px">—</div>
+        <div style="font-size:12px;color:var(--g400);margin-top:4px">${isWide?'Across all hubs':'At '+state.hub}</div>
+      </div>
     </div>
     ${isWide && hubBreakdown.length ? `
     <div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">Hub summary</div>
@@ -1216,7 +1272,21 @@ function renderMyAttendance() {
     {d:'Today',hub:state.hub,       s:state.myCheckin?'present':'open',ci:state.myCheckin||'—',co:state.myCheckout||'—',hrs:'—'},
   ];
   return `
-    <div class="page-hd"><div class="page-title">My Attendance</div><div class="page-sub">${state.hub}</div></div>
+    <div class="page-hd"><div class="page-hd-text"><div class="page-title">My Attendance</div><div class="page-sub">${state.hub||''}</div></div>
+      <button class="btn-refresh" onclick="navigate('my-attendance')" title="Refresh">
+        <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+      </button>
+    </div>
+    <div class="card" style="background:linear-gradient(135deg,#1a56db 0%,#0f9e6e 100%);border:none;color:#fff;margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:11px;font-weight:600;opacity:.75;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">My Incentive</div>
+          <div style="font-size:20px;font-weight:700">Coming Soon 🎯</div>
+          <div style="font-size:12px;opacity:.7;margin-top:4px">Performance-based incentives will appear here</div>
+        </div>
+        <div style="font-size:44px;opacity:.25">₹</div>
+      </div>
+    </div>
     <div class="checkin-hero">
       <div style="font-size:12px;color:var(--g400);font-weight:500;text-transform:uppercase;letter-spacing:.05em">Current time</div>
       <div class="clock-big" id="live-clock">${nowFmt()}</div>
@@ -1257,6 +1327,16 @@ function renderMyJobs() {
   const activeJob = myJobs.find(j=>j.status==='In Progress');
   return `
     <div class="page-hd"><div class="page-hd-text"><div class="page-title">My Jobs</div><div class="page-sub">${state.hub||''} — ${dateShort()}</div></div></div>
+    <div class="card" style="background:linear-gradient(135deg,#1a56db 0%,#0f9e6e 100%);border:none;color:#fff;margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:11px;font-weight:600;opacity:.75;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">My Incentive</div>
+          <div style="font-size:20px;font-weight:700">Coming Soon 🎯</div>
+          <div style="font-size:12px;opacity:.7;margin-top:4px">Performance-based incentives will appear here</div>
+        </div>
+        <div style="font-size:44px;opacity:.25">₹</div>
+      </div>
+    </div>
     ${activeJob ? `<div class="alert al-info" style="margin-bottom:16px">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
       You have an active job in progress. Complete it before starting another.
@@ -1276,7 +1356,11 @@ function renderMyJobs() {
           <div style="flex:1;min-width:0">
             <div class="mono" style="font-size:11px;color:var(--g400);margin-bottom:4px">${j.id} · ${j.time}</div>
             <div style="font-size:16px;font-weight:600;margin-bottom:4px">${j.issue}</div>
-            <div style="font-size:12px;color:var(--g500);margin-bottom:8px">${j.vehicle}</div>
+            <div style="font-size:12px;color:var(--g500);margin-bottom:4px">${j.vehicle}</div>
+            ${j.jc_number ? `<div style="font-size:12px;margin-bottom:4px"><span style="color:var(--g400)">JC:</span> <span class="mono">${j.jc_number}</span> &nbsp;·&nbsp; <span style="color:var(--g400)">Type:</span> ${j.submission_type||'—'}</div>` : ''}
+            ${j.parts_to_be_changed ? `<div style="margin-bottom:8px;display:flex;gap:4px;flex-wrap:wrap">
+              ${j.parts_to_be_changed.split(',').map(p=>p.trim()).filter(Boolean).map(p=>`<span style="font-size:11px;padding:2px 8px;background:var(--amber-lt);color:var(--amber);border-radius:20px;font-weight:500">${p}</span>`).join('')}
+            </div>` : '<div style="margin-bottom:8px"></div>'}
             <div class="fl g8" style="flex-wrap:wrap">
               <span class="badge ${sc}">${j.status}</span>
               <span class="badge ${pc}">${j.priority}</span>
@@ -1391,6 +1475,11 @@ function selectVehicle(idx) {
     woTypeEl.disabled = true;
   }
   onWOTypeChange();
+  // Show JC info if available
+  const jcInfoEl = document.getElementById('veh-jc-info');
+  if (jcInfoEl && window._jcInfoFn) {
+    jcInfoEl.innerHTML = window._jcInfoFn(v.reg_number) || '';
+  }
 }
 
 // Close dropdown when clicking outside
@@ -1665,8 +1754,328 @@ function stopScanner() { if(_scanner){_scanner.stop().catch(()=>{});_scanner=nul
 function closeModal() { stopScanner(); document.getElementById('modal').style.display='none'; }
 function modalBackdropClick(e) { if(e.target===document.getElementById('modal')) closeModal(); }
 
+// ─ SUPABASE: load draft JC for a hub ──────────────────────────────────
+async function loadDraftJCForHub(hubName) {
+  if (_demoMode) return [];
+  const rows = await sb(
+    `draft_jc?hub_name=eq.${encodeURIComponent(hubName)}&select=job_card_number,dms_jc_id,reg_number,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date&order=job_card_opened_date.desc&limit=500`
+  );
+  return rows || [];
+}
+
+async function loadDraftJCForCity(cityName) {
+  if (_demoMode) return [];
+  const rows = await sb(
+    `draft_jc?city=eq.${encodeURIComponent(cityName)}&select=job_card_number,dms_jc_id,reg_number,hub_name,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date&order=job_card_opened_date.desc&limit=2000`
+  );
+  return rows || [];
+}
+
+async function loadAllDraftJC() {
+  if (_demoMode) return [];
+  const rows = await sb(
+    `draft_jc?select=job_card_number,dms_jc_id,reg_number,city,hub_name,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date&order=job_card_opened_date.desc&limit=5000`
+  );
+  return rows || [];
+}
+
+// ─ WORK ORDER PAGE (Hub Manager) — with JC Details ─────────────────────
+async function renderWorkOrdersAsync() {
+  const myHub = state.hub;
+  const avail = Object.entries(state.attendance)
+    .filter(([,a]) => a.status==='present' && a.hub===myHub)
+    .map(([name]) => name);
+  const hubJobs = state.jobs.filter(j=>j.hub===myHub);
+  const jcRows  = await loadDraftJCForHub(myHub);
+  const unassigned = jcRows.filter(j=>j.current_jc_status==='Job Open');
+  const assigned   = jcRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open');
+
+  // Build JC lookup by reg_number for vehicle search enrichment
+  window._jcLookup = {};
+  jcRows.forEach(j=>{ if(j.reg_number) window._jcLookup[j.reg_number] = j; });
+
+  const formatDate = d => d ? new Date(d).toLocaleDateString('en-IN') : '—';
+  const tableRow = (j, showChange=false) => {
+    const pc = j.overall_tat_days>3?'b-absent':j.overall_tat_days>1?'b-med':'b-present';
+    return `<tr>
+      <td class="mono" style="font-size:12px">${j.reg_number||'—'}</td>
+      <td class="mono" style="font-size:11px;color:var(--g400)">${j.job_card_number||'—'}</td>
+      <td class="mono" style="font-size:11px;color:var(--g400)">${j.dms_jc_id||'—'}</td>
+      <td style="font-size:12px">${j.reason_for_ending||'—'}</td>
+      <td><span class="badge ${pc}">${j.overall_tat_days?.toFixed(1)||'—'}d</span></td>
+      <td style="font-size:12px">${j.labour_time_hours?.toFixed(1)||'—'}h</td>
+      <td style="font-size:12px">${j.submission_type||'—'}</td>
+      <td style="font-size:12px">${formatDate(j.job_card_opened_date)}</td>
+      <td style="font-size:12px">${j.technician_name||'—'}</td>
+      ${showChange ? `<td><button class="btn btn-outline btn-sm" onclick="changeTechAlert('${j.job_card_number}')">Change Tech</button></td>` : '<td>—</td>'}
+    </tr>`;
+  };
+
+  const jcInfo = (reg) => {
+    const j = window._jcLookup?.[reg];
+    if (!j) return '';
+    return `<div style="margin-top:6px;padding:8px 10px;background:var(--blue-lt);border-radius:6px;font-size:12px;line-height:1.8">
+      <strong>JC:</strong> ${j.job_card_number||'—'} &nbsp;·&nbsp;
+      <strong>Labour:</strong> ${j.labour_time_hours?.toFixed(1)||'—'}h &nbsp;·&nbsp;
+      <strong>TAT:</strong> ${j.overall_tat_days?.toFixed(1)||'—'}d &nbsp;·&nbsp;
+      <strong>Type:</strong> ${j.submission_type||'—'}
+    </div>`;
+  };
+  window._jcInfoFn = jcInfo;
+
+  const TH = `<tr><th>Reg No.</th><th>JC Number</th><th>DMS JC ID</th><th>Reason</th><th>TAT</th><th>Labour Hrs</th><th>Type</th><th>JC Opened</th><th>Technician</th><th>Action</th></tr>`;
+
+  return `
+    <div class="page-hd">
+      <div class="page-hd-text"><div class="page-title">Work Orders</div><div class="page-sub">${myHub}</div></div>
+    </div>
+    <div class="wo-form-wrap">
+      <div class="wo-form-title">Assign new work order</div>
+      <div class="form-row">
+        <div class="form-group" style="margin:0">
+          <label class="form-label">Vehicle <span style="color:var(--g400);font-weight:400">(type reg no. to search)</span></label>
+          <div style="position:relative">
+            <input class="form-input" id="veh-search" placeholder="e.g. KA05AP or e1+x..." autocomplete="off"
+              oninput="filterVehicles(this.value)" onfocus="showVehDropdown()" style="padding-right:36px"/>
+            <span style="position:absolute;right:12px;top:50%;transform:translateY(-50%);color:var(--g400);font-size:12px" id="veh-count"></span>
+          </div>
+          <div id="veh-dropdown" style="display:none;position:absolute;z-index:50;background:var(--white);border:1px solid var(--g200);border-radius:var(--r);box-shadow:var(--sh-md);max-height:220px;overflow-y:auto;width:calc(50% - 28px);min-width:260px"></div>
+          <input type="hidden" id="wov"/>
+          <div id="veh-selected" style="display:none;margin-top:6px;padding:8px 10px;background:var(--blue-lt);border-radius:6px;font-size:12px;color:var(--blue)"></div>
+          <div id="veh-jc-info"></div>
+        </div>
+        <div class="form-group" style="margin:0">
+          <label class="form-label">Work Type</label>
+          <select class="form-select" id="wotype" onchange="onWOTypeChange()">
+            <option value="running_repair">Running Repair</option>
+            <option value="oos">OOS (Out of Service)</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row" style="margin-top:12px">
+        <div class="form-group" style="margin:0"><label class="form-label">Issue / Service</label><input class="form-input" id="woi" placeholder="Describe the problem"/></div>
+        <div class="form-group" style="margin:0"><label class="form-label">Priority</label>
+          <select class="form-select" id="wop"><option>High</option><option selected>Medium</option><option>Low</option></select>
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:12px">
+        <label class="form-label">Assign to (present at ${myHub})</label>
+        <select class="form-select" id="wot">
+          <option value="">Select technician...</option>
+          ${avail.length===0 ? `<option disabled>No technicians present at this hub</option>` : avail.map(t=>`<option value="${t}">${t}</option>`).join('')}
+        </select>
+      </div>
+      <div id="oos-note" style="display:none;background:var(--red-lt);border:1px solid #fca5a5;border-radius:var(--r);padding:10px 14px;font-size:13px;color:var(--red);margin-bottom:8px">⚠️ OOS — vehicle will be marked out of service until resolved.</div>
+      <button class="btn btn-blue" style="margin-top:4px" onclick="addWO()">Assign Work Order</button>
+    </div>
+    <div id="wo-msg"></div>
+
+    <div style="font-size:15px;font-weight:600;color:var(--g800);margin:20px 0 10px">
+      Unassigned Work <span class="badge b-absent" style="font-size:11px">${unassigned.length} open</span>
+    </div>
+    ${unassigned.length===0
+      ? `<div class="empty-state" style="padding:20px">No open job cards at this hub.</div>`
+      : `<div class="tw"><table><thead>${TH}</thead><tbody>${unassigned.map(j=>tableRow(j,false)).join('')}</tbody></table></div>`}
+
+    <div style="font-size:15px;font-weight:600;color:var(--g800);margin:20px 0 10px">
+      Assigned Work <span class="badge b-inprog" style="font-size:11px">${assigned.length} in progress</span>
+    </div>
+    ${assigned.length===0
+      ? `<div class="empty-state" style="padding:20px">No assigned job cards at this hub.</div>`
+      : `<div class="tw"><table><thead>${TH}</thead><tbody>${assigned.map(j=>tableRow(j,true)).join('')}</tbody></table></div>`}`;
+}
+
+function changeTechAlert(jcNum) {
+  document.getElementById('modal-inner').innerHTML = `
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div class="modal-title">Change Technician</div>
+    <div class="modal-sub">Job Card: <strong>${jcNum}</strong></div>
+    <div class="al-warn alert" style="margin-bottom:0">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      Please change the Technician Name in DMS for this job card. Changes in DMS will reflect here on the next data sync.
+    </div>`;
+  document.getElementById('modal').style.display='flex';
+}
+
+// ─ AREA MANAGER / HEAD WORK ORDERS & ATTENDANCE ──────────────────────────
+let _areaSelectedHub = '';
+let _headSelectedCity = '';
+let _headSelectedHub  = '';
+
+async function renderWorkOrdersWideAsync(role) {
+  const userCityId = state.user.city_id;
+  const userCity   = userCityId ? (HUBS.find(h=>h.city_id===userCityId) ? ['Bangalore','Hyderabad','NCR','Indore'].find(c=>HUBS.filter(h=>h.city_id===userCityId).length>0) : '') : '';
+  // Get city name from cities list
+  const myCityName = await getCityName(userCityId);
+  const allCities  = [...new Set(HUBS.map(h=>h.city_id))];
+  const cityNames  = role==='head' ? ['Bangalore','Hyderabad','NCR','Indore'] : [myCityName];
+
+  const selectedCity = role==='head' ? (_headSelectedCity||cityNames[0]) : myCityName;
+  const cityHubs     = HUBS.filter(h => {
+    if (role==='head') return true;
+    return h.city_id === userCityId;
+  });
+  const selectedHub  = role==='head' ? (_headSelectedHub||'') : (_areaSelectedHub||'');
+  const hubsForCity  = role==='head'
+    ? (selectedCity ? await getHubsForCity(selectedCity) : cityHubs)
+    : cityHubs;
+
+  let jcRows = [];
+  if (selectedHub) {
+    jcRows = await loadDraftJCForHub(selectedHub);
+  } else if (selectedCity || role==='area_manager') {
+    jcRows = await loadDraftJCForCity(role==='area_manager' ? myCityName : selectedCity);
+  } else {
+    jcRows = await loadAllDraftJC();
+  }
+
+  const unassigned = jcRows.filter(j=>j.current_jc_status==='Job Open');
+  const assigned   = jcRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open');
+
+  // Get present technicians for the selected hub (for assignment)
+  const availTechs = selectedHub
+    ? Object.entries(state.attendance).filter(([,a])=>a.status==='present'&&a.hub===selectedHub).map(([n])=>n)
+    : [];
+
+  const formatDate = d => d ? new Date(d).toLocaleDateString('en-IN') : '—';
+  const TH = `<tr><th>Reg No.</th><th>Hub</th><th>JC Number</th><th>DMS JC ID</th><th>Reason</th><th>TAT</th><th>Labour</th><th>Type</th><th>JC Opened</th><th>Technician</th><th>Action</th></tr>`;
+  const tableRow = (j, showChange) => {
+    const pc = j.overall_tat_days>3?'b-absent':j.overall_tat_days>1?'b-med':'b-present';
+    return `<tr>
+      <td class="mono" style="font-size:12px">${j.reg_number||'—'}</td>
+      <td style="font-size:11px;color:var(--g500)">${j.hub_name||'—'}</td>
+      <td class="mono" style="font-size:11px;color:var(--g400)">${j.job_card_number||'—'}</td>
+      <td class="mono" style="font-size:11px;color:var(--g400)">${j.dms_jc_id||'—'}</td>
+      <td style="font-size:12px">${j.reason_for_ending||'—'}</td>
+      <td><span class="badge ${pc}">${j.overall_tat_days?.toFixed(1)||'—'}d</span></td>
+      <td style="font-size:12px">${j.labour_time_hours?.toFixed(1)||'—'}h</td>
+      <td style="font-size:12px">${j.submission_type||'—'}</td>
+      <td style="font-size:12px">${formatDate(j.job_card_opened_date)}</td>
+      <td style="font-size:12px">${j.technician_name||'—'}</td>
+      ${showChange?`<td><button class="btn btn-outline btn-sm" onclick="changeTechAlert('${j.job_card_number}')">Change Tech</button></td>`:'<td>—</td>'}
+    </tr>`;
+  };
+
+  const hubOptions = hubsForCity.map(h=>`<option value="${h.name}" ${h.name===selectedHub?'selected':''}>${h.name}</option>`).join('');
+  const cityOptions = ['Bangalore','Hyderabad','NCR','Indore'].map(c=>`<option value="${c}" ${c===selectedCity?'selected':''}>${c}</option>`).join('');
+
+  return `
+    <div class="page-hd"><div class="page-hd-text"><div class="page-title">Work Orders</div>
+    <div class="page-sub">${selectedHub||selectedCity||'All'}</div></div></div>
+    <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+      ${role==='head'?`<select class="form-select" style="width:160px" onchange="_headSelectedCity=this.value;_headSelectedHub='';navigate('workorders')">
+        <option value="">All Cities</option>${cityOptions}</select>`:''}
+      <select class="form-select" style="width:180px" onchange="${role==='head'?'_headSelectedHub':'_areaSelectedHub'}=this.value;navigate('workorders')">
+        <option value="">All Hubs</option>${hubOptions}</select>
+    </div>
+    ${selectedHub && availTechs.length>0 ? `
+    <div class="wo-form-wrap">
+      <div class="wo-form-title">Quick Assign — ${selectedHub}</div>
+      <div class="form-row">
+        <div class="form-group" style="margin:0"><label class="form-label">Vehicle</label>
+          <input class="form-input" id="veh-search" placeholder="Reg no..." autocomplete="off" oninput="filterVehicles(this.value)" onfocus="showVehDropdown()"/>
+          <div id="veh-dropdown" style="display:none;position:absolute;z-index:50;background:var(--white);border:1px solid var(--g200);border-radius:var(--r);box-shadow:var(--sh-md);max-height:200px;overflow-y:auto;width:300px"></div>
+          <input type="hidden" id="wov"/>
+          <div id="veh-selected" style="display:none;margin-top:4px;font-size:12px;color:var(--blue)"></div>
+          <div id="veh-jc-info"></div>
+        </div>
+        <div class="form-group" style="margin:0"><label class="form-label">Technician (present at ${selectedHub})</label>
+          <select class="form-select" id="wot"><option value="">Select...</option>${availTechs.map(t=>`<option>${t}</option>`).join('')}</select>
+        </div>
+      </div>
+      <div class="form-row" style="margin-top:10px">
+        <div class="form-group" style="margin:0"><label class="form-label">Issue</label><input class="form-input" id="woi" placeholder="Describe job"/></div>
+        <div class="form-group" style="margin:0"><label class="form-label">Work Type</label>
+          <select class="form-select" id="wotype" onchange="onWOTypeChange()"><option value="running_repair">Running Repair</option><option value="oos">OOS</option></select>
+        </div>
+      </div>
+      <div id="oos-note" style="display:none;background:var(--red-lt);border:1px solid #fca5a5;border-radius:var(--r);padding:8px 12px;font-size:12px;color:var(--red);margin-top:8px">⚠️ OOS — vehicle marked out of service.</div>
+      <button class="btn btn-blue" style="margin-top:12px" onclick="addWO('${selectedHub}')">Assign Work Order</button>
+      <div id="wo-msg" style="margin-top:8px"></div>
+    </div>` : ''}
+
+    <div style="font-size:15px;font-weight:600;color:var(--g800);margin:12px 0 8px">
+      Unassigned Work <span class="badge b-absent">${unassigned.length}</span>
+    </div>
+    ${unassigned.length===0 ? `<div class="empty-state" style="padding:16px">No open JCs.</div>`
+      : `<div class="tw"><table><thead>${TH}</thead><tbody>${unassigned.map(j=>tableRow(j,false)).join('')}</tbody></table></div>`}
+    <div style="font-size:15px;font-weight:600;color:var(--g800);margin:16px 0 8px">
+      Assigned Work <span class="badge b-inprog">${assigned.length}</span>
+    </div>
+    ${assigned.length===0 ? `<div class="empty-state" style="padding:16px">No assigned JCs.</div>`
+      : `<div class="tw"><table><thead>${TH}</thead><tbody>${assigned.map(j=>tableRow(j,true)).join('')}</tbody></table></div>`}`;
+}
+
+async function getCityName(cityId) {
+  if (!cityId) return '';
+  const r = await sb(`cities?id=eq.${cityId}&select=name&limit=1`);
+  return r && r.length ? r[0].name : '';
+}
+
+async function getHubsForCity(cityName) {
+  const r = await sb(`hubs?select=id,name,city_id&order=name`);
+  if (!r) return HUBS;
+  // Filter by city name via cities join — simplified: match hubs by city_id
+  const cityRow = await sb(`cities?name=eq.${encodeURIComponent(cityName)}&select=id&limit=1`);
+  if (!cityRow || !cityRow.length) return r;
+  return r.filter(h=>h.city_id===cityRow[0].id);
+}
+
+// ─ AREA MANAGER ATTENDANCE WITH HUB FILTER ───────────────────────────────
+let _areaAttHub = '';
+function renderAttendanceWide(role) {
+  const userCityId = state.user.city_id;
+  const cityHubs   = HUBS.filter(h => role==='area_manager' ? h.city_id===userCityId : true);
+  const selHub     = _areaAttHub || '';
+  const entries    = selHub
+    ? Object.entries(state.attendance).filter(([,a])=>a.hub===selHub)
+    : Object.entries(state.attendance);
+
+  const hubOptions = cityHubs.map(h=>`<option value="${h.name}" ${h.name===selHub?'selected':''}>${h.name}</option>`).join('');
+  const formatTime = t => t||'—';
+  const formatApproval = (a) => {
+    const ap = a.approval;
+    if (a.status!=='present') return '<span style="color:var(--g300);font-size:12px">—</span>';
+    if (ap==='approved') return '<span class="badge b-present">✓ Approved</span>';
+    if (ap==='denied')   return '<span class="badge b-absent">✗ Denied</span>';
+    return '<span class="badge b-open">Pending</span>';
+  };
+
+  return `
+    <div class="page-hd">
+      <div class="page-hd-text"><div class="page-title">Attendance</div><div class="page-sub">${selHub||'All Hubs'} — ${dateShort()}</div></div>
+      <button class="btn-refresh" onclick="refreshPage('attendance')" title="Refresh">
+        <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+      </button>
+    </div>
+    <div style="margin-bottom:14px">
+      <select class="form-select" style="width:200px" onchange="_areaAttHub=this.value;navigate('attendance')">
+        <option value="">All Hubs</option>${hubOptions}
+      </select>
+    </div>
+    ${entries.length===0 ? `<div class="empty-state">No attendance data yet.</div>` :
+    `<div class="tw"><table>
+      <thead><tr><th>Technician</th><th>Hub</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Approval</th></tr></thead>
+      <tbody>${entries.map(([t,a])=>{
+        const bc=a.status==='present'?'b-present':a.status==='absent'?'b-absent':'b-leave';
+        return `<tr>
+          <td><strong>${t}</strong></td>
+          <td style="font-size:12px;color:var(--g500)">${a.hub||'—'}</td>
+          <td><span class="badge ${bc}">${a.status[0].toUpperCase()+a.status.slice(1)}</span></td>
+          <td class="mono" style="font-size:12px">${formatTime(a.checkin)}</td>
+          <td class="mono" style="font-size:12px">${formatTime(a.checkout)}</td>
+          <td>${formatApproval(a)}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>`}`;
+}
+
+// ─ DASHBOARD WITH CITY/HUB FILTERS & IDLE/OOS WIDGETS ───────────────────
+let _dashFilterCity = '';
+let _dashFilterHub  = '';
+
 // ─ INIT ─
-bootstrap().then(()=>{ console.log('AutoServe ready — hubs:', HUBS.length, '— users:', ALL_USERS.length); });
+bootstrap().then(()=>{ console.log('Bounce Service Ops ready — hubs:', HUBS.length, '— users:', ALL_USERS.length); });
 </script>
 </body>
 </html>
