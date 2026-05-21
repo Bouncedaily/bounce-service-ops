@@ -1461,14 +1461,19 @@ function renderMyAttendance() {
         <div class="ci-item"><div class="ci-lbl">Check-in</div><div class="ci-val ${state.myCheckin?'':'empty'}">${state.myCheckin||'--:--'}</div></div>
         <div class="ci-item"><div class="ci-lbl">Check-out</div><div class="ci-val ${state.myCheckout?'':'empty'}">${state.myCheckout||'--:--'}</div></div>
       </div>
+      <div id="att-status-msg"></div>
       ${!checked
-        ? `<button class="btn btn-green" style="padding:12px 28px;font-size:15px" onclick="openScanner('checkin')">
-            ${ico('qr',16)} &nbsp;Scan QR to Check-in</button>`
+        ? `<button class="btn btn-green" id="btn-checkin" style="padding:14px 40px;font-size:16px;border-radius:12px;min-width:180px" onclick="doGeoCheckin('checkin')">
+            ✅ &nbsp;IN</button>
+           <div style="font-size:12px;color:var(--g400);margin-top:10px">Tap IN — we'll verify your location automatically</div>`
         : !checkedOut
-        ? `<div style="margin-bottom:12px"><span class="badge b-present" style="font-size:13px;padding:6px 16px">✓ Checked in at ${state.myCheckin}</span></div>
-           <button class="btn btn-red" style="padding:12px 28px;font-size:15px" onclick="openScanner('checkout')">
-            ${ico('qr',16)} &nbsp;Scan QR to Check-out</button>`
-        : `<span class="badge b-done" style="font-size:13px;padding:8px 18px">✓ Attendance complete — ${state.myCheckin} to ${state.myCheckout}</span>`}
+        ? `<div style="margin-bottom:14px"><span class="badge b-present" style="font-size:13px;padding:6px 16px">✓ Checked in at ${state.myCheckin}</span></div>
+           <button class="btn btn-red" id="btn-checkout" style="padding:14px 40px;font-size:16px;border-radius:12px;min-width:180px" onclick="doGeoCheckin('checkout')">
+            🔴 &nbsp;OUT</button>
+           <div style="font-size:12px;color:var(--g400);margin-top:10px">Tap OUT when leaving the hub</div>`
+        : `<div style="font-size:36px;margin-bottom:8px">✅</div>
+           <span class="badge b-done" style="font-size:14px;padding:8px 20px">Attendance complete</span>
+           <div style="font-size:13px;color:var(--g500);margin-top:8px">${state.myCheckin} → ${state.myCheckout}</div>`}
     </div>
     <div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">This week</div>
     <div class="tw"><table>
@@ -1726,7 +1731,171 @@ document.addEventListener('click', e => {
   }
 });
 
-// ─ QR SCANNER ─
+// ─ GEO CHECK-IN / OUT ─
+const GEOFENCE_RADIUS_M = 200; // metres
+
+// Haversine formula — distance between two lat/lng points in metres
+function getDistanceM(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = (lat2-lat1) * Math.PI/180;
+  const dLng = (lng2-lng1) * Math.PI/180;
+  const a = Math.sin(dLat/2)**2 +
+            Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) *
+            Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function setAttMsg(type, msg) {
+  const el = document.getElementById('att-status-msg');
+  if (!el) return;
+  const styles = {
+    loading: 'background:var(--blue-lt);color:var(--blue)',
+    success: 'background:var(--green-lt);color:var(--green)',
+    error:   'background:var(--red-lt);color:var(--red)',
+    warn:    'background:var(--amber-lt);color:var(--amber)',
+  };
+  el.innerHTML = `<div style="padding:10px 14px;border-radius:10px;font-size:13px;font-weight:500;margin-bottom:14px;${styles[type]||''}">${msg}</div>`;
+}
+
+async function doGeoCheckin(mode) {
+  const btn = document.getElementById(mode==='checkin' ? 'btn-checkin' : 'btn-checkout');
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
+  setAttMsg('loading', '📍 Getting your location...');
+
+  // 1. Get GPS position
+  let position;
+  try {
+    position = await new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      });
+    });
+  } catch(err) {
+    const errMsg = err.code === 1
+      ? 'Location permission denied. Please allow location access in your browser settings.'
+      : err.code === 2
+      ? 'Location unavailable. Please try again outdoors or near a window.'
+      : 'Location timed out. Please try again.';
+    setAttMsg('error', '❌ ' + errMsg);
+    if (btn) { btn.disabled=false; btn.style.opacity='1'; }
+    return;
+  }
+
+  const userLat = position.coords.latitude;
+  const userLng = position.coords.longitude;
+  const accuracy = Math.round(position.coords.accuracy);
+
+  setAttMsg('loading', `📍 Location found (±${accuracy}m accuracy). Verifying hub...`);
+
+  // 2. Fetch hub coordinates from Supabase
+  let hubLat = null, hubLng = null, hubName = state.hub;
+  if (!_demoMode && state.hub) {
+    const hubData = await sb(`hubs?name=eq.${encodeURIComponent(state.hub)}&select=lat,lng,name&limit=1`);
+    if (hubData && hubData.length && hubData[0].lat) {
+      hubLat = hubData[0].lat;
+      hubLng = hubData[0].lng;
+    }
+  }
+
+  // 3. If no coordinates configured — warn but allow (admin hasn't set hub coords yet)
+  if (hubLat === null || hubLng === null) {
+    setAttMsg('warn', `⚠️ Hub location not configured yet. Marking attendance without geofence check.`);
+    await processCheckin(mode, userLat, userLng, accuracy, null, true);
+    return;
+  }
+
+  // 4. Calculate distance
+  const distanceM = Math.round(getDistanceM(userLat, userLng, hubLat, hubLng));
+
+  // 5. Check geofence
+  if (distanceM <= GEOFENCE_RADIUS_M) {
+    setAttMsg('success', `✅ Location verified — you are ${distanceM}m from ${hubName}. Marking attendance...`);
+    await processCheckin(mode, userLat, userLng, accuracy, distanceM, true);
+  } else {
+    setAttMsg('error', `❌ You are ${distanceM}m away from ${hubName}. Must be within ${GEOFENCE_RADIUS_M}m to check ${mode==='checkin'?'in':'out'}. Please move closer to the hub and try again.`);
+    if (btn) { btn.disabled=false; btn.style.opacity='1'; }
+    // Log failed attempt
+    if (!_demoMode && state.user) {
+      sb('tech_activity_log', { method:'POST', prefer:'return=minimal',
+        body: JSON.stringify({
+          user_id: state.user.id, tech_name: state.user.name,
+          hub_name: state.hub, action: 'geo_fail',
+          details: { mode, userLat, userLng, distanceM, hubLat, hubLng, accuracy }
+        })
+      });
+    }
+  }
+}
+
+async function processCheckin(mode, lat, lng, accuracy, distanceM, withinFence) {
+  const t12 = nowFmt();
+  const t24 = now24();
+  const geoData = { lat, lng, accuracy, distance_m: distanceM, within_fence: withinFence, timestamp: new Date().toISOString() };
+
+  if (mode === 'checkin') {
+    // Save to Supabase attendance table
+    let attId = null;
+    if (!_demoMode) {
+      const hubData = await sb(`hubs?name=eq.${encodeURIComponent(state.hub)}&select=id&limit=1`);
+      const hubId   = hubData?.[0]?.id || state.hubId;
+      const payload = {
+        user_id:        state.user.id,
+        technician_name:state.user.name,
+        phone_number:   state.user.mobile,
+        hub_id:         hubId,
+        hub_name:       state.hub,
+        date:           new Date().toISOString().slice(0,10),
+        status:         'present',
+        checkin_time:   new Date().toISOString(),
+        geo_checkin:    geoData,
+        approval_status:'pending'
+      };
+      const res = await sb('attendance?on_conflict=user_id,date', {
+        method:'POST', prefer:'resolution=merge-duplicates,return=representation',
+        body: JSON.stringify(payload)
+      });
+      attId = res?.[0]?.id || null;
+      // Log activity
+      sb('tech_activity_log', { method:'POST', prefer:'return=minimal',
+        body: JSON.stringify({ user_id:state.user.id, tech_name:state.user.name,
+          hub_name:state.hub, action:'checkin',
+          details:{ time:t12, lat, lng, distanceM, within_fence:withinFence }
+        })
+      });
+    }
+    state.myCheckin  = t12;
+    state.myAttId    = attId || 'demo-att';
+    state.attendance[state.user.name] = {
+      status:'present', checkin:t24, checkout:null,
+      hub:state.hub, hub_id:state.hubId, att_id:attId,
+      geo_checkin: geoData
+    };
+    setTimeout(() => navigate('my-attendance'), 1500);
+  } else {
+    // Checkout
+    if (!_demoMode && state.myAttId) {
+      await sb(`attendance?id=eq.${state.myAttId}`, {
+        method:'PATCH',
+        body: JSON.stringify({ checkout_time: new Date().toISOString(), geo_checkout: geoData, updated_at: new Date().toISOString() })
+      });
+      sb('tech_activity_log', { method:'POST', prefer:'return=minimal',
+        body: JSON.stringify({ user_id:state.user.id, tech_name:state.user.name,
+          hub_name:state.hub, action:'checkout',
+          details:{ time:t12, lat, lng, distanceM, within_fence:withinFence }
+        })
+      });
+    }
+    state.myCheckout = t12;
+    state.attendance[state.user.name] = {
+      ...state.attendance[state.user.name], checkout:t24, geo_checkout:geoData
+    };
+    setTimeout(() => navigate('my-attendance'), 1500);
+  }
+}
+
+// ─ QR SCANNER ─ (kept for backward compat but no longer used in main flow)
 let _scanner=null, _scanMode=null;
 function openScanner(mode) {
   _scanMode=mode;

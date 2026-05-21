@@ -157,6 +157,7 @@ input:checked+.slider:before{transform:translateX(18px)}
       <div class="si" onclick="nav('users')">👥 All Users</div>
       <div class="si" onclick="nav('add-user')">➕ Add User</div>
       <div class="si-section">System</div>
+      <div class="si" onclick="nav('hubs')">🗺️ Hub Locations</div>
       <div class="si" onclick="nav('permissions')">🔐 Permissions</div>
       <div class="si" onclick="nav('login-activity')">📋 Login Activity</div>
     </div>
@@ -224,7 +225,7 @@ function setAlert(msg) {
 async function loadMasterData() {
   const [users, hubs, cities] = await Promise.all([
     sb('users?select=id,name,mobile,role,city_id,hub_id,assigned_hub_name,is_active,is_admin,employee_id,last_login_at,created_at&order=name'),
-    sb('hubs?select=id,name,city_id&order=name'),
+    sb('hubs?select=id,name,city_id,lat,lng,address&order=name'),
     sb('cities?select=id,name&order=name')
   ]);
   allUsers   = users   || [];
@@ -245,7 +246,7 @@ function doLogout() {
 function nav(page) {
   currentPage = page;
   document.querySelectorAll('.si').forEach(e=>e.classList.remove('active'));
-  const pages = {dashboard:renderDashboard,users:renderUsers,'add-user':renderAddUser,permissions:renderPermissions,'login-activity':renderLoginActivity};
+  const pages = {dashboard:renderDashboard,users:renderUsers,'add-user':renderAddUser,hubs:renderHubs,permissions:renderPermissions,'login-activity':renderLoginActivity};
   document.getElementById('content').innerHTML = (pages[page]||(() => ''))();
 }
 
@@ -612,6 +613,80 @@ window.nav = async function(page) {
     return;
   }
   _nav(page);
+}
+
+// ─ HUB LOCATIONS ─
+function renderHubs() {
+  return `
+    <div class="page-title">Hub Locations</div>
+    <div class="page-sub">Configure geofence coordinates for attendance verification (200m radius)</div>
+    <div class="tw"><table>
+      <thead><tr><th>Hub</th><th>City</th><th>Latitude</th><th>Longitude</th><th>Address</th><th>Status</th><th>Edit</th></tr></thead>
+      <tbody>${allHubs.map(h=>{
+        const city = allCities.find(c=>c.id===h.city_id);
+        const hasCoords = h.lat && h.lng;
+        return `<tr>
+          <td><strong>${h.name}</strong></td>
+          <td style="font-size:12px">${city?.name||'—'}</td>
+          <td class="mono" style="font-size:12px">${h.lat||'<span style="color:var(--red)">Not set</span>'}</td>
+          <td class="mono" style="font-size:12px">${h.lng||'<span style="color:var(--red)">Not set</span>'}</td>
+          <td style="font-size:12px;color:var(--g500)">${h.address||'—'}</td>
+          <td><span class="badge ${hasCoords?'b-active':'b-inactive'}">${hasCoords?'✓ Configured':'⚠️ Missing'}</span></td>
+          <td><button class="btn btn-outline btn-sm" onclick="editHubCoords('${h.id}','${h.name}',${h.lat||0},${h.lng||0},'${h.address||''}')">Edit</button></td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table></div>
+    <div class="card" style="background:var(--blue-lt);border-color:#bcd0f7;margin-top:4px">
+      <div style="font-size:13px;color:var(--blue-dk);line-height:1.8">
+        <strong>💡 How to get coordinates:</strong><br>
+        Open Google Maps → right-click on the hub location → click the coordinates shown at top (e.g. 12.9972, 77.6997) → paste here.<br>
+        Technicians must be within <strong>200 metres</strong> of these coordinates to check in/out.
+      </div>
+    </div>`;
+}
+
+function editHubCoords(hubId, hubName, lat, lng, address) {
+  document.getElementById('modal-inner').innerHTML = `
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div class="modal-title">Edit Hub Location</div>
+    <div class="modal-sub">${hubName}</div>
+    <div id="hub-edit-alert"></div>
+    <div class="form-group"><label class="form-label">Latitude</label>
+      <input class="form-input mono" id="h-lat" value="${lat||''}" placeholder="e.g. 12.9972" type="number" step="any"/>
+    </div>
+    <div class="form-group"><label class="form-label">Longitude</label>
+      <input class="form-input mono" id="h-lng" value="${lng||''}" placeholder="e.g. 77.6997" type="number" step="any"/>
+    </div>
+    <div class="form-group"><label class="form-label">Address / Landmark</label>
+      <input class="form-input" id="h-addr" value="${address||''}" placeholder="e.g. Near Hoodi Circle, Bangalore"/>
+    </div>
+    <div style="font-size:12px;color:var(--g400);margin-bottom:14px">
+      💡 Right-click hub location on Google Maps → copy coordinates
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-purple" onclick="saveHubCoords('${hubId}')">Save Coordinates</button>
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    </div>`;
+  document.getElementById('modal').style.display='flex';
+}
+
+async function saveHubCoords(hubId) {
+  const lat  = parseFloat(document.getElementById('h-lat').value);
+  const lng  = parseFloat(document.getElementById('h-lng').value);
+  const addr = document.getElementById('h-addr').value.trim();
+  if (isNaN(lat)||isNaN(lng)) {
+    document.getElementById('hub-edit-alert').innerHTML='<div class="alert al-error">Enter valid latitude and longitude.</div>';
+    return;
+  }
+  await sb(`hubs?id=eq.${hubId}`, { method:'PATCH', prefer:'return=minimal',
+    body: JSON.stringify({ lat, lng, address:addr||null })
+  });
+  // Update local cache
+  const hub = allHubs.find(h=>h.id===hubId);
+  if (hub) { hub.lat=lat; hub.lng=lng; hub.address=addr; }
+  closeModal();
+  nav('hubs');
 }
 
 function closeModal() { document.getElementById('modal').style.display='none'; }
