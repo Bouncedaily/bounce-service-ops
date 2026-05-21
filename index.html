@@ -163,7 +163,8 @@ tr:hover td{background:var(--g50)}
 /* ─ SCANNER MODAL ─ */
 .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px}
 .modal{background:var(--white);border-radius:var(--rlg);padding:28px 24px;width:100%;max-width:380px;position:relative}
-.modal-close{position:absolute;top:14px;right:14px;background:none;border:none;cursor:pointer;color:var(--g400);font-size:20px;line-height:1;padding:4px}
+.modal-close{position:absolute;top:14px;right:14px;background:var(--g100);border:none;cursor:pointer;color:var(--g700);font-size:18px;line-height:1;padding:8px;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;z-index:999}
+.modal-close:hover{background:var(--g200)}
 .modal-title{font-size:16px;font-weight:600;margin-bottom:4px;color:var(--g900)}
 .modal-sub{font-size:13px;color:var(--g400);margin-bottom:18px}
 .scanner-wrap{border-radius:var(--r);overflow:hidden;background:var(--g900);min-height:260px;position:relative}
@@ -962,16 +963,23 @@ function navigate(page) {
     document.getElementById('live-clock').textContent = nowFmt();
     _clockT = setInterval(()=>{ const e=document.getElementById('live-clock'); if(e) e.textContent=nowFmt(); else clearInterval(_clockT); },10000);
   }
-  // Auto-refresh attendance every 30s for manager pages so QR scans show up live
+  // Auto-refresh every 30s for dashboard/attendance, 60s for work orders
   clearInterval(window._refreshT);
-  if (state.user && state.user.role==='hub_manager' && state.hubId && ['dashboard','attendance'].includes(page)) {
+  if (state.user && state.user.role==='hub_manager' && state.hubId && ['dashboard','attendance','workorders'].includes(page)) {
+    const interval = page==='workorders' ? 60000 : 30000;
     window._refreshT = setInterval(async ()=>{
       if (currentPage !== page) { clearInterval(window._refreshT); return; }
-      await loadAttendanceForHub(state.hubId);
-      // Re-render silently only the table part to avoid full page flash
       const c = document.getElementById('content');
-      if (c) { c.innerHTML = (page==='dashboard'?renderDashboard:renderAttendance)(); }
-    }, 30000);
+      if (!c) return;
+      if (page==='workorders') {
+        if (window._jcCache) delete window._jcCache[state.hub];
+        await loadJobsForHub(state.hubId);
+        renderWorkOrdersAsync().then(html=>{ if(currentPage===page) c.innerHTML=html; });
+      } else {
+        await loadAttendanceForHub(state.hubId);
+        c.innerHTML = (page==='dashboard'?renderDashboard:renderAttendance)();
+      }
+    }, interval);
   }
 }
 
@@ -1800,14 +1808,17 @@ function cancelPhotoSession() {
 
 function stopScanner() { if(_scanner){_scanner.stop().catch(()=>{});_scanner=null;} }
 function closeModal() { stopScanner(); document.getElementById('modal').style.display='none'; }
-function modalBackdropClick(e) { if(e.target===document.getElementById('modal')) closeModal(); }
+function modalBackdropClick(e) {
+  const inner = document.getElementById('modal-inner');
+  if (inner && !inner.contains(e.target)) closeModal();
+}
 
 // ─ SUPABASE: load draft JC for a hub ──────────────────────────────────
 async function loadDraftJCForHub(hubName) {
   if (_demoMode) return [];
   // Only fetch non-Billed JCs — much faster and what we actually need
   const rows = await sb(
-    `draft_jc?hub_name=eq.${encodeURIComponent(hubName)}&select=job_card_number,dms_jc_id,reg_number,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date&order=job_card_opened_date.desc`
+    `draft_jc?hub_name=eq.${encodeURIComponent(hubName)}&select=job_card_number,dms_jc_id,reg_number,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date,bike_status&order=job_card_opened_date.desc`
   );
   return rows || [];
 }
@@ -1815,7 +1826,7 @@ async function loadDraftJCForHub(hubName) {
 async function loadDraftJCForCity(cityName) {
   if (_demoMode) return [];
   const rows = await sb(
-    `draft_jc?city=eq.${encodeURIComponent(cityName)}&select=job_card_number,dms_jc_id,reg_number,hub_name,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date&order=job_card_opened_date.desc&limit=500`
+    `draft_jc?city=eq.${encodeURIComponent(cityName)}&select=job_card_number,dms_jc_id,reg_number,hub_name,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date,bike_status&order=job_card_opened_date.desc&limit=500`
   );
   return rows || [];
 }
@@ -1823,7 +1834,7 @@ async function loadDraftJCForCity(cityName) {
 async function loadAllDraftJC() {
   if (_demoMode) return [];
   const rows = await sb(
-    `draft_jc?current_jc_status=neq.Billed&select=job_card_number,dms_jc_id,reg_number,city,hub_name,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date&order=job_card_opened_date.desc&limit=1000`
+    `draft_jc?current_jc_status=neq.Billed&select=job_card_number,dms_jc_id,reg_number,city,hub_name,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date,bike_status&order=job_card_opened_date.desc&limit=1000`
   );
   return rows || [];
 }
@@ -1842,8 +1853,10 @@ async function renderWorkOrdersAsync() {
     window._jcCache[myHub] = await loadDraftJCForHub(myHub);
   }
   const jcRows = window._jcCache[myHub];
-  const unassigned = jcRows.filter(j=>j.current_jc_status==='Job Open');
-  const assigned   = jcRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open');
+  // Only show bikes where bike_status is OOS (vehicles currently out of service)
+  const oosJcRows  = jcRows.filter(j => j.bike_status === 'OOS' || j.bike_status === 'inactive');
+  const unassigned = oosJcRows.filter(j=>j.current_jc_status==='Job Open');
+  const assigned   = oosJcRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open');
 
   // Build JC lookup by reg_number for vehicle search enrichment
   window._jcLookup = {};
@@ -2077,8 +2090,10 @@ async function renderWorkOrdersWideAsync(role) {
   }
   const jcRows = window._jcCache[cacheKey];
 
-  const unassigned = jcRows.filter(j=>j.current_jc_status==='Job Open');
-  const assigned   = jcRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open');
+  // Only show bikes where bike_status is OOS (vehicles currently out of service)
+  const oosJcRows  = jcRows.filter(j => j.bike_status === 'OOS' || j.bike_status === 'inactive');
+  const unassigned = oosJcRows.filter(j=>j.current_jc_status==='Job Open');
+  const assigned   = oosJcRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open');
 
   // Get present technicians for the selected hub (for assignment)
   const availTechs = selectedHub
