@@ -2704,20 +2704,26 @@ bootstrap().then(async () => {
 
   try {
     const saved = localStorage.getItem('bounce_session');
+    console.log('[session] Checking localStorage:', saved ? 'found' : 'empty');
     if (!saved) { showLogin(); return; }
 
     const sess = JSON.parse(saved);
+    console.log('[session] Parsed session user:', sess?.user?.name, sess?.user?.role);
     if (!sess || !sess.user) { showLogin(); return; }
 
-    // Re-validate user is still active
-    const check = await fetchUserByMobile(sess.user.mobile);
-    if (!check || check.is_active === false) {
-      localStorage.removeItem('bounce_session');
-      showLogin(); return;
+    // Re-validate by user ID directly (faster, no mobile lookup needed)
+    let check = null;
+    if (!_demoMode) {
+      const rows = await sb(`users?id=eq.${sess.user.id}&select=id,name,mobile,role,city_id,assigned_hub_name,is_active&limit=1`);
+      check = rows && rows.length ? rows[0] : null;
+      if (!check || check.is_active === false) {
+        localStorage.removeItem('bounce_session');
+        showLogin(); return;
+      }
     }
 
-    // Restore state
-    state.user       = { ...sess.user, ...check }; // merge fresh DB data
+    // Restore state — use saved session, overlay fresh DB fields if available
+    state.user       = check ? { ...sess.user, ...check } : sess.user;
     state.hub        = sess.hub        || null;
     state.hubId      = sess.hubId      || null;
     state.myCheckin  = sess.myCheckin  || null;
@@ -2742,6 +2748,7 @@ bootstrap().then(async () => {
       await loadAllHubsData();
     }
 
+    console.log('[session] Data loaded, showing app for:', state.user.name, state.user.role);
     // Show app — no flash, goes straight here
     hideLoading();
     document.getElementById('app-shell').style.display = 'block';
@@ -2749,7 +2756,7 @@ bootstrap().then(async () => {
     navigate(state.user.role !== 'technician' ? 'dashboard' : 'my-attendance');
 
   } catch(e) {
-    console.warn('Session restore failed:', e);
+    console.error('[session] Restore failed:', e);
     localStorage.removeItem('bounce_session');
     showLogin();
   }
