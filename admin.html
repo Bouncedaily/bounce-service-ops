@@ -118,7 +118,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 <body>
 
 <!-- LOGIN -->
-<div id="login-page" style="display:flex" class="login-page">
+<div id="login-page" style="display:none" class="login-page">
   <div class="login-card">
     <div class="admin-badge">Admin Portal</div>
     <div class="login-title">Bounce Service Ops</div>
@@ -137,6 +137,12 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 
 <!-- APP -->
+<div id="loading-screen" style="position:fixed;inset:0;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999">
+  <img src="https://bouncedaily.in/logo%20%281%29.png" alt="Bounce" style="height:48px;width:auto;margin-bottom:16px" onerror="this.style.display='none'"/>
+  <div style="font-size:14px;font-weight:600;color:#374151;margin-bottom:16px">Admin Portal</div>
+  <div style="width:36px;height:36px;border:3px solid #e5e7eb;border-top-color:#7c3aed;border-radius:50%;animation:spin .8s linear infinite"></div>
+  <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+</div>
 <div id="app-shell" style="display:none">
   <div class="topbar">
     <div class="logo">
@@ -713,26 +719,35 @@ function closeModal() { document.getElementById('modal').style.display='none'; }
 
 // ─ RESTORE SESSION ON PAGE LOAD ─
 window.addEventListener('DOMContentLoaded', async () => {
+  const hideLoading = () => {
+    const el = document.getElementById('loading-screen');
+    if (el) el.style.display = 'none';
+  };
+  const showLogin = () => {
+    hideLoading();
+    document.getElementById('login-page').style.display = 'flex';
+  };
   try {
     const saved = localStorage.getItem('bounce_admin_session');
-    if (!saved) return;
+    if (!saved) { showLogin(); return; }
     const sess = JSON.parse(saved);
-    if (!sess || !sess.user) return;
-    // Re-validate admin is still active
+    if (!sess || !sess.user) { showLogin(); return; }
+    // Re-validate
     const check = await sb(`users?mobile=eq.${sess.user.mobile}&select=id,name,mobile,role,is_admin,is_active&limit=1`);
     if (!check || !check.length || check[0].is_active === false || (!check[0].is_admin && check[0].role !== 'admin')) {
       localStorage.removeItem('bounce_admin_session');
-      return;
+      showLogin(); return;
     }
     adminUser = check[0];
-    document.getElementById('login-page').style.display = 'none';
-    document.getElementById('app-shell').style.display  = 'block';
-    document.getElementById('admin-name').textContent   = adminUser.name;
+    hideLoading();
+    document.getElementById('app-shell').style.display = 'block';
+    document.getElementById('admin-name').textContent  = adminUser.name;
     await loadMasterData();
     nav('dashboard');
   } catch(e) {
     console.warn('Admin session restore failed:', e);
     localStorage.removeItem('bounce_admin_session');
+    showLogin();
   }
 });
 </script>
