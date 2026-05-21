@@ -880,6 +880,7 @@ function renderNav() {
 
 let _clockT = null;
 function navigate(page) {
+  currentPage = page;  // ← must set BEFORE async calls
   clearInterval(_clockT);
   document.querySelectorAll('.si,.bnt').forEach(e=>e.classList.remove('active'));
   ['si-','bt-'].forEach(p=>{ const e=document.getElementById(p+page); if(e) e.classList.add('active'); });
