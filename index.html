@@ -1867,12 +1867,75 @@ async function renderWorkOrdersAsync() {
   };
   window._jcInfoFn = jcInfo;
 
-  const TH = `<tr><th>Reg No.</th><th>JC Number</th><th>DMS JC ID</th><th>Reason</th><th>TAT</th><th>Labour Hrs</th><th>Type</th><th>JC Opened</th><th>Technician</th><th>Action</th></tr>`;
+  // Sort both by TAT desc
+  const sortByTAT = arr => [...arr].sort((a,b)=>(b.overall_tat_days||0)-(a.overall_tat_days||0));
+  const unassignedSorted = sortByTAT(unassigned);
+  const assignedSorted   = sortByTAT(assigned);
+
+  // Pagination state (stored on window so page buttons can update)
+  if (!window._woPg) window._woPg = { ua: 0, as: 0 };
+
+  const PAGE_SIZE = 10;
+  const paginate  = (arr, pg) => arr.slice(pg*PAGE_SIZE, (pg+1)*PAGE_SIZE);
+  const pageCount = (arr) => Math.ceil(arr.length / PAGE_SIZE);
+
+  const TH_UA = `<tr><th>Reg No.</th><th>JC Number</th><th>DMS JC ID</th><th>Reason</th><th>TAT</th><th>Labour Hrs</th><th>Type</th><th>JC Opened</th><th>Assign Technician</th></tr>`;
+  const TH_AS = `<tr><th>Reg No.</th><th>JC Number</th><th>DMS JC ID</th><th>Reason</th><th>TAT</th><th>Labour Hrs</th><th>Type</th><th>JC Opened</th><th>Technician</th><th>Action</th></tr>`;
+
+  const rowUA = (j) => {
+    const pc = j.overall_tat_days>3?'b-absent':j.overall_tat_days>1?'b-med':'b-present';
+    return `<tr>
+      <td class="mono" style="font-size:12px">${j.reg_number||'—'}</td>
+      <td class="mono" style="font-size:11px;color:var(--g400)">${j.job_card_number||'—'}</td>
+      <td class="mono" style="font-size:11px;color:var(--g400)">${j.dms_jc_id||'—'}</td>
+      <td style="font-size:12px">${j.reason_for_ending||'—'}</td>
+      <td><span class="badge ${pc}">${j.overall_tat_days?.toFixed(1)||'—'}d</span></td>
+      <td style="font-size:12px">${j.labour_time_hours!=null?j.labour_time_hours.toFixed(1)+'h':'—'}</td>
+      <td style="font-size:12px">${j.submission_type||'—'}</td>
+      <td style="font-size:12px">${j.job_card_opened_date?new Date(j.job_card_opened_date).toLocaleDateString('en-IN'):'—'}</td>
+      <td>
+        <select class="sel-sm" style="min-width:130px" onchange="assignTechFromJC('${j.job_card_number}','${j.reg_number}',this.value)">
+          <option value="">Assign tech...</option>
+          ${avail.length===0?`<option disabled>None present</option>`:avail.map(t=>`<option value="${t}">${t}</option>`).join('')}
+        </select>
+      </td>
+    </tr>`;
+  };
+
+  const rowAS = (j) => {
+    const pc = j.overall_tat_days>3?'b-absent':j.overall_tat_days>1?'b-med':'b-present';
+    return `<tr>
+      <td class="mono" style="font-size:12px">${j.reg_number||'—'}</td>
+      <td class="mono" style="font-size:11px;color:var(--g400)">${j.job_card_number||'—'}</td>
+      <td class="mono" style="font-size:11px;color:var(--g400)">${j.dms_jc_id||'—'}</td>
+      <td style="font-size:12px">${j.reason_for_ending||'—'}</td>
+      <td><span class="badge ${pc}">${j.overall_tat_days?.toFixed(1)||'—'}d</span></td>
+      <td style="font-size:12px">${j.labour_time_hours!=null?j.labour_time_hours.toFixed(1)+'h':'—'}</td>
+      <td style="font-size:12px">${j.submission_type||'—'}</td>
+      <td style="font-size:12px">${j.job_card_opened_date?new Date(j.job_card_opened_date).toLocaleDateString('en-IN'):'—'}</td>
+      <td style="font-size:12px">${j.technician_name||'<span style="color:var(--g300)">—</span>'}</td>
+      <td><button class="btn btn-outline btn-sm" onclick="changeTechAlert('${j.job_card_number}')">Change Tech</button></td>
+    </tr>`;
+  };
+
+  const pagerHTML = (arr, pg, key) => {
+    const total = pageCount(arr);
+    if (total<=1) return '';
+    const from = pg*PAGE_SIZE+1, to = Math.min((pg+1)*PAGE_SIZE, arr.length);
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-top:1px solid var(--g100);font-size:13px;color:var(--g500)">
+      <span>Showing ${from}–${to} of ${arr.length}</span>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-outline btn-sm" ${pg===0?'disabled':''} onclick="woPage('${key}',-1)">← Prev</button>
+        <span style="padding:5px 10px;background:var(--g50);border-radius:var(--r);font-weight:500">${pg+1} / ${total}</span>
+        <button class="btn btn-outline btn-sm" ${pg>=total-1?'disabled':''} onclick="woPage('${key}',1)">Next →</button>
+      </div>
+    </div>`;
+  };
 
   return `
     <div class="page-hd">
       <div class="page-hd-text"><div class="page-title">Work Orders</div><div class="page-sub">${myHub}</div></div>
-      <button class="btn-refresh" onclick="window._jcCache={};navigate('workorders')" title="Refresh">
+      <button class="btn-refresh" onclick="window._jcCache={};window._woPg={ua:0,as:0};navigate('workorders')" title="Refresh">
         <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> Refresh
       </button>
     </div>
@@ -1909,7 +1972,7 @@ async function renderWorkOrdersAsync() {
         <label class="form-label">Assign to (present at ${myHub})</label>
         <select class="form-select" id="wot">
           <option value="">Select technician...</option>
-          ${avail.length===0 ? `<option disabled>No technicians present at this hub</option>` : avail.map(t=>`<option value="${t}">${t}</option>`).join('')}
+          ${avail.length===0?`<option disabled>No technicians present at this hub</option>`:avail.map(t=>`<option value="${t}">${t}</option>`).join('')}
         </select>
       </div>
       <div id="oos-note" style="display:none;background:var(--red-lt);border:1px solid #fca5a5;border-radius:var(--r);padding:10px 14px;font-size:13px;color:var(--red);margin-bottom:8px">⚠️ OOS — vehicle will be marked out of service until resolved.</div>
@@ -1918,18 +1981,48 @@ async function renderWorkOrdersAsync() {
     <div id="wo-msg"></div>
 
     <div style="font-size:15px;font-weight:600;color:var(--g800);margin:20px 0 10px">
-      Unassigned Work <span class="badge b-absent" style="font-size:11px">${unassigned.length} open</span>
+      Unassigned Work <span class="badge b-absent" style="font-size:11px">${unassignedSorted.length} open</span>
     </div>
-    ${unassigned.length===0
+    ${unassignedSorted.length===0
       ? `<div class="empty-state" style="padding:20px">No open job cards at this hub.</div>`
-      : `<div class="tw"><table><thead>${TH}</thead><tbody>${unassigned.map(j=>tableRow(j,false)).join('')}</tbody></table></div>`}
+      : `<div class="tw" id="wo-ua-table">
+          <table><thead>${TH_UA}</thead><tbody>${paginate(unassignedSorted,window._woPg.ua).map(rowUA).join('')}</tbody></table>
+          ${pagerHTML(unassignedSorted,window._woPg.ua,'ua')}
+        </div>`}
 
     <div style="font-size:15px;font-weight:600;color:var(--g800);margin:20px 0 10px">
-      Assigned Work <span class="badge b-inprog" style="font-size:11px">${assigned.length} in progress</span>
+      Assigned Work <span class="badge b-inprog" style="font-size:11px">${assignedSorted.length}</span>
     </div>
-    ${assigned.length===0
+    ${assignedSorted.length===0
       ? `<div class="empty-state" style="padding:20px">No assigned job cards at this hub.</div>`
-      : `<div class="tw"><table><thead>${TH}</thead><tbody>${assigned.map(j=>tableRow(j,true)).join('')}</tbody></table></div>`}`;
+      : `<div class="tw" id="wo-as-table">
+          <table><thead>${TH_AS}</thead><tbody>${paginate(assignedSorted,window._woPg.as).map(rowAS).join('')}</tbody></table>
+          ${pagerHTML(assignedSorted,window._woPg.as,'as')}
+        </div>`}`;
+}
+
+function woPage(key, delta) {
+  if (!window._woPg) window._woPg = {ua:0,as:0};
+  window._woPg[key] = Math.max(0, window._woPg[key] + delta);
+  navigate('workorders');
+}
+
+function assignTechFromJC(jcNum, regNum, techName) {
+  if (!techName) return;
+  // Pre-fill the assign form with this vehicle and tech
+  document.getElementById('veh-search').value = regNum;
+  document.getElementById('wov').value = regNum;
+  document.getElementById('veh-selected').style.display = 'block';
+  document.getElementById('veh-selected').innerHTML = `✓ <strong>${regNum}</strong> — from JC ${jcNum}`;
+  const techSel = document.getElementById('wot');
+  if (techSel) {
+    for (const opt of techSel.options) {
+      if (opt.value === techName) { opt.selected = true; break; }
+    }
+  }
+  // Scroll to form
+  document.querySelector('.wo-form-wrap')?.scrollIntoView({behavior:'smooth', block:'start'});
+  document.getElementById('woi').focus();
 }
 
 function changeTechAlert(jcNum) {
