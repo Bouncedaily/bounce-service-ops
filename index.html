@@ -60,8 +60,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--g50);color:var(--g800);mi
 @media(max-width:700px){.bottom-nav{display:flex}}
 
 /* ─ COMMON ─ */
-.page-hd{margin-bottom:20px}
+.page-hd{margin-bottom:20px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.page-hd-text{flex:1}
 .page-title{font-size:20px;font-weight:600;color:var(--g900);margin-bottom:2px}
+.btn-refresh{display:flex;align-items:center;gap:6px;padding:7px 13px;border:1px solid var(--g200);border-radius:var(--r);background:var(--white);color:var(--g600);font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;flex-shrink:0;transition:all .15s}
+.btn-refresh:hover{background:var(--g50);border-color:var(--g300)}
+.btn-refresh svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;transition:transform .4s}
+.btn-refresh.spinning svg{transform:rotate(360deg)}
 .page-sub{font-size:13px;color:var(--g400)}
 .card{background:var(--white);border:1px solid var(--g200);border-radius:var(--rlg);padding:20px;box-shadow:var(--sh);margin-bottom:16px}
 .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:20px}
@@ -725,6 +730,23 @@ async function finishLogin() {
   navigate(state.user.role!=='technician' ? 'dashboard' : 'my-attendance');
 }
 
+async function refreshPage(page) {
+  const btn = document.querySelector('.btn-refresh');
+  if (btn) { btn.classList.add('spinning'); btn.disabled = true; }
+  if (state.user.role === 'hub_manager' && state.hubId) {
+    await loadAttendanceForHub(state.hubId);
+    if (page === 'workorders') await loadJobsForHub(state.hubId);
+  } else if (state.user.role === 'area_manager' || state.user.role === 'head') {
+    await loadAllHubsData();
+  }
+  navigate(page);
+  // Re-enable after navigation re-renders
+  setTimeout(()=>{
+    const b = document.querySelector('.btn-refresh');
+    if (b) { b.classList.remove('spinning'); b.disabled = false; }
+  }, 500);
+}
+
 function doLogout() {
   state.user=null; state.hub=null; state.myCheckin=null; state.myCheckout=null;
   clearInterval(window._refreshT);
@@ -854,7 +876,12 @@ function renderDashboard() {
     : Object.entries(state.attendance).filter(([,a])=>a.hub===state.hub);
 
   return `
-    <div class="page-hd"><div class="page-title">Dashboard</div><div class="page-sub">${todayStr()} &nbsp;·&nbsp; ${subTitle}</div></div>
+    <div class="page-hd">
+      <div class="page-hd-text"><div class="page-title">Dashboard</div><div class="page-sub">${todayStr()} &nbsp;·&nbsp; ${subTitle}</div></div>
+      <button class="btn-refresh" onclick="refreshPage('dashboard')" title="Refresh">
+        <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> Refresh
+      </button>
+    </div>
     <div class="metrics">
       <div class="metric"><div class="metric-lbl">Technicians</div><div class="metric-val">${total||'—'}</div></div>
       <div class="metric"><div class="metric-lbl">Present</div><div class="metric-val mv-green">${present}</div></div>
@@ -900,7 +927,12 @@ function renderAttendance() {
   const myHub = state.hub;
   const hubTechs = TECHNICIANS.filter(t => (state.attendance[t]?.hub || '') === myHub);
   return `
-    <div class="page-hd"><div class="page-title">Attendance</div><div class="page-sub">${myHub} — ${dateShort()}</div></div>
+    <div class="page-hd">
+      <div class="page-hd-text"><div class="page-title">Attendance</div><div class="page-sub">${myHub} — ${dateShort()}</div></div>
+      <button class="btn-refresh" onclick="refreshPage('attendance')" title="Refresh">
+        <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> Refresh
+      </button>
+    </div>
     ${hubTechs.length===0
       ? `<div class="empty-state">No technicians checked in at ${myHub} today.</div>`
       : `<div class="tw"><table>
