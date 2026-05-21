@@ -270,11 +270,25 @@ tr:hover td{background:var(--g50)}
     </div>
 
     <!-- Step 3b: Technician direct entry -->
+    <!-- Step 3b: Technician hub selection -->
     <div class="step" id="step-tech-ready">
-      <div id="user-preview-tech" class="user-preview"></div>
-      <div class="al-info alert" id="tech-ready-note" style="margin-bottom:0">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        <span id="tech-ready-msg">Your hub will be set automatically when you scan the QR code at the entrance.</span>
+      <div id="user-preview-tech" class="user-preview" style="margin-bottom:16px"></div>
+      <div id="tech-hub-section">
+        <!-- Hub dropdown shown for technicians, info note for area_manager/head -->
+        <div id="tech-hub-picker">
+          <div class="form-group">
+            <label class="form-label">Select your hub for today</label>
+            <select class="form-select" id="tech-hub-select">
+              <option value="">Select hub...</option>
+            </select>
+          </div>
+        </div>
+        <div id="tech-role-note" style="display:none">
+          <div class="al-info alert" id="tech-ready-note" style="margin-bottom:0">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span id="tech-ready-msg"></span>
+          </div>
+        </div>
       </div>
       <button class="btn btn-blue btn-full" style="padding:13px;margin-top:16px" id="tech-ready-btn" onclick="finishLogin()">Continue</button>
     </div>
@@ -768,17 +782,37 @@ function proceedAfterAuth(u) {
     goStep('step-hub');
   } else {
     document.getElementById('user-preview-tech').innerHTML = previewHTML;
-    const msgEl = document.getElementById('tech-ready-msg');
-    const btnEl = document.getElementById('tech-ready-btn');
+    const btnEl  = document.getElementById('tech-ready-btn');
+    const picker = document.getElementById('tech-hub-picker');
+    const note   = document.getElementById('tech-role-note');
+
     if (u.role === 'technician') {
-      msgEl.textContent = 'Your hub will be set automatically when you scan the QR code at the entrance.';
-      btnEl.textContent = 'Go to Attendance';
-    } else if (u.role === 'area_manager') {
-      msgEl.textContent = 'You will see attendance and jobs across all hubs in your city.';
-      btnEl.textContent = 'Go to Dashboard';
+      // Show city-filtered hub dropdown
+      picker.style.display = 'block';
+      note.style.display   = 'none';
+      btnEl.textContent    = 'Continue';
+      const sel = document.getElementById('tech-hub-select');
+      sel.innerHTML = '<option value="">Select your hub for today...</option>';
+      const cityHubs = u.city_id ? HUBS.filter(h => h.city_id === u.city_id) : HUBS;
+      (cityHubs.length ? cityHubs : HUBS).forEach(h => {
+        const o = document.createElement('option');
+        o.value = h.name; o.textContent = h.name;
+        // Pre-select if technician has an assigned hub
+        if (u.assigned_hub_name && h.name === u.assigned_hub_name) o.selected = true;
+        sel.appendChild(o);
+      });
     } else {
-      msgEl.textContent = 'You will see attendance and jobs across all cities and hubs.';
-      btnEl.textContent = 'Go to Dashboard';
+      // Area manager / head — no hub selection needed
+      picker.style.display = 'none';
+      note.style.display   = 'block';
+      const msgEl = document.getElementById('tech-ready-msg');
+      if (u.role === 'area_manager') {
+        msgEl.textContent = 'You will see attendance and jobs across all hubs in your city.';
+        btnEl.textContent = 'Go to Dashboard';
+      } else {
+        msgEl.textContent = 'You will see attendance and jobs across all cities and hubs.';
+        btnEl.textContent = 'Go to Dashboard';
+      }
     }
     goStep('step-tech-ready');
   }
@@ -812,14 +846,33 @@ async function finishLogin() {
     ]);
     btn.textContent = 'Continue'; btn.disabled = false;
   } else if (state.user.role === 'technician') {
-    // Hub set by QR scan
-    state.hub = null; state.hubId = null;
+    // Get hub from dropdown
+    const techHubSel = document.getElementById('tech-hub-select');
+    const selectedHub = techHubSel ? techHubSel.value : '';
+    if (!selectedHub) {
+      setAlert('s3-alert', 'error', 'Please select your hub for today.');
+      // Show alert near the hub dropdown
+      const btn = document.querySelector('#step-tech-ready .btn-blue');
+      const existingAlert = document.getElementById('tech-hub-alert');
+      if (!existingAlert) {
+        const alert = document.createElement('div');
+        alert.id = 'tech-hub-alert';
+        alert.className = 'alert al-error';
+        alert.style.marginBottom = '8px';
+        alert.textContent = 'Please select your hub for today.';
+        techHubSel.parentElement.insertAdjacentElement('afterend', alert);
+      }
+      return;
+    }
+    const hubObj = HUBS.find(h => h.name === selectedHub);
+    state.hub   = selectedHub;
+    state.hubId = hubObj ? hubObj.id : null;
     state.myCheckin = null; state.myCheckout = null;
     const btn = document.querySelector('#step-tech-ready .btn-blue');
     btn.textContent = 'Loading...'; btn.disabled = true;
     await loadMyAttendance(state.user.id);
     await loadMyJobs();
-    btn.textContent = 'Go to Attendance'; btn.disabled = false;
+    btn.textContent = 'Continue'; btn.disabled = false;
   } else {
     // area_manager / head — no hub filter, load all hubs data
     state.hub = null; state.hubId = null;
@@ -1039,6 +1092,8 @@ function navigate(page) {
   if (page==='my-attendance') {
     document.getElementById('live-clock').textContent = nowFmt();
     _clockT = setInterval(()=>{ const e=document.getElementById('live-clock'); if(e) e.textContent=nowFmt(); else clearInterval(_clockT); },10000);
+    // Start duration counter if checked in but not out
+    if (state.myCheckin && !state.myCheckout) startDurationTimer();
   }
   // Auto-refresh every 30s for dashboard/attendance, 60s for work orders
   clearInterval(window._refreshT);
@@ -1061,6 +1116,40 @@ function navigate(page) {
 }
 
 function nowFmt(){ return new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}); }
+
+function calcDuration(checkinStr, checkoutStr) {
+  // Parse "HH:MM am/pm" format
+  const parse12 = s => {
+    if (!s) return null;
+    const d = new Date();
+    const [time, ampm] = s.split(' ');
+    let [h, m] = time.split(':').map(Number);
+    if (ampm?.toLowerCase() === 'pm' && h !== 12) h += 12;
+    if (ampm?.toLowerCase() === 'am' && h === 12) h = 0;
+    d.setHours(h, m, 0, 0);
+    return d;
+  };
+  const start = parse12(checkinStr);
+  const end   = checkoutStr ? parse12(checkoutStr) : new Date();
+  if (!start) return '--:--';
+  const diffMs = end - start;
+  if (diffMs < 0) return '--:--';
+  const h = Math.floor(diffMs / 3600000);
+  const m = Math.floor((diffMs % 3600000) / 60000);
+  const s = Math.floor((diffMs % 60000) / 1000);
+  if (checkoutStr) return `${h}h ${m}m`;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+let _durationTimer = null;
+function startDurationTimer() {
+  clearInterval(_durationTimer);
+  _durationTimer = setInterval(() => {
+    const el = document.getElementById('duration-timer');
+    if (!el) { clearInterval(_durationTimer); return; }
+    el.textContent = calcDuration(state.myCheckin, null);
+  }, 1000);
+}
 function now24(){ return new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false}); }
 function todayStr(){ return new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'}); }
 function dateShort(){ return new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}); }
@@ -1479,6 +1568,14 @@ function renderMyAttendance() {
       <div style="font-size:12px;color:var(--g400);font-weight:500;text-transform:uppercase;letter-spacing:.05em">Current time</div>
       <div class="clock-big" id="live-clock">${nowFmt()}</div>
       <div class="date-lbl">${todayStr()}</div>
+      ${state.myCheckin && !state.myCheckout ? `
+        <div style="font-size:13px;color:var(--blue);font-weight:500;margin-bottom:4px">
+          Duration: <span id="duration-timer" class="mono" style="font-size:14px;font-weight:700">--:--:--</span>
+        </div>` : ''}
+      ${state.myCheckin && state.myCheckout ? `
+        <div style="font-size:13px;color:var(--green);font-weight:500;margin-bottom:4px">
+          Total: <span class="mono" style="font-weight:700">${calcDuration(state.myCheckin, state.myCheckout)}</span>
+        </div>` : ''}
       <div class="ci-times">
         <div class="ci-item"><div class="ci-lbl">Check-in</div><div class="ci-val ${state.myCheckin?'':'empty'}">${state.myCheckin||'--:--'}</div></div>
         <div class="ci-item"><div class="ci-lbl">Check-out</div><div class="ci-val ${state.myCheckout?'':'empty'}">${state.myCheckout||'--:--'}</div></div>
@@ -1486,17 +1583,21 @@ function renderMyAttendance() {
       <div id="att-status-msg"></div>
       ${!checked
         ? `<button class="btn btn-green" id="btn-checkin" style="padding:14px 40px;font-size:16px;border-radius:12px;min-width:180px;display:flex;align-items:center;gap:10px;margin:0 auto" onclick="doGeoCheckin('checkin')">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
             Check In</button>
            <div style="font-size:12px;color:var(--g400);margin-top:10px">Tap to check in — location verified automatically</div>`
         : !checkedOut
         ? `<div style="margin-bottom:14px"><span class="badge b-present" style="font-size:13px;padding:6px 16px">Checked in at ${state.myCheckin}</span></div>
            <button class="btn btn-red" id="btn-checkout" style="padding:14px 40px;font-size:16px;border-radius:12px;min-width:180px;display:flex;align-items:center;gap:10px;margin:0 auto" onclick="doGeoCheckin('checkout')">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
             Check Out</button>
            <div style="font-size:12px;color:var(--g400);margin-top:10px">Tap when leaving the hub</div>`
         : `<div style="margin-bottom:12px">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="20 6 9 17 4 12"/></svg>
+              <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+                <circle cx="28" cy="28" r="28" fill="#e6f7f2"/>
+                <circle cx="28" cy="28" r="22" fill="#0f9e6e"/>
+                <polyline points="18,28 25,35 38,21" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
            </div>
            <span class="badge b-done" style="font-size:14px;padding:8px 20px">Attendance complete</span>
            <div style="font-size:13px;color:var(--g500);margin-top:8px">${state.myCheckin} → ${state.myCheckout}</div>`}
