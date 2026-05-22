@@ -1944,7 +1944,11 @@ function renderMyJobs() {
     : myJobs.filter(j=>(j.assigned_at||'').slice(0,10) === selDate || (!j.assigned_at && selDate===todayISO));
   const activeJob = filteredJobs.find(j=>j.status==='In Progress');
   // FIFO: sort Open jobs by assigned_at ascending — only oldest can be started
-  const openJobs   = filteredJobs.filter(j=>j.status==='Open').sort((a,b)=>new Date(a.assigned_at||0)-new Date(b.assigned_at||0));
+  const _prio = {High:0,Medium:1,Low:2};
+  const openJobs = filteredJobs.filter(j=>j.status==='Open').sort((a,b)=>
+    (_prio[a.priority]??1) - (_prio[b.priority]??1) ||
+    new Date(a.assigned_at||0) - new Date(b.assigned_at||0)
+  );
   const firstOpenJob = openJobs[0];
   const open=openJobs.length;
   const inProg=filteredJobs.filter(j=>j.status==='In Progress').length;
@@ -1976,7 +1980,7 @@ function renderMyJobs() {
       Active: <strong>${activeJob.vehicle}</strong> — Complete it before starting another.
     </div>` : openJobs.length>1 ? `<div class="alert al-warn" style="margin-bottom:14px">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      FIFO order: Start <strong>${firstOpenJob?.vehicle||'first job'}</strong> first. Other jobs are locked.
+      Priority order: Start <strong>${firstOpenJob?.vehicle||'first job'}</strong> (${firstOpenJob?.priority||'High'} priority) first. Other jobs are locked.
     </div>` : ''}
     ${filteredJobs.length===0?`<div class="empty-state">No jobs found for ${fmtSel}.</div>`:''}
     ${filteredJobs.map(j=>{
