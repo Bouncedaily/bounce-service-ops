@@ -317,6 +317,7 @@ tr:hover td{background:var(--g50)}
         <div class="user-sub" id="top-role"></div>
       </div>
       <div class="hub-tag" id="top-hub"></div>
+      <button class="btn-logout" id="btn-change-hub" style="display:none;color:var(--blue);border-color:var(--blue)" onclick="openChangeHub()">Change Hub</button>
       <button class="btn-logout" onclick="doLogout()">Logout</button>
     </div>
   </div>
@@ -787,20 +788,37 @@ function proceedAfterAuth(u) {
     const note   = document.getElementById('tech-role-note');
 
     if (u.role === 'technician') {
-      // Show city-filtered hub dropdown
-      picker.style.display = 'block';
-      note.style.display   = 'none';
-      btnEl.textContent    = 'Continue';
-      const sel = document.getElementById('tech-hub-select');
-      sel.innerHTML = '<option value="">Select your hub for today...</option>';
-      const cityHubs = u.city_id ? HUBS.filter(h => h.city_id === u.city_id) : HUBS;
-      (cityHubs.length ? cityHubs : HUBS).forEach(h => {
-        const o = document.createElement('option');
-        o.value = h.name; o.textContent = h.name;
-        // Pre-select if technician has an assigned hub
-        if (u.assigned_hub_name && h.name === u.assigned_hub_name) o.selected = true;
-        sel.appendChild(o);
-      });
+      // Check if already has attendance today — skip hub selection
+      const todayStr = new Date().toISOString().slice(0,10);
+      let todayAtt = null;
+      if (!_demoMode) {
+        const rows = await sb(`attendance?user_id=eq.${u.id}&date=eq.${todayStr}&select=hub_name,hub_id,checkin_time&limit=1`);
+        todayAtt = rows && rows.length ? rows[0] : null;
+      }
+      if (todayAtt && todayAtt.hub_name) {
+        // Already checked in today — restore hub and skip selection
+        state.pendingUser._todayHub   = todayAtt.hub_name;
+        state.pendingUser._todayHubId = todayAtt.hub_id;
+        picker.style.display = 'none';
+        note.style.display   = 'block';
+        const msgEl = document.getElementById('tech-ready-msg');
+        msgEl.textContent = `You are assigned to ${todayAtt.hub_name} today. ${todayAtt.checkin_time ? 'Already checked in.' : 'Tap Continue to proceed.'}`;
+        btnEl.textContent = 'Continue';
+      } else {
+        // First login today — show hub dropdown
+        picker.style.display = 'block';
+        note.style.display   = 'none';
+        btnEl.textContent    = 'Continue';
+        const sel = document.getElementById('tech-hub-select');
+        sel.innerHTML = '<option value="">Select your hub for today...</option>';
+        const cityHubs = u.city_id ? HUBS.filter(h => h.city_id === u.city_id) : HUBS;
+        (cityHubs.length ? cityHubs : HUBS).forEach(h => {
+          const o = document.createElement('option');
+          o.value = h.name; o.textContent = h.name;
+          if (u.assigned_hub_name && h.name === u.assigned_hub_name) o.selected = true;
+          sel.appendChild(o);
+        });
+      }
     } else {
       // Area manager / head — no hub selection needed
       picker.style.display = 'none';
@@ -847,32 +865,39 @@ async function finishLogin() {
     btn.textContent = 'Continue'; btn.disabled = false;
   } else if (state.user.role === 'technician') {
     // Get hub from dropdown
-    const techHubSel = document.getElementById('tech-hub-select');
-    const selectedHub = techHubSel ? techHubSel.value : '';
+    // Use today's hub if already set, otherwise read from dropdown
+    const todayHub = state.pendingUser?._todayHub;
+    let selectedHub = todayHub || '';
     if (!selectedHub) {
-      setAlert('s3-alert', 'error', 'Please select your hub for today.');
-      // Show alert near the hub dropdown
-      const btn = document.querySelector('#step-tech-ready .btn-blue');
+      const techHubSel = document.getElementById('tech-hub-select');
+      selectedHub = techHubSel ? techHubSel.value : '';
+    }
+    if (!selectedHub) {
       const existingAlert = document.getElementById('tech-hub-alert');
       if (!existingAlert) {
-        const alert = document.createElement('div');
-        alert.id = 'tech-hub-alert';
-        alert.className = 'alert al-error';
-        alert.style.marginBottom = '8px';
-        alert.textContent = 'Please select your hub for today.';
-        techHubSel.parentElement.insertAdjacentElement('afterend', alert);
+        const al = document.createElement('div');
+        al.id = 'tech-hub-alert'; al.className = 'alert al-error';
+        al.style.marginBottom = '8px'; al.textContent = 'Please select your hub for today.';
+        const sel = document.getElementById('tech-hub-select');
+        if (sel) sel.parentElement.insertAdjacentElement('afterend', al);
       }
       return;
     }
     const hubObj = HUBS.find(h => h.name === selectedHub);
     state.hub   = selectedHub;
-    state.hubId = hubObj ? hubObj.id : null;
+    state.hubId = state.pendingUser?._todayHubId || (hubObj ? hubObj.id : null);
     state.myCheckin = null; state.myCheckout = null;
     const btn = document.querySelector('#step-tech-ready .btn-blue');
     btn.textContent = 'Loading...'; btn.disabled = true;
     await loadMyAttendance(state.user.id);
     await loadMyJobs();
     btn.textContent = 'Continue'; btn.disabled = false;
+    // Save hub to session so re-login skips hub selection
+    try {
+      const sess = JSON.parse(localStorage.getItem('bounce_session')||'{}');
+      sess.hub = state.hub; sess.hubId = state.hubId;
+      localStorage.setItem('bounce_session', JSON.stringify(sess));
+    } catch(e) {}
   } else {
     // area_manager / head — no hub filter, load all hubs data
     state.hub = null; state.hubId = null;
@@ -990,7 +1015,6 @@ const MGR_NAV = [
   {id:'dashboard', lbl:'Dashboard',   ic:'grid'},
   {id:'attendance',lbl:'Attendance',  ic:'users'},
   {id:'workorders',lbl:'Work Orders', ic:'clipboard'},
-  {id:'qr-hub',    lbl:'My Hub QR',   ic:'qr'},
 ];
 const AREA_NAV = [
   {id:'dashboard', lbl:'Dashboard',   ic:'grid'},
@@ -1020,7 +1044,60 @@ function renderTopbar() {
   document.getElementById('top-av').textContent   = initials;
   document.getElementById('top-name').textContent = state.user.name;
   document.getElementById('top-role').textContent = ROLE_LABEL[state.user.role] || state.user.role;
-  document.getElementById('top-hub').textContent  = state.hub || 'Hub: scan QR';
+  document.getElementById('top-hub').textContent  = state.hub || 'Select Hub';
+  // Show Change Hub button only for technicians
+  const chBtn = document.getElementById('btn-change-hub');
+  if (chBtn) chBtn.style.display = state.user.role === 'technician' ? 'block' : 'none';
+}
+
+function openChangeHub() {
+  const cityHubs = state.user.city_id ? HUBS.filter(h=>h.city_id===state.user.city_id) : HUBS;
+  const opts = (cityHubs.length ? cityHubs : HUBS)
+    .map(h=>`<option value="${h.name}" ${h.name===state.hub?'selected':''}>${h.name}</option>`).join('');
+  document.getElementById('modal-inner').innerHTML = `
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div class="modal-title">Change Hub</div>
+    <div class="modal-sub">Select your new hub for the rest of the day. You will need to check in at the new hub location.</div>
+    <div class="form-group">
+      <label class="form-label">New Hub</label>
+      <select class="form-select" id="new-hub-sel">
+        <option value="">Select hub...</option>${opts}
+      </select>
+    </div>
+    <div class="al-info alert" style="font-size:12px;margin-bottom:12px">
+      Working hours from both hubs will be counted for today.
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-blue btn-full" onclick="doChangeHub()">Confirm Change</button>
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    </div>`;
+  document.getElementById('modal').style.display = 'flex';
+}
+
+async function doChangeHub() {
+  const newHub = document.getElementById('new-hub-sel').value;
+  if (!newHub) { return; }
+  if (newHub === state.hub) { closeModal(); return; }
+  const hubObj = HUBS.find(h=>h.name===newHub);
+  state.hub    = newHub;
+  state.hubId  = hubObj ? hubObj.id : null;
+  state.myCheckin  = null;  // reset checkin for new hub
+  state.myCheckout = null;
+  state.myAttId    = null;
+  // Update session
+  try {
+    const sess = JSON.parse(localStorage.getItem('bounce_session')||'{}');
+    sess.hub = newHub; sess.hubId = state.hubId;
+    sess.myCheckin = null; sess.myCheckout = null; sess.myAttId = null;
+    localStorage.setItem('bounce_session', JSON.stringify(sess));
+  } catch(e) {}
+  // Remove today's hub lock so new hub is treated as fresh
+  if (state.pendingUser) state.pendingUser._todayHub = null;
+  renderTopbar();
+  closeModal();
+  await loadMyAttendance(state.user.id);
+  await loadMyJobs();
+  navigate('my-attendance');
 }
 
 function renderNav() {
@@ -1082,9 +1159,10 @@ function navigate(page) {
   c.innerHTML = (fns[page]||(() => ''))();
   if (page==='qr-hub') generateManagerQR();
   if (page==='dashboard') {
-    // Load OOS count from vehicles table
-    const hubFilter = state.hub ? `&hub_name=eq.${encodeURIComponent(state.hub)}` : '';
-    sb(`vehicles?bike_status=eq.OOS&select=reg_number${hubFilter}`).then(rows=>{
+    // Load OOS count — vehicles table uses uppercase 'OOS'
+    const isWide = state.user?.role === 'area_manager' || state.user?.role === 'head';
+    const hubFilter = (!isWide && state.hub) ? `&hub_name=eq.${encodeURIComponent(state.hub)}` : '';
+    sb(`vehicles?bike_status=eq.OOS&select=reg_number${hubFilter}&limit=2000`).then(rows=>{
       const el = document.getElementById('oos-count');
       if (el) el.textContent = rows ? rows.length : '—';
     });
@@ -1554,16 +1632,6 @@ function renderMyAttendance() {
         <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
       </button>
     </div>
-    <div class="card" style="background:linear-gradient(135deg,#1a56db 0%,#0f9e6e 100%);border:none;color:#fff;margin-bottom:16px">
-      <div style="display:flex;align-items:center;justify-content:space-between">
-        <div>
-          <div style="font-size:11px;font-weight:600;opacity:.75;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">My Incentive</div>
-          <div style="font-size:20px;font-weight:700">Coming Soon 🎯</div>
-          <div style="font-size:12px;opacity:.7;margin-top:4px">Performance-based incentives will appear here</div>
-        </div>
-        <div style="font-size:44px;opacity:.25">₹</div>
-      </div>
-    </div>
     <div class="checkin-hero">
       <div style="font-size:12px;color:var(--g400);font-weight:500;text-transform:uppercase;letter-spacing:.05em">Current time</div>
       <div class="clock-big" id="live-clock">${nowFmt()}</div>
@@ -1625,16 +1693,6 @@ function renderMyJobs() {
   const activeJob = myJobs.find(j=>j.status==='In Progress');
   return `
     <div class="page-hd"><div class="page-hd-text"><div class="page-title">My Jobs</div><div class="page-sub">${state.hub||''} — ${dateShort()}</div></div></div>
-    <div class="card" style="background:linear-gradient(135deg,#1a56db 0%,#0f9e6e 100%);border:none;color:#fff;margin-bottom:16px">
-      <div style="display:flex;align-items:center;justify-content:space-between">
-        <div>
-          <div style="font-size:11px;font-weight:600;opacity:.75;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">My Incentive</div>
-          <div style="font-size:20px;font-weight:700">Coming Soon 🎯</div>
-          <div style="font-size:12px;opacity:.7;margin-top:4px">Performance-based incentives will appear here</div>
-        </div>
-        <div style="font-size:44px;opacity:.25">₹</div>
-      </div>
-    </div>
     ${activeJob ? `<div class="alert al-info" style="margin-bottom:16px">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
       You have an active job in progress. Complete it before starting another.
