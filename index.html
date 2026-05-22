@@ -513,45 +513,48 @@ async function fetchUserByMobile(mobile) {
 // ─ LOAD TODAY'S ATTENDANCE FOR A HUB ─
 async function loadAttendanceForHub(hubId) {
   state.attendance = {};
-  // Use HUBS lookup, fall back to state.hub if not found (covers race conditions)
-  const hubName = HUBS.find(h=>h.id===hubId)?.name || state.hub || '';
+  // Resolve hub name — try HUBS lookup, then state.hub as reliable fallback
+  const hubName = (hubId ? HUBS.find(h=>h.id===hubId)?.name : null) || state.hub || '';
+  // Resolve hub id — try param, then HUBS lookup by name
+  const resolvedHubId = hubId || (hubName ? HUBS.find(h=>h.name===hubName)?.id : null);
+
   if (_demoMode) {
-    // Demo mode only — use fake data
-    DEMO_ATTENDANCE.filter(r=>r.hub_id===hubId).forEach(r => {
+    DEMO_ATTENDANCE.filter(r=>r.hub_id===resolvedHubId).forEach(r => {
       const name = r.users?.name; if (!name) return;
       state.attendance[name] = {
         status: r.status,
         checkin:  r.checkin_time  ? new Date(r.checkin_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false}) : null,
         checkout: r.checkout_time ? new Date(r.checkout_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false}) : null,
-        hub: hubName, hub_id: hubId, att_id: r.id
+        hub: hubName, hub_id: resolvedHubId, att_id: r.id
       };
     });
     return;
   }
-  // Live mode — fetch from Supabase, show empty if no rows yet (no fallback to demo)
-  // Query by hub_name first (most reliable), then hub_id as secondary
-  const [rowsByName, rowsById] = await Promise.all([
-    hubName ? sb(`attendance?hub_name=eq.${encodeURIComponent(hubName)}&date=eq.${TODAY}&select=id,status,checkin_time,checkout_time,user_id,approval_status,approved_by_name,remarks,users(name)`) : Promise.resolve([]),
-    hubId   ? sb(`attendance?hub_id=eq.${hubId}&date=eq.${TODAY}&select=id,status,checkin_time,checkout_time,user_id,approval_status,approved_by_name,remarks,users(name)`)   : Promise.resolve([])
-  ]);
-  // Merge and deduplicate by user_id (hub_name rows take priority)
+
+  // Build queries — always query by hub_name (most reliable), add hub_id query if available
+  const queries = [];
+  if (hubName) queries.push(sb(`attendance?hub_name=eq.${encodeURIComponent(hubName)}&date=eq.${TODAY}&select=id,status,checkin_time,checkout_time,user_id,approval_status,approved_by_name,remarks,users(name)`));
+  if (resolvedHubId) queries.push(sb(`attendance?hub_id=eq.${resolvedHubId}&date=eq.${TODAY}&select=id,status,checkin_time,checkout_time,user_id,approval_status,approved_by_name,remarks,users(name)`));
+  if (!queries.length) { console.warn('[loadAttendanceForHub] no hub name or id available'); return; }
+
+  const results = await Promise.all(queries);
+  // Merge and deduplicate by user_id
   const seen = new Set();
-  const rows = [...(rowsByName||[]), ...(rowsById||[])].filter(r => {
-    if (seen.has(r.user_id)) return false;
+  const rows = results.flatMap(r=>r||[]).filter(r => {
+    if (!r.user_id || seen.has(r.user_id)) return false;
     seen.add(r.user_id); return true;
   });
-  if (rows) {
-    rows.forEach(r => {
-      const name = r.users?.name; if (!name) return;
-      state.attendance[name] = {
-        status:   r.status,
-        checkin:  r.checkin_time  ? new Date(r.checkin_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false}) : null,
-        checkout: r.checkout_time ? new Date(r.checkout_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false}) : null,
-        hub: hubName, hub_id: hubId, att_id: r.id,
-        approval: r.approval_status, approved_by: r.approved_by_name, remarks: r.remarks
-      };
-    });
-  }
+  rows.forEach(r => {
+    const name = r.users?.name; if (!name) return;
+    state.attendance[name] = {
+      status:   r.status,
+      checkin:  r.checkin_time  ? new Date(r.checkin_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false}) : null,
+      checkout: r.checkout_time ? new Date(r.checkout_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false}) : null,
+      hub: hubName, hub_id: resolvedHubId, att_id: r.id,
+      approval: r.approval_status, approved_by: r.approved_by_name, remarks: r.remarks
+    };
+  });
+  console.log('[loadAttendanceForHub]', hubName, '→', Object.keys(state.attendance).length, 'records');
 }
 
 // ─ LOAD TODAY'S WORK ORDERS FOR A HUB ─
