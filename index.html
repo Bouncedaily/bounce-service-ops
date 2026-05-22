@@ -719,6 +719,54 @@ async function saveAttOverride(techName, status, hubId) {
 }
 
 // ─ SAVE WORK ORDER ─
+// ── Duplicate vehicle assignment check ──────────────────────────────────────
+async function checkVehicleDuplicate(regNum) {
+  // Returns: null (no duplicate) | {status:'open', tech, woId, woDbId} | {status:'in_progress', tech, woId}
+  if (_demoMode || !regNum) return null;
+  const rows = await sb(`work_orders?vehicle_reg=eq.${encodeURIComponent(regNum)}&status=in.(Open,In Progress)&select=id,wo_number,status,users!work_orders_assigned_tech_id_fkey(name)&order=assigned_at.desc&limit=5`);
+  if (!rows || !rows.length) return null;
+  // In Progress takes priority
+  const inProg = rows.find(r=>r.status==='In Progress');
+  if (inProg) return { status:'in_progress', tech: inProg.users?.name||'another technician', woId: inProg.wo_number, woDbId: inProg.id };
+  const open = rows.find(r=>r.status==='Open');
+  if (open) return { status:'open', tech: open.users?.name||'another technician', woId: open.wo_number, woDbId: open.id };
+  return null;
+}
+
+function showDupPopup(dup, onReplace) {
+  const inner = document.getElementById('modal-inner');
+  if (dup.status === 'in_progress') {
+    inner.innerHTML = `
+      <button class="modal-close" onclick="closeModal()">✕</button>
+      <div class="modal-title" style="color:var(--red)">⚠️ Work In Progress</div>
+      <div class="modal-sub">Vehicle <strong>${dup.woId ? dup.woId.split(' ')[0] : ''}</strong></div>
+      <div class="alert al-error" style="margin-bottom:16px">
+        This vehicle's work is already <strong>In Progress</strong> by <strong>${dup.tech}</strong>.<br>
+        Reassignment is not allowed while work is ongoing.
+      </div>
+      <button class="btn btn-outline" style="width:100%" onclick="closeModal()">Close</button>`;
+  } else {
+    inner.innerHTML = `
+      <button class="modal-close" onclick="closeModal()">✕</button>
+      <div class="modal-title">Vehicle Already Assigned</div>
+      <div class="modal-sub">WO: <strong>${dup.woId}</strong></div>
+      <div class="alert al-warn" style="margin-bottom:16px">
+        This vehicle is already assigned to <strong>${dup.tech}</strong> but work hasn't started yet.
+        Do you want to replace the assignment?
+      </div>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-outline" style="flex:1" onclick="closeModal()">No, Cancel</button>
+        <button class="btn btn-blue" style="flex:1" onclick="closeModal();(${onReplace.toString()})()">Yes, Replace</button>
+      </div>`;
+  }
+  document.getElementById('modal').style.display='flex';
+}
+
+async function cancelPreviousWO(woDbId) {
+  if (!woDbId || _demoMode) return;
+  await sb(`work_orders?id=eq.${woDbId}`, { method:'PATCH', body: JSON.stringify({ status:'Cancelled', cancelled_at: new Date().toISOString() }) });
+}
+
 async function saveWorkOrder(wo) {
   if (_demoMode) { return { ...wo, id: 'demo-wo-'+Date.now() }; }
   const r = await fetch(SUPABASE_URL+'/rest/v1/work_orders', {
@@ -1555,21 +1603,34 @@ async function addWO() {
   const woType = submType.toLowerCase().includes('oos') ? 'oos' : 'running_repair';
   if(!v||!iss||!techName){document.getElementById('wo-msg').innerHTML='<div class="alert al-error">Fill all fields and select a technician.</div>';return;}
   const techUser = ALL_USERS.find(u=>u.name===techName);
-  const woNum = 'WO-'+String(Date.now()).slice(-6);
   const btn = document.querySelector('.wo-form-wrap .btn-blue');
-  btn.textContent='Saving...'; btn.disabled=true;
+
+  // Duplicate vehicle check
+  const dup = await checkVehicleDuplicate(v);
+  if (dup) {
+    showDupPopup(dup, async () => {
+      await cancelPreviousWO(dup.woDbId);
+      await _doSaveWO_SM(v, iss, p, woType, techUser, {id: state.hubId}, btn);
+    });
+    return;
+  }
+  await _doSaveWO_SM(v, iss, p, woType, techUser, {id: state.hubId}, btn);
+}
+
+async function _doSaveWO_SM(v, iss, p, woType, techUser, hubObj, btn) {
+  const woNum = 'WO-'+String(Date.now()).slice(-6);
+  if (btn) { btn.textContent='Saving...'; btn.disabled=true; }
   const saved = await saveWorkOrder({
     wo_number: woNum, vehicle_reg: v, issue: iss,
     assigned_tech_id: techUser?.id || null,
-    hub_id: state.hubId,
+    hub_id: hubObj?.id || null,
     priority: p, status: 'Open',
     wo_type: woType,
     assigned_by_id: state.user.id
   });
-  btn.textContent='Assign Work Order'; btn.disabled=false;
+  if (btn) { btn.textContent='Assign Work Order'; btn.disabled=false; }
   if (saved) {
-    document.getElementById('wo-msg').innerHTML=`<div class="alert al-success">✓ ${woNum} (${woType==='oos'?'OOS':'Running Repair'}) assigned to ${techName}</div>`;
-    // Clear search fields
+    document.getElementById('wo-msg').innerHTML=`<div class="alert al-success">✓ ${woNum} (${woType==='oos'?'OOS':'Running Repair'}) assigned</div>`;
     document.getElementById('veh-search').value='';
     document.getElementById('wov').value='';
     document.getElementById('veh-selected').style.display='none';
@@ -1628,8 +1689,21 @@ async function addWOWide() {
   const woType  = submType.toLowerCase().includes('oos') ? 'oos' : 'running_repair';
   const techUser = ALL_USERS.find(u=>u.name===techName);
   const hubObj  = HUBS.find(h=>h.name===hubName);
-  const woNum   = 'WO-'+String(Date.now()).slice(-6);
   const btn     = document.querySelector('#wo-form-wide .btn-blue');
+
+  const dup = await checkVehicleDuplicate(v);
+  if (dup) {
+    showDupPopup(dup, async () => {
+      await cancelPreviousWO(dup.woDbId);
+      await _doSaveWO_Wide(v, iss, p, woType, techUser, hubObj, hubName, techName, btn);
+    });
+    return;
+  }
+  await _doSaveWO_Wide(v, iss, p, woType, techUser, hubObj, hubName, techName, btn);
+}
+
+async function _doSaveWO_Wide(v, iss, p, woType, techUser, hubObj, hubName, techName, btn) {
+  const woNum = 'WO-'+String(Date.now()).slice(-6);
   if (btn) { btn.textContent='Saving...'; btn.disabled=true; }
   const saved = await saveWorkOrder({
     wo_number: woNum, vehicle_reg: v, issue: iss,
@@ -2616,7 +2690,20 @@ async function assignWideJC(jcNum, regNum, hubName, techName) {
   if (!techName) return;
   const techUser = ALL_USERS.find(u=>u.name===techName);
   const hubObj   = HUBS.find(h=>h.name===hubName);
-  const woNum    = 'WO-'+String(Date.now()).slice(-6);
+
+  const dup = await checkVehicleDuplicate(regNum);
+  if (dup) {
+    showDupPopup(dup, async () => {
+      await cancelPreviousWO(dup.woDbId);
+      await _doAssignWideJC(jcNum, regNum, techUser, hubObj);
+    });
+    return;
+  }
+  await _doAssignWideJC(jcNum, regNum, techUser, hubObj);
+}
+
+async function _doAssignWideJC(jcNum, regNum, techUser, hubObj) {
+  const woNum = 'WO-'+String(Date.now()).slice(-6);
   const saved = await saveWorkOrder({
     wo_number: woNum, vehicle_reg: regNum, issue: `Assigned from JC ${jcNum}`,
     assigned_tech_id: techUser?.id || null,
@@ -2625,7 +2712,6 @@ async function assignWideJC(jcNum, regNum, hubName, techName) {
     assigned_by_id: state.user.id
   });
   if (saved) {
-    // Clear cache and reload
     if (window._jcCache) window._jcCache = {};
     navigate('workorders');
   } else {
