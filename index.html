@@ -785,7 +785,8 @@ window._dupConfirmReplace = async function() {
 
 async function cancelPreviousWO(woDbId) {
   if (!woDbId || _demoMode) return;
-  await sb(`work_orders?id=eq.${woDbId}`, { method:'PATCH', body: JSON.stringify({ status:'Cancelled' }) });
+  // Use 'Done' as the close status — 'Cancelled' is not a valid enum value
+  await sb(`work_orders?id=eq.${woDbId}`, { method:'PATCH', body: JSON.stringify({ status:'Done', completed_at: new Date().toISOString() }) });
 }
 
 async function saveWorkOrder(wo) {
