@@ -2340,7 +2340,9 @@ function jumpToSide(i) {
 
 function checkAllCaptured() {
   const allDone = _photoSession.sides.every(s=>_photoSession.captured[s]);
-  document.getElementById('pm-done-btn').style.display = allDone ? 'block' : 'none';
+  const btn = document.getElementById('pm-done-btn');
+  btn.style.display = allDone ? 'block' : 'none';
+  btn.textContent = _photoSession.phase==='start' ? '✓ Upload & Start' : '✓ Upload & Complete';
 }
 
 async function finishPhotoSession() {
