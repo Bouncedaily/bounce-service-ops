@@ -1645,38 +1645,71 @@ function filterVehiclesWide(query) {
   const cnt = document.getElementById('veh-count-wide');
   if (!dd) return;
   const q = (query||'').toLowerCase().trim();
-  const matches = q.length<2 ? [] : VEHICLES.filter(v=>
-    (v.reg_number||'').toLowerCase().includes(q)||
+  if (q.length < 2) { dd.style.display='none'; if(cnt) cnt.textContent=''; return; }
+  const matches = VEHICLES.filter(v=>
+    (v.reg_number||'').toLowerCase().includes(q) ||
     (v.model_name||'').toLowerCase().includes(q)
-  ).slice(0,30);
+  );
+  // OOS first
+  window._vehResultsWide = [
+    ...matches.filter(v=>v.bike_status==='OOS'),
+    ...matches.filter(v=>v.bike_status!=='OOS')
+  ].slice(0, 50);
   if (cnt) cnt.textContent = matches.length ? matches.length+' found' : '';
-  if (!matches.length) { dd.style.display='none'; return; }
-  // OOS vehicles first
-  const sorted = [...matches.filter(v=>v.bike_status==='OOS'), ...matches.filter(v=>v.bike_status!=='OOS')];
-  dd.innerHTML = sorted.map(v=>{
-    const oos = v.bike_status !== 'Active_rental' ? ` · <span style="color:var(--red);font-weight:600">${v.bike_status}</span>` : '';
-    return `<div style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--g100)" 
-      onmousedown="selectVehicleWide(${JSON.stringify(v).replace(/"/g,'&quot;')})"
+  if (!window._vehResultsWide.length) {
+    dd.innerHTML = `<div style="padding:12px 14px;font-size:13px;color:var(--g400)">No vehicles found for "${query}"</div>`;
+    dd.style.display='block'; return;
+  }
+  dd.innerHTML = window._vehResultsWide.map((v,i) => {
+    const model       = v.model_name || '';
+    const statusColor = v.bike_status==='Active_rental' ? 'var(--green)' : 'var(--red)';
+    const statusLabel = v.bike_status==='Active_rental' ? 'Active' : (v.bike_status||'');
+    const jc          = window._jcLookup?.[v.reg_number];
+    const jcNum       = jc?.job_card_number  || '—';
+    const subType     = jc?.submission_type  || '—';
+    const parts       = jc?.parts_to_be_changed
+      ? jc.parts_to_be_changed.split(',').filter(p=>p.trim()).length + ' part(s)'
+      : '—';
+    const jcStatus    = jc?.current_jc_status || '';
+    return `<div onclick="selectVehicleWide(${i})" style="padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--g100);transition:background .1s"
       onmouseover="this.style.background='var(--g50)'" onmouseout="this.style.background=''">
-      <span style="font-weight:500">${v.reg_number}</span> · ${v.model_name||'—'}${oos}
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
+        <span style="font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:var(--g900)">${v.reg_number}</span>
+        <span style="font-size:10px;padding:2px 7px;border-radius:10px;background:${v.bike_status==='Active_rental'?'var(--green-lt)':'var(--red-lt)'};color:${statusColor};font-weight:600">${statusLabel}</span>
+      </div>
+      <div style="font-size:12px;color:var(--g500);margin-bottom:2px">${model}</div>
+      ${jc ? `<div style="font-size:11px;color:var(--g400)">JC: ${jcNum} &nbsp;·&nbsp; Type: ${subType} &nbsp;·&nbsp; Parts: ${parts}${jcStatus?' &nbsp;·&nbsp; '+jcStatus:''}</div>` : ''}
     </div>`;
   }).join('');
   dd.style.display='block';
 }
 
-function selectVehicleWide(v) {
+function selectVehicleWide(idx) {
+  const v = window._vehResultsWide[idx];
   document.getElementById('wov-wide').value = v.reg_number;
   document.getElementById('veh-search-wide').value = v.reg_number;
   document.getElementById('veh-dropdown-wide').style.display='none';
+  const model       = v.model_name || '';
+  const statusLabel = v.bike_status==='Active_rental' ? 'Active' : (v.bike_status||'');
+  const statusColor = v.bike_status==='Active_rental' ? 'var(--green)' : 'var(--red)';
+  const jc          = window._jcLookup?.[v.reg_number];
+  const jcNum       = jc?.job_card_number || '—';
+  const subType     = jc?.submission_type || '—';
+  const parts       = jc?.parts_to_be_changed
+    ? jc.parts_to_be_changed.split(',').filter(p=>p.trim()).length + ' part(s)'
+    : '—';
+  const jcStatus    = jc?.current_jc_status || '';
   const jcEl = document.getElementById('veh-jc-info-wide');
-  const j = window._jcLookup?.[v.reg_number];
-  if (jcEl && j) {
-    jcEl.innerHTML = `<div style="margin-top:6px;padding:8px 10px;background:var(--blue-lt);border-radius:6px;font-size:12px;line-height:1.8">
-      <strong>JC:</strong> ${j.job_card_number||'—'} &nbsp;·&nbsp;
-      <strong>TAT:</strong> ${j.overall_tat_days?.toFixed(1)||'—'}d &nbsp;·&nbsp;
-      <strong>Type:</strong> ${j.submission_type||'—'}
+  if (jcEl) {
+    jcEl.innerHTML = `<div style="margin-top:8px;padding:10px 12px;background:var(--g50);border:1px solid var(--g200);border-radius:8px;font-size:12px;line-height:1.9">
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+        <span style="font-family:'DM Mono',monospace;font-weight:600;color:var(--g900)">${v.reg_number}</span>
+        <span style="font-size:10px;padding:2px 7px;border-radius:10px;background:${v.bike_status==='Active_rental'?'var(--green-lt)':'var(--red-lt)'};color:${statusColor};font-weight:600">${statusLabel}</span>
+      </div>
+      <div style="color:var(--g500)">${model}</div>
+      ${jc ? `<div style="color:var(--g500);margin-top:2px">JC: <strong>${jcNum}</strong> &nbsp;·&nbsp; Type: <strong>${subType}</strong> &nbsp;·&nbsp; Parts: <strong>${parts}</strong>${jcStatus?' &nbsp;·&nbsp; '+jcStatus:''}</div>` : ''}
     </div>`;
-  } else if (jcEl) { jcEl.innerHTML=''; }
+  }
 }
 
 // ─ HUB QR (manager sees ONLY their hub's QR) ─
@@ -1922,6 +1955,13 @@ function filterVehicles(query) {
     const odo = v.current_odometer ? `${v.current_odometer.toLocaleString()} km` : '';
     const statusColor = v.bike_status === 'Active_rental' ? 'var(--green)' : 'var(--red)';
     const statusLabel = v.bike_status === 'Active_rental' ? 'Active' : (v.bike_status || '');
+    const jc       = window._jcLookup?.[v.reg_number];
+    const jcNum    = jc?.job_card_number  || '—';
+    const subType  = jc?.submission_type  || '—';
+    const parts    = jc?.parts_to_be_changed
+      ? jc.parts_to_be_changed.split(',').filter(p=>p.trim()).length + ' part(s)'
+      : '—';
+    const jcStat   = jc?.current_jc_status || '';
     return `<div onclick="selectVehicle(${i})" style="padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--g100);transition:background .1s"
       onmouseover="this.style.background='var(--g50)'" onmouseout="this.style.background=''"
     >
@@ -1929,7 +1969,8 @@ function filterVehicles(query) {
         <span style="font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:var(--g900)">${reg}</span>
         <span style="font-size:10px;padding:2px 7px;border-radius:10px;background:${v.bike_status==='Active_rental'?'var(--green-lt)':'var(--red-lt)'};color:${statusColor};font-weight:600">${statusLabel}</span>
       </div>
-      <div style="font-size:12px;color:var(--g500)">${model}${rider?' · '+rider:''}${odo?' · '+odo:''}</div>
+      <div style="font-size:12px;color:var(--g500);margin-bottom:2px">${model}</div>
+      ${jc ? `<div style="font-size:11px;color:var(--g400)">JC: ${jcNum} &nbsp;·&nbsp; Type: ${subType} &nbsp;·&nbsp; Parts: ${parts}${jcStat?' &nbsp;·&nbsp; '+jcStat:''}</div>` : ''}
     </div>`;
   }).join('');
   dd.style.display='block';
@@ -1950,13 +1991,24 @@ function selectVehicle(idx) {
   const odo = v.current_odometer ? `${v.current_odometer.toLocaleString()} km` : '';
   const oos = v.bike_status !== 'Active_rental' ? ` · <span style="color:var(--red);font-weight:600">${v.bike_status}</span>` : '';
   document.getElementById('veh-selected').style.display='block';
+  const jc       = window._jcLookup?.[v.reg_number];
+  const jcNum    = jc?.job_card_number || '—';
+  const subType  = jc?.submission_type || '—';
+  const partsArr = jc?.parts_to_be_changed ? jc.parts_to_be_changed.split(',').filter(p=>p.trim()) : [];
+  const partsStr = partsArr.length ? partsArr.length+' part(s)' : '—';
+  const jcStat   = jc?.current_jc_status || '';
+  document.getElementById('veh-selected').style.display='block';
   document.getElementById('veh-selected').innerHTML =
-    `✓ <strong>${v.reg_number}</strong> — ${model}${rider?' · Rider: '+rider:''}${odo?' · '+odo:''}${oos}`;
-  // Show JC info if available
+    `<div style="padding:10px 12px;background:var(--g50);border:1px solid var(--g200);border-radius:8px;font-size:12px;line-height:1.9">
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:2px">
+        <span style="font-family:'DM Mono',monospace;font-weight:600;color:var(--g900)">${v.reg_number}</span>
+        <span style="font-size:10px;padding:2px 7px;border-radius:10px;background:${v.bike_status==='Active_rental'?'var(--green-lt)':'var(--red-lt)'};color:${v.bike_status==='Active_rental'?'var(--green)':'var(--red)'};font-weight:600">${v.bike_status==='Active_rental'?'Active':(v.bike_status||'')}</span>
+      </div>
+      <div style="color:var(--g500)">${model}</div>
+      ${jc?`<div style="color:var(--g500);margin-top:2px">JC: <strong>${jcNum}</strong> &nbsp;·&nbsp; Type: <strong>${subType}</strong> &nbsp;·&nbsp; Parts: <strong>${partsStr}</strong>${jcStat?' &nbsp;·&nbsp; '+jcStat:''}</div>`:''}
+    </div>`;
   const jcInfoEl = document.getElementById('veh-jc-info');
-  if (jcInfoEl && window._jcInfoFn) {
-    jcInfoEl.innerHTML = window._jcInfoFn(v.reg_number) || '';
-  }
+  if (jcInfoEl) jcInfoEl.innerHTML='';
 }
 
 // Close dropdown when clicking outside
