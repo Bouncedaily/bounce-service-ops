@@ -2669,19 +2669,28 @@ async function renderWorkOrdersWideAsync(role) {
       </button>
     </div>
 
-    ${role==='area_manager' ? `
+    <!-- STEP 1: Single top-level filter for ALL roles -->
+    <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center">
+      ${role==='head' ? `
+        <select class="form-select" style="width:160px" onchange="_headSelectedCity=this.value;_headSelectedHub='';window._woPgWide={ua:0,as:0};navigate('workorders')">
+          <option value="">All Cities</option>${cityOptions}
+        </select>
+        <select class="form-select" style="width:180px" onchange="_headSelectedHub=this.value;window._woPgWide={ua:0,as:0};navigate('workorders')">
+          <option value="">All Hubs</option>${hubOptions}
+        </select>
+      ` : `
+        <select class="form-select" style="width:220px" onchange="loadHubForAssign(this.value)">
+          <option value="">Select Hub...</option>
+          ${cityHubs.map(h=>`<option value="${h.name}" ${h.name===_amAssignHub?'selected':''}>${h.name}</option>`).join('')}
+        </select>
+        ${_amAssignHub ? `<span style="font-size:12px;color:var(--g400)">Showing data for <strong style="color:var(--g700)">${_amAssignHub}</strong></span>` : '<span style="font-size:12px;color:var(--g400)">Select a hub to load data</span>'}
+      `}
+    </div>
+
+    <!-- STEP 2: Assign form (AM only, shown after hub selected) -->
+    ${role==='area_manager' && _amAssignHub ? `
     <div class="wo-form-wrap" id="wo-form-wide">
-      <div class="wo-form-title">Assign work order</div>
-      <div class="form-row" style="margin-bottom:12px">
-        <div class="form-group" style="margin:0">
-          <label class="form-label">Hub <span style="color:var(--g400);font-weight:400">(select to load vehicles &amp; techs)</span></label>
-          <select class="form-select" onchange="loadHubForAssign(this.value)">
-            <option value="">Select hub...</option>
-            ${cityHubs.map(h=>`<option value="${h.name}" ${h.name===_amAssignHub?'selected':''}>${h.name}</option>`).join('')}
-          </select>
-        </div>
-      </div>
-      ${_amAssignHub ? `
+      <div class="wo-form-title">Assign work order — ${_amAssignHub}</div>
       <div class="form-row">
         <div class="form-group" style="margin:0">
           <label class="form-label">Vehicle <span style="color:var(--g400);font-weight:400">(type reg no. to search)</span></label>
@@ -2711,29 +2720,18 @@ async function renderWorkOrdersWideAsync(role) {
               .map(([n])=>`<option value="${n}">${n}</option>`).join('')||'<option disabled>No technicians present at this hub</option>'}
         </select>
       </div>
-      <button class="btn btn-blue" style="margin-top:12px" onclick="addWOWide()">Assign Work Order</button>` : ''}
+      <button class="btn btn-blue" style="margin-top:12px" onclick="addWOWide()">Assign Work Order</button>
       <div id="wo-msg-wide" style="margin-top:8px"></div>
     </div>` : ''}
 
-    <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-      ${role==='head'?`
-        <select class="form-select" style="width:160px" onchange="_headSelectedCity=this.value;_headSelectedHub='';window._woPgWide={ua:0,as:0};navigate('workorders')">
-          <option value="">All Cities</option>${cityOptions}
-        </select>
-        <select class="form-select" style="width:180px" onchange="_headSelectedHub=this.value;window._woPgWide={ua:0,as:0};navigate('workorders')">
-          <option value="">All Hubs</option>${hubOptions}
-        </select>
-      `:''}
-    </div>
-
+    <!-- STEP 3: Work tables -->
     <div style="display:flex;align-items:center;gap:10px;margin:12px 0 8px;flex-wrap:wrap">
       <div style="font-size:15px;font-weight:600;color:var(--g800)">
         Unassigned Work <span class="badge b-absent" style="font-size:11px">${uaSorted.length} open</span>
       </div>
-
     </div>
     ${uaSorted.length===0
-      ? `<div class="empty-state" style="padding:16px">No unassigned OOS job cards.</div>`
+      ? `<div class="empty-state" style="padding:16px">${_amAssignHub||selectedHub||selectedCity ? 'No unassigned OOS job cards.' : 'Select a hub to view work orders.'}</div>`
       : `<div class="tw">
           <table><thead>${TH_UA}</thead><tbody>${paginate(uaSorted,window._woPgWide.ua).map(rowUA).join('')}</tbody></table>
           ${pagerWide(uaSorted,window._woPgWide.ua,'ua')}
@@ -2743,7 +2741,7 @@ async function renderWorkOrdersWideAsync(role) {
       Assigned Work <span class="badge b-inprog" style="font-size:11px">${asSorted.length}</span>
     </div>
     ${asSorted.length===0
-      ? `<div class="empty-state" style="padding:16px">No assigned OOS job cards.</div>`
+      ? `<div class="empty-state" style="padding:16px">${_amAssignHub||selectedHub||selectedCity ? 'No assigned OOS job cards.' : 'Select a hub to view work orders.'}</div>`
       : `<div class="tw">
           <table><thead>${TH_AS}</thead><tbody>${paginate(asSorted,window._woPgWide.as).map(rowAS).join('')}</tbody></table>
           ${pagerWide(asSorted,window._woPgWide.as,'as')}
