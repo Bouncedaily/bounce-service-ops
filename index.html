@@ -863,9 +863,10 @@ function doLogout() {
 
 // ─ NAV ─
 const MGR_NAV = [
-  {id:'dashboard', lbl:'Dashboard',   ic:'grid'},
-  {id:'attendance',lbl:'Attendance',  ic:'users'},
-  {id:'workorders',lbl:'Work Orders', ic:'clipboard'},
+  {id:'dashboard',     lbl:'Dashboard',     ic:'grid'},
+  {id:'attendance',    lbl:'Attendance',    ic:'users'},
+  {id:'workorders',    lbl:'Work Orders',   ic:'clipboard'},
+  {id:'work-assigned', lbl:'Work Assigned', ic:'tool'},
 ];
 const AREA_NAV = [
   {id:'dashboard', lbl:'Dashboard',   ic:'grid'},
@@ -920,6 +921,11 @@ function navigate(page) {
   const role = state.user?.role;
   const c = document.getElementById('content');
   // Async pages
+  if (page==='work-assigned' && role==='hub_manager') {
+    c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading...</div>';
+    renderWorkAssignedAsync().then(html=>{ if(currentPage===page) c.innerHTML=html; });
+    return;
+  }
   if (page==='workorders' && role==='hub_manager') {
     c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading work orders...</div>';
     (async () => {
@@ -1343,16 +1349,6 @@ function renderMyAttendance() {
         <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
       </button>
     </div>
-    <div class="card" style="background:linear-gradient(135deg,#1a56db 0%,#0f9e6e 100%);border:none;color:#fff;margin-bottom:16px">
-      <div style="display:flex;align-items:center;justify-content:space-between">
-        <div>
-          <div style="font-size:11px;font-weight:600;opacity:.75;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">My Incentive</div>
-          <div style="font-size:20px;font-weight:700">Coming Soon 🎯</div>
-          <div style="font-size:12px;opacity:.7;margin-top:4px">Performance-based incentives will appear here</div>
-        </div>
-        <div style="font-size:44px;opacity:.25">₹</div>
-      </div>
-    </div>
     <div class="checkin-hero">
       <div style="font-size:12px;color:var(--g400);font-weight:500;text-transform:uppercase;letter-spacing:.05em">Current time</div>
       <div class="clock-big" id="live-clock">${nowFmt()}</div>
@@ -1393,16 +1389,6 @@ function renderMyJobs() {
   const activeJob = myJobs.find(j=>j.status==='In Progress');
   return `
     <div class="page-hd"><div class="page-hd-text"><div class="page-title">My Jobs</div><div class="page-sub">${state.hub||''} — ${dateShort()}</div></div></div>
-    <div class="card" style="background:linear-gradient(135deg,#1a56db 0%,#0f9e6e 100%);border:none;color:#fff;margin-bottom:16px">
-      <div style="display:flex;align-items:center;justify-content:space-between">
-        <div>
-          <div style="font-size:11px;font-weight:600;opacity:.75;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">My Incentive</div>
-          <div style="font-size:20px;font-weight:700">Coming Soon 🎯</div>
-          <div style="font-size:12px;opacity:.7;margin-top:4px">Performance-based incentives will appear here</div>
-        </div>
-        <div style="font-size:44px;opacity:.25">₹</div>
-      </div>
-    </div>
     ${activeJob ? `<div class="alert al-info" style="margin-bottom:16px">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
       You have an active job in progress. Complete it before starting another.
@@ -2225,6 +2211,106 @@ function renderAttendanceWide(role) {
 // ─ DASHBOARD WITH CITY/HUB FILTERS & IDLE/OOS WIDGETS ───────────────────
 let _dashFilterCity = '';
 let _dashFilterHub  = '';
+
+// ─ WORK ASSIGNED PAGE ─
+// Shows all work orders assigned at this hub, with date filter (default: today)
+async function renderWorkAssignedAsync() {
+  const myHub = state.hub;
+  if (!myHub) return '<div class="empty-state">No hub selected.</div>';
+
+  // Load ALL work orders for this hub (not just today)
+  let allJobs = [];
+  if (!_demoMode) {
+    const rows = await sb(
+      `work_orders?hub_name=eq.${encodeURIComponent(myHub)}&select=id,wo_number,vehicle_reg,issue,assigned_tech_name,priority,status,wo_type,assigned_at,started_at,completed_at,job_card_number,current_jc_status&order=assigned_at.desc&limit=1000`
+    );
+    allJobs = rows || [];
+  } else {
+    allJobs = state.jobs.map(j=>({
+      id: j.db_id, wo_number: j.id, vehicle_reg: j.vehicle,
+      issue: j.issue, assigned_tech_name: j.tech, priority: j.priority,
+      status: j.status, wo_type: j.wo_type, assigned_at: new Date().toISOString(),
+      job_card_number: j.jc_number||null, current_jc_status: null
+    }));
+  }
+
+  // Get selected date from filter (default today)
+  const todayISO = new Date().toISOString().slice(0,10);
+  const selDate  = window._waDate || todayISO;
+
+  // Filter by selected date
+  const filtered = selDate === 'all'
+    ? allJobs
+    : allJobs.filter(j => j.assigned_at && j.assigned_at.slice(0,10) === selDate);
+
+  const fmtDate = d => d ? new Date(d).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:true}) : '—';
+  const fmtDateOnly = d => d ? new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+
+  // Stats
+  const open   = filtered.filter(j=>j.status==='Open').length;
+  const inProg = filtered.filter(j=>j.status==='In Progress').length;
+  const done   = filtered.filter(j=>j.status==='Done').length;
+
+  const rows = filtered.map(j => {
+    const sc = j.status==='Done'?'b-done':j.status==='In Progress'?'b-inprog':'b-open';
+    const pc = j.priority==='High'?'b-high':j.priority==='Low'?'b-low':'b-med';
+    return `<tr>
+      <td class="mono" style="font-size:11px;color:var(--g400)">${j.wo_number||'—'}</td>
+      <td><strong>${j.vehicle_reg||'—'}</strong></td>
+      <td class="mono" style="font-size:11px;color:var(--g400)">${j.job_card_number||'—'}</td>
+      <td style="font-size:13px">${j.issue||'—'}</td>
+      <td style="font-size:12px">${j.assigned_tech_name||'—'}</td>
+      <td><span class="badge ${pc}">${j.priority}</span></td>
+      <td><span class="badge ${sc}">${j.status}</span></td>
+      <td style="font-size:11px;color:var(--g500)">${fmtDate(j.assigned_at)}</td>
+      <td style="font-size:11px;color:var(--g500)">${j.completed_at ? fmtDate(j.completed_at) : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+    <div class="page-hd">
+      <div class="page-hd-text">
+        <div class="page-title">Work Assigned</div>
+        <div class="page-sub">${myHub}</div>
+      </div>
+      <button class="btn-refresh" onclick="window._waDate=window._waDate;navigate('work-assigned')" title="Refresh">
+        <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+      </button>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <div>
+        <label class="form-label" style="margin-bottom:4px">Date</label>
+        <input type="date" class="form-input" style="width:160px;padding:7px 10px"
+          value="${selDate==='all'?todayISO:selDate}"
+          onchange="window._waDate=this.value;navigate('work-assigned')"/>
+      </div>
+      <div style="margin-top:18px">
+        <button class="btn btn-outline btn-sm" onclick="window._waDate='all';navigate('work-assigned')">All Time</button>
+      </div>
+      <div style="margin-top:18px">
+        <button class="btn btn-outline btn-sm" onclick="window._waDate='${todayISO}';navigate('work-assigned')">Today</button>
+      </div>
+    </div>
+
+    <div class="metrics" style="margin-bottom:16px">
+      <div class="metric"><div class="metric-lbl">Total</div><div class="metric-val">${filtered.length}</div></div>
+      <div class="metric"><div class="metric-lbl">Open</div><div class="metric-val mv-blue">${open}</div></div>
+      <div class="metric"><div class="metric-lbl">In Progress</div><div class="metric-val mv-amber">${inProg}</div></div>
+      <div class="metric"><div class="metric-lbl">Done</div><div class="metric-val mv-green">${done}</div></div>
+    </div>
+
+    ${filtered.length === 0
+      ? `<div class="empty-state">No work orders found for ${selDate==='all'?'all time':fmtDateOnly(selDate+'T00:00:00')}.</div>`
+      : `<div class="tw"><table>
+          <thead><tr>
+            <th>WO No.</th><th>Vehicle</th><th>JC No.</th><th>Issue</th>
+            <th>Technician</th><th>Priority</th><th>Status</th>
+            <th>Assigned At</th><th>Completed At</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>`}`;
+}
 
 // ─ INIT ─
 async function initApp() {

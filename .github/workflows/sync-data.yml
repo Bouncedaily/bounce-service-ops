@@ -1,0 +1,138 @@
+name: Sync Metabase → Supabase
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # every 5 minutes
+  workflow_dispatch:          # manual trigger from GitHub UI
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+
+    steps:
+      - name: Sync Bike Fleet + Draft JC from Metabase to Supabase
+        run: |
+          python3 << 'PYEOF'
+          import urllib.request, json, urllib.parse, time
+
+          SUPABASE_URL = "https://jpypnrrjiagscqrucslw.supabase.co"
+          SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpweXBucnJqaWFnc2NxcnVjc2x3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzNDU2NDAsImV4cCI6MjA5NDkyMTY0MH0.fesCaEsgS7r4Z6mV5S1-z54etaGNPpYlISdjjcnLfzM"
+          BIKE_URL = "https://metabaselatest-dy7gqwqrma-el.a.run.app/api/public/card/6593b97e-9e7f-4614-9952-f1078631beb2/query/json"
+          JC_URL   = "https://metabaselatest-dy7gqwqrma-el.a.run.app/api/public/card/d44b48d4-0353-4141-b1a5-aabd0254815f/query/json"
+
+          import re, http.client
+          def sb_post(path, data):
+              body = json.dumps(data).encode()
+              url  = f"{SUPABASE_URL}/rest/v1/{path}"
+              req  = urllib.request.Request(url, data=body, method="POST", headers={
+                  "apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}",
+                  "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates,return=minimal"
+              })
+              try:
+                  with urllib.request.urlopen(req, timeout=25) as r: return r.status
+              except Exception as e: print(f"  SB error: {e}"); return 500
+
+          def sb_delete(path):
+              req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/{path}", method="DELETE", headers={
+                  "apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"
+              })
+              try:
+                  with urllib.request.urlopen(req, timeout=15) as r: return r.status
+              except: return 500
+
+          def fetch_json(url):
+              req = urllib.request.Request(url, headers={"Content-Type": "application/json"})
+              with urllib.request.urlopen(req, timeout=55) as r: return json.loads(r.read())
+
+          def clean(v): return None if (v == "" or v is None) else v
+          def to_int(v):
+              try: return int(v) if v is not None else None
+              except: return None
+          def to_num(v):
+              try: return float(v) if v is not None else None
+              except: return None
+          def parse_labour(v):
+              if not v: return None
+              s = str(v).strip().lower()
+              m = re.match(r'^([\d.]+)\s*min', s)
+              if m: return round(float(m.group(1))/60, 3)
+              m = re.match(r'^([\d.]+)', s)
+              return round(float(m.group(1)), 3) if m else None
+
+          def upsert(table, records, conflict, batch=500):
+              ok = 0
+              for i in range(0, len(records), batch):
+                  status = sb_post(f"{table}?on_conflict={conflict}", records[i:i+batch])
+                  if status in (200,201,204): ok += batch
+              return ok
+
+          # ── BIKES ──
+          print("Syncing bikes...")
+          bikes = fetch_json(BIKE_URL)
+          seen = {}
+          for b in bikes:
+              if b.get("Reg_Number"): seen[b["Reg_Number"]] = b
+          bike_records = [{
+              "reg_number": clean(b["Reg_Number"]), "chassis_number": clean(b.get("Chassis Number")),
+              "city": clean(b.get("City")), "hub_name": clean(b.get("Hub name")),
+              "model_name": clean(b.get("Model Name")), "model": clean(b.get("Model Name")),
+              "bike_status": clean(b.get("Status")),
+              "status": "active" if b.get("Status")=="Active_rental" else "inactive",
+              "oos_sub_status": clean(b.get("OOS Sub Status")), "engine_number": clean(b.get("Engine Number")),
+              "current_odometer": to_int(b.get("Current Odometer")), "odometer_bucket": clean(b.get("Odometer Bucket")),
+              "pm_status": clean(b.get("PM Status")), "current_rider_name": clean(b.get("Current Rider Name")),
+              "current_rider_phone": clean(b.get("Current Rider Phone")),
+              "vehicle_serviced_since_days": to_int(b.get("Vehicle Serviced Since (Days)")),
+              "latest_oos_date": clean(b.get("Latest OOS Date")), "latest_rfd_date": clean(b.get("Latest RFD Date")),
+              "latest_running_repair_date": clean(b.get("Latest Running Repair Date")),
+              "submission_type": clean(b.get("Submission Type")), "repair_category": clean(b.get("Repair Category")),
+              "diu_update": clean(b.get("DIU Update")), "bike_id": to_int(b.get("Bike ID")),
+              "first_deployment_date": clean(b.get("1st Deployment Date")),
+          } for b in seen.values() if b.get("Reg_Number")]
+          print(f"  {len(bike_records)} bikes → upserted")
+          upsert("vehicles", bike_records, "reg_number")
+
+          # ── DRAFT JC ──
+          print("Syncing JCs...")
+          jcs = fetch_json(JC_URL)
+          non_billed = [r for r in jcs if r.get("Current JC Status") != "Billed"]
+          seen_jc = {}
+          for r in non_billed:
+              k = r.get("Job Card Number")
+              if k: seen_jc[k] = r
+          jc_records = [{
+              "job_card_number": clean(r["Job Card Number"]),
+              "dms_jc_id": str(r["DMS JC ID"]) if r.get("DMS JC ID") else None,
+              "reg_number": clean(r.get("Reg Number")), "city": clean(r.get("City")),
+              "hub_name": clean(r.get("Hub Name")), "current_jc_status": clean(r.get("Current JC Status")),
+              "parts_to_be_changed": clean(r.get("Parts to be Changed")),
+              "technician_name": clean(r.get("Technician Name")),
+              "reason_for_ending": clean(r.get("Reason for Ending")),
+              "overall_tat_days": to_num(r.get("Overall TAT (Days)")),
+              "submission_type": clean(r.get("Submission Type")),
+              "labour_time_hours": parse_labour(r.get("Labour Time (Hours)")),
+              "job_card_opened_date": clean(r.get("Job Card Opened Date")),
+              "job_card_billed_date": clean(r.get("Job Card Billed Date")),
+              "bike_status": clean(r.get("Bike Status")),
+          } for r in seen_jc.values() if r.get("Job Card Number")]
+          print(f"  {len(jc_records)} non-billed JCs → upserted")
+          upsert("draft_jc", jc_records, "job_card_number")
+
+          # Delete JCs that are now Billed
+          fresh_keys = set(seen_jc.keys())
+          get_req = urllib.request.Request(
+              f"{SUPABASE_URL}/rest/v1/draft_jc?select=job_card_number",
+              headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
+          )
+          with urllib.request.urlopen(get_req, timeout=20) as r:
+              existing = json.loads(r.read())
+          stale = [x["job_card_number"] for x in existing if x["job_card_number"] not in fresh_keys]
+          if stale:
+              for i in range(0, len(stale), 100):
+                  ids = ",".join(f'"{k}"' for k in stale[i:i+100])
+                  sb_delete(f"draft_jc?job_card_number=in.({ids})")
+              print(f"  {len(stale)} billed JCs deleted")
+
+          print("Sync complete.")
+          PYEOF
