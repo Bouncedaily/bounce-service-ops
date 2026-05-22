@@ -1943,7 +1943,10 @@ function renderMyJobs() {
     ? myJobs
     : myJobs.filter(j=>(j.assigned_at||'').slice(0,10) === selDate || (!j.assigned_at && selDate===todayISO));
   const activeJob = filteredJobs.find(j=>j.status==='In Progress');
-  const open=filteredJobs.filter(j=>j.status==='Open').length;
+  // FIFO: sort Open jobs by assigned_at ascending — only oldest can be started
+  const openJobs   = filteredJobs.filter(j=>j.status==='Open').sort((a,b)=>new Date(a.assigned_at||0)-new Date(b.assigned_at||0));
+  const firstOpenJob = openJobs[0];
+  const open=openJobs.length;
   const inProg=filteredJobs.filter(j=>j.status==='In Progress').length;
   const done=filteredJobs.filter(j=>j.status==='Done').length;
   const fmtSel = selDate==='all'?'All Time':new Date(selDate+'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
@@ -1970,7 +1973,10 @@ function renderMyJobs() {
 
     ${activeJob ? `<div class="alert al-info" style="margin-bottom:14px">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      You have an active job in progress. Complete it before starting another.
+      Active: <strong>${activeJob.vehicle}</strong> — Complete it before starting another.
+    </div>` : openJobs.length>1 ? `<div class="alert al-warn" style="margin-bottom:14px">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      FIFO order: Start <strong>${firstOpenJob?.vehicle||'first job'}</strong> first. Other jobs are locked.
     </div>` : ''}
     ${filteredJobs.length===0?`<div class="empty-state">No jobs found for ${fmtSel}.</div>`:''}
     ${filteredJobs.map(j=>{
@@ -1979,10 +1985,11 @@ function renderMyJobs() {
       const pc=j.priority==='High'?'b-high':j.priority==='Low'?'b-low':'b-med';
       const tc=j.wo_type==='oos'?'b-absent':'b-open';
       const isActive = j.status==='In Progress';
-      const isBlocked = j.status==='Open' && !!activeJob; // blocked if another job active
+      const isFirstOpen = j.status==='Open' && j===firstOpenJob;
+      const isBlocked   = j.status==='Open' && (!isFirstOpen || !!activeJob);
       const startPhotos = j.start_photos||[];
       const endPhotos = j.end_photos||[];
-      return `<div class="card" style="${isActive?'border-color:var(--blue);border-width:2px':''}">
+      return `<div class="card" style="${isActive?'border-color:var(--blue);border-width:2px':isBlocked?'opacity:0.6':''};">
         <div class="fl jc-sb g12" style="align-items:flex-start">
           <div style="flex:1;min-width:0">
             <div style="margin-bottom:2px">
@@ -2018,7 +2025,7 @@ function renderMyJobs() {
             ${j.status==='Open' && !isBlocked ? `<button class="btn btn-blue btn-sm" onclick="startJobWithPhotos(${gi})">
               📷 Start
             </button>` : ''}
-            ${isBlocked ? `<span style="font-size:11px;color:var(--g400);text-align:right">Finish active<br>job first</span>` : ''}
+            ${isBlocked ? `<div style="text-align:right"><span style="font-size:12px;color:var(--g400)">🔒</span><br><span style="font-size:10px;color:var(--g400)">Complete previous<br>job to start this</span></div>` : ''}
             ${isActive ? `<button class="btn btn-green btn-sm" onclick="endJobWithPhotos(${gi})">
               📷 Complete
             </button>` : ''}
