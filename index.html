@@ -872,6 +872,7 @@ async function finishLogin() {
   } else {
     // area_manager / head — no hub filter, load all hubs data
     state.hub = null; state.hubId = null;
+    _dashFilterCity = ''; _dashFilterHub = '';   // always start fresh on login
     const btn = document.querySelector('#step-tech-ready .btn-blue');
     btn.textContent = 'Loading...'; btn.disabled = true;
     await loadAllHubsData();
