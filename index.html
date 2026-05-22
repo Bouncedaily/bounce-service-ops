@@ -1381,8 +1381,8 @@ function renderDashboard() {
               <td><span class="badge ${bc}">${a.status[0].toUpperCase()+a.status.slice(1)}</span></td>
               <td class="mono" style="font-size:12px">${a.checkin||'—'}</td>
               <td class="mono" style="font-size:12px">${a.checkout||'—'}</td>
-              <td style="font-size:12px">${activeJob?`<span class="badge b-inprog">${activeJob.id}</span> ${activeJob.issue}`:'<span style="color:var(--g300)">—</span>'}</td>
-              <td style="font-size:12px">${nextJob?`<span class="badge b-open">${nextJob.id}</span> ${nextJob.issue}`:'<span style="color:var(--g300)">—</span>'}</td>
+              <td style="font-size:12px">${activeJob?`<span class="badge b-inprog">${activeJob.vehicle||activeJob.id}</span> ${activeJob.issue}`:'<span style="color:var(--g300)">—</span>'}</td>
+              <td style="font-size:12px">${nextJob?`<span class="badge b-open">${nextJob.vehicle||nextJob.id}</span> ${nextJob.issue}`:'<span style="color:var(--g300)">—</span>'}</td>
             </tr>`;
           }).join('')}</tbody>
         </table></div>`}`;
