@@ -1113,7 +1113,6 @@ const MGR_NAV = [
   {id:'dashboard',      lbl:'Home',      ic:'grid'},
   {id:'my-attendance',  lbl:'My Attendance',  ic:'clock'},
   {id:'attendance',     lbl:'Attendance',     ic:'users'},
-  {id:'att-calendar',   lbl:'Att. Calendar',  ic:'calendar'},
   {id:'productivity',   lbl:'Productivity',   ic:'bar-chart'},
   {id:'workorders',     lbl:'Work Orders',    ic:'clipboard'},
   {id:'work-assigned',  lbl:'Work Assigned',  ic:'tool'},
@@ -1121,14 +1120,12 @@ const MGR_NAV = [
 const AREA_NAV = [
   {id:'dashboard', lbl:'Home',   ic:'grid'},
   {id:'attendance',   lbl:'Attendance',  ic:'users'},
-  {id:'att-calendar',   lbl:'Att. Calendar',  ic:'calendar'},
   {id:'productivity',   lbl:'Productivity',   ic:'bar-chart'},
   {id:'workorders',lbl:'Work Orders', ic:'clipboard'},
 ];
 const HEAD_NAV = [
   {id:'dashboard', lbl:'Home',   ic:'grid'},
   {id:'attendance',   lbl:'Attendance',  ic:'users'},
-  {id:'att-calendar',   lbl:'Att. Calendar',  ic:'calendar'},
   {id:'productivity',   lbl:'Productivity',   ic:'bar-chart'},
   {id:'workorders',lbl:'Work Orders', ic:'clipboard'},
 ];
@@ -1278,18 +1275,25 @@ function navigate(page) {
     })();
     return;
   }
-  if (page==='att-calendar') {
-    c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading calendar...</div>';
-    loadAttCalendar(role).then(html=>{ if(currentPage===page) c.innerHTML=html; });
-    return;
-  }
+  if (page==='att-calendar') { _attTab='calendar'; navigate('attendance'); return; }
   if (page==='productivity') {
     c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading productivity...</div>';
     loadProductivity(role).then(html=>{ if(currentPage===page) c.innerHTML=html; });
     return;
   }
   if (page==='attendance' && (role==='area_manager'||role==='head')) {
-    c.innerHTML = renderAttendanceWide(role); return;
+    if (_attTab==='calendar') {
+      c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading...</div>';
+      // Render wide attendance shell first (with subtabs), then load calendar
+      const shell = renderAttendanceWide(role);
+      // Create a wrapper that has subtabs + calendar placeholder
+      c.innerHTML = shell;
+      const el = document.getElementById('att-wide-cal');
+      if (el) loadAttCalendar(role).then(html=>{ if(el) el.outerHTML=html; });
+    } else {
+      c.innerHTML = renderAttendanceWide(role);
+    }
+    return;
   }
   if (page==='att-calendar' && role==='hub_manager') {
     c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading calendar...</div>';
@@ -1305,7 +1309,12 @@ function navigate(page) {
     c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading attendance...</div>';
     (async () => {
       await loadAttendanceForHub(state.hubId);
-      if (currentPage===page) c.innerHTML = renderAttendance();
+      if (currentPage!==page) return;
+      c.innerHTML = renderAttendance();
+      if (_attTab==='calendar') {
+        const el = document.getElementById('att-cal-inner');
+        if (el) loadAttCalendar(role).then(html=>{ if(el) el.outerHTML=html; });
+      }
     })();
     return;
   }
@@ -1580,7 +1589,7 @@ function renderDashboard() {
       </div>`).join('')}
     </div>` : ''}
     <div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">Technician snapshot</div>
-    ${snapEntries.length===0
+    ${_attTab==='calendar' ? '<div id="att-wide-cal"><div style=\"padding:20px;text-align:center;color:var(--g400)\">Loading calendar...</div></div>' : snapEntries.length===0
       ? `<div class="empty-state" style="padding:32px 20px">
             <div style="font-size:32px;margin-bottom:12px">👋</div>
             <div style="font-weight:600;margin-bottom:6px;color:var(--g700)">No check-ins yet today</div>
@@ -1625,8 +1634,12 @@ function renderAttendance() {
         <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
       </button>
     </div>
+    <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--g100);padding-bottom:0">
+      <button onclick="_attTab='today';navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${_attTab==='today'?'var(--blue)':'transparent'};color:${_attTab==='today'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Today</button>
+      <button onclick="_attTab='calendar';navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${_attTab==='calendar'?'var(--blue)':'transparent'};color:${_attTab==='calendar'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Calendar</button>
+    </div>
 
-    ${allTechs.length===0 ? `<div class="empty-state" style="margin-top:40px">No attendance records for ${myHub} today.</div>` : `
+    ${_attTab==='calendar' ? '<div id="att-cal-inner"><div style=\"padding:20px;text-align:center;color:var(--g400)\">Loading...</div></div>' : allTechs.length===0 ? `<div class="empty-state" style="margin-top:40px">No attendance records for ${myHub} today.</div>` : `
 
     <!-- Present techs -->
     ${presentTechs.length ? `
@@ -3658,6 +3671,7 @@ async function getHubsForCity(cityName) { return getHubsForCitySync(cityName); }
 // ─ AREA MANAGER ATTENDANCE WITH HUB FILTER ───────────────────────────────
 let _areaAttHub    = '';
 let _calMonth      = new Date().toISOString().slice(0,7); // YYYY-MM
+let _attTab        = 'today'; // 'today' | 'calendar'
 let _prodDateFrom  = new Date(Date.now()-30*86400000).toISOString().slice(0,10);
 let _prodDateTo    = new Date().toISOString().slice(0,10);
 let _prodHub       = '';
@@ -3688,6 +3702,10 @@ function renderAttendanceWide(role) {
       <button class="btn-refresh" onclick="refreshPage('attendance')" title="Refresh">
         <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
       </button>
+    </div>
+    <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--g100);padding-bottom:0">
+      <button onclick="_attTab='today';navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${_attTab==='today'?'var(--blue)':'transparent'};color:${_attTab==='today'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Today</button>
+      <button onclick="_attTab='calendar';navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${_attTab==='calendar'?'var(--blue)':'transparent'};color:${_attTab==='calendar'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Calendar</button>
     </div>
     <div style="margin-bottom:14px">
       <select class="form-select" style="width:200px" onchange="_areaAttHub=this.value;navigate('attendance')">
