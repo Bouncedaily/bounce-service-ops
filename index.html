@@ -1644,6 +1644,7 @@ async function _doSaveWO_SM(v, iss, p, woType, techUser, hubObj, btn) {
   if (btn) { btn.textContent='Saving...'; btn.disabled=true; }
   const saved = await saveWorkOrder({
     wo_number: woNum, vehicle_reg: v, issue: iss,
+    job_card_number: (window._jcLookup?.[v]?.job_card_number) || null,
     assigned_tech_id: techUser?.id || null,
     assigned_tech_name: techUser?.name || null,
     hub_id: hubObj?.id || null,
@@ -1732,6 +1733,7 @@ async function _doSaveWO_Wide(v, iss, p, woType, techUser, hubObj, hubName, tech
   if (btn) { btn.textContent='Saving...'; btn.disabled=true; }
   const saved = await saveWorkOrder({
     wo_number: woNum, vehicle_reg: v, issue: iss,
+    job_card_number: (window._jcLookup?.[v]?.job_card_number) || null,
     assigned_tech_id: techUser?.id || null,
     assigned_tech_name: techUser?.name || null,
     hub_id: hubObj?.id || null,
@@ -2732,13 +2734,18 @@ async function assignWideJC(jcNum, regNum, hubName, techName) {
 
 async function _doAssignWideJC(jcNum, regNum, techUser, hubObj) {
   const woNum = 'WO-'+String(Date.now()).slice(-6);
+  // Get issue and submission type from JC lookup
+  const jcData = window._jcLookup?.[regNum] || {};
+  const issue  = jcData.reason_for_ending || jcData.submission_type || 'OOS Vehicle';
+  const woType = (jcData.submission_type||'').toLowerCase().includes('oos') ? 'oos' : 'running_repair';
   const saved = await saveWorkOrder({
-    wo_number: woNum, vehicle_reg: regNum, issue: `Assigned from JC ${jcNum}`,
+    wo_number: woNum, vehicle_reg: regNum, issue,
+    job_card_number: jcNum || null,
     assigned_tech_id: techUser?.id || null,
     assigned_tech_name: techUser?.name || null,
     hub_id: hubObj?.id || null,
     hub_name: hubObj?.name || null,
-    priority: 'Medium', status: 'Open', wo_type: 'oos',
+    priority: 'Medium', status: 'Open', wo_type: woType,
     assigned_by_id: state.user.id,
     assigned_by_name: state.user.name || null
   });
