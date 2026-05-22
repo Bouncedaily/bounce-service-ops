@@ -1508,6 +1508,101 @@ async function updJob(i,val){
   await updateWOStatus(state.jobs[i].db_id, val);
 }
 
+// ── AM/Head work order assignment ─────────────────────────────────────────
+async function loadHubForAssign(hubName) {
+  if (!hubName) return;
+  _amAssignHub = hubName;
+  // Load vehicles and attendance for this hub so assign form is populated
+  await Promise.all([
+    loadVehiclesForHub(hubName),
+    loadAttendanceForHub(HUBS.find(h=>h.name===hubName)?.id)
+  ]);
+  // Clear JC cache for this hub so fresh data loads
+  if (window._jcCache) delete window._jcCache[hubName];
+  navigate('workorders');
+}
+
+async function addWOWide() {
+  const hubName = _amAssignHub;
+  if (!hubName) {
+    document.getElementById('wo-msg-wide').innerHTML='<div class="alert al-error">Please select a hub first.</div>';
+    return;
+  }
+  const v        = document.getElementById('wov-wide')?.value;
+  const iss      = document.getElementById('woi-wide')?.value.trim();
+  const techName = document.getElementById('wot-wide')?.value;
+  const p        = document.getElementById('wop-wide')?.value || 'Medium';
+  if (!v||!iss||!techName) {
+    document.getElementById('wo-msg-wide').innerHTML='<div class="alert al-error">Fill all fields and select a technician.</div>';
+    return;
+  }
+  const jcData  = window._jcLookup?.[v] || {};
+  const submType = jcData.submission_type || '';
+  const woType  = submType.toLowerCase().includes('oos') ? 'oos' : 'running_repair';
+  const techUser = ALL_USERS.find(u=>u.name===techName);
+  const hubObj  = HUBS.find(h=>h.name===hubName);
+  const woNum   = 'WO-'+String(Date.now()).slice(-6);
+  const btn     = document.querySelector('#wo-form-wide .btn-blue');
+  if (btn) { btn.textContent='Saving...'; btn.disabled=true; }
+  const saved = await saveWorkOrder({
+    wo_number: woNum, vehicle_reg: v, issue: iss,
+    assigned_tech_id: techUser?.id || null,
+    hub_id: hubObj?.id || null,
+    priority: p, status: 'Open',
+    wo_type: woType,
+    assigned_by_id: state.user.id
+  });
+  if (btn) { btn.textContent='Assign Work Order'; btn.disabled=false; }
+  if (saved) {
+    document.getElementById('wo-msg-wide').innerHTML=`<div class="alert al-success">✓ ${woNum} assigned to ${techName} at ${hubName}</div>`;
+    document.getElementById('veh-search-wide').value='';
+    document.getElementById('wov-wide').value='';
+    const vsd = document.getElementById('veh-selected-wide');
+    if (vsd) vsd.style.display='none';
+  } else {
+    document.getElementById('wo-msg-wide').innerHTML='<div class="alert al-error">Failed to save. Please try again.</div>';
+  }
+}
+
+function filterVehiclesWide(query) {
+  const dd  = document.getElementById('veh-dropdown-wide');
+  const cnt = document.getElementById('veh-count-wide');
+  if (!dd) return;
+  const q = (query||'').toLowerCase().trim();
+  const matches = q.length<2 ? [] : VEHICLES.filter(v=>
+    (v.reg_number||'').toLowerCase().includes(q)||
+    (v.model_name||'').toLowerCase().includes(q)
+  ).slice(0,30);
+  if (cnt) cnt.textContent = matches.length ? matches.length+' found' : '';
+  if (!matches.length) { dd.style.display='none'; return; }
+  // OOS vehicles first
+  const sorted = [...matches.filter(v=>v.bike_status==='OOS'), ...matches.filter(v=>v.bike_status!=='OOS')];
+  dd.innerHTML = sorted.map(v=>{
+    const oos = v.bike_status !== 'Active_rental' ? ` · <span style="color:var(--red);font-weight:600">${v.bike_status}</span>` : '';
+    return `<div style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--g100)" 
+      onmousedown="selectVehicleWide(${JSON.stringify(v).replace(/"/g,'&quot;')})"
+      onmouseover="this.style.background='var(--g50)'" onmouseout="this.style.background=''">
+      <span style="font-weight:500">${v.reg_number}</span> · ${v.model_name||'—'}${oos}
+    </div>`;
+  }).join('');
+  dd.style.display='block';
+}
+
+function selectVehicleWide(v) {
+  document.getElementById('wov-wide').value = v.reg_number;
+  document.getElementById('veh-search-wide').value = v.reg_number;
+  document.getElementById('veh-dropdown-wide').style.display='none';
+  const jcEl = document.getElementById('veh-jc-info-wide');
+  const j = window._jcLookup?.[v.reg_number];
+  if (jcEl && j) {
+    jcEl.innerHTML = `<div style="margin-top:6px;padding:8px 10px;background:var(--blue-lt);border-radius:6px;font-size:12px;line-height:1.8">
+      <strong>JC:</strong> ${j.job_card_number||'—'} &nbsp;·&nbsp;
+      <strong>TAT:</strong> ${j.overall_tat_days?.toFixed(1)||'—'}d &nbsp;·&nbsp;
+      <strong>Type:</strong> ${j.submission_type||'—'}
+    </div>`;
+  } else if (jcEl) { jcEl.innerHTML=''; }
+}
+
 // ─ HUB QR (manager sees ONLY their hub's QR) ─
 function renderQRHub() {
   const hub = state.hub;
@@ -2297,6 +2392,7 @@ function changeTechAlert(jcNum) {
 
 // ─ AREA MANAGER / HEAD WORK ORDERS & ATTENDANCE ──────────────────────────
 let _areaSelectedHub = '';
+let _amAssignHub     = '';  // hub chosen in AM assign form
 let _headSelectedCity = '';
 let _headSelectedHub  = '';
 
@@ -2323,6 +2419,10 @@ async function renderWorkOrdersWideAsync(role) {
     }
   }
   const jcRows = window._jcCache[cacheKey];
+
+  // Build JC lookup for vehicle search enrichment in assign form
+  window._jcLookup = {};
+  jcRows.forEach(j=>{ if(j.reg_number) window._jcLookup[j.reg_number]=j; });
 
   const oosRows    = jcRows.filter(j=>j.bike_status?.toLowerCase()==='oos');
   const unassigned = oosRows.filter(j=>j.current_jc_status==='Job Open' || j.current_jc_status==='JC not opened in DMS');
@@ -2408,6 +2508,52 @@ async function renderWorkOrdersWideAsync(role) {
         <option value="">All Hubs</option>${hubOptions}
       </select>
     </div>
+
+    ${role==='area_manager' ? `
+    <div class="wo-form-wrap" id="wo-form-wide">
+      <div class="wo-form-title">Assign work order</div>
+      <div class="form-row" style="margin-bottom:12px">
+        <div class="form-group" style="margin:0">
+          <label class="form-label">Hub <span style="color:var(--g400);font-weight:400">(select to load vehicles &amp; techs)</span></label>
+          <select class="form-select" onchange="loadHubForAssign(this.value)">
+            <option value="">Select hub...</option>
+            ${cityHubs.map(h=>`<option value="${h.name}" ${h.name===_amAssignHub?'selected':''}>${h.name}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      ${_amAssignHub ? `
+      <div class="form-row">
+        <div class="form-group" style="margin:0">
+          <label class="form-label">Vehicle <span style="color:var(--g400);font-weight:400">(type reg no. to search)</span></label>
+          <div style="position:relative">
+            <input class="form-input" id="veh-search-wide" placeholder="e.g. KA05AP..." autocomplete="off"
+              oninput="filterVehiclesWide(this.value)" style="padding-right:36px"/>
+            <span style="position:absolute;right:12px;top:50%;transform:translateY(-50%);color:var(--g400);font-size:12px" id="veh-count-wide"></span>
+          </div>
+          <div id="veh-dropdown-wide" style="display:none;position:absolute;z-index:50;background:var(--white);border:1px solid var(--g200);border-radius:var(--r);box-shadow:var(--sh-md);max-height:220px;overflow-y:auto;width:calc(50% - 28px);min-width:260px"></div>
+          <input type="hidden" id="wov-wide"/>
+          <div id="veh-jc-info-wide"></div>
+        </div>
+      </div>
+      <div class="form-row" style="margin-top:12px">
+        <div class="form-group" style="margin:0"><label class="form-label">Issue / Service</label>
+          <input class="form-input" id="woi-wide" placeholder="Describe the problem"/></div>
+        <div class="form-group" style="margin:0"><label class="form-label">Priority</label>
+          <select class="form-select" id="wop-wide"><option>High</option><option selected>Medium</option><option>Low</option></select>
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:12px">
+        <label class="form-label">Assign to (present at ${_amAssignHub})</label>
+        <select class="form-select" id="wot-wide">
+          <option value="">Select technician...</option>
+          ${Object.entries(state.attendance)
+              .filter(([,a])=>a.status==='present'&&a.hub===_amAssignHub)
+              .map(([n])=>`<option value="${n}">${n}</option>`).join('')||'<option disabled>No technicians present at this hub</option>'}
+        </select>
+      </div>
+      <button class="btn btn-blue" style="margin-top:12px" onclick="addWOWide()">Assign Work Order</button>` : ''}
+      <div id="wo-msg-wide" style="margin-top:8px"></div>
+    </div>` : ''}
 
     <div style="font-size:15px;font-weight:600;color:var(--g800);margin:12px 0 8px">
       Unassigned Work <span class="badge b-absent" style="font-size:11px">${uaSorted.length} open</span>
