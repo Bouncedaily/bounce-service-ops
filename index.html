@@ -163,8 +163,7 @@ tr:hover td{background:var(--g50)}
 /* ─ SCANNER MODAL ─ */
 .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px}
 .modal{background:var(--white);border-radius:var(--rlg);padding:28px 24px;width:100%;max-width:380px;position:relative}
-.modal-close{position:absolute;top:14px;right:14px;background:var(--g100);border:none;cursor:pointer;color:var(--g700);font-size:18px;line-height:1;padding:8px;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;z-index:999}
-.modal-close:hover{background:var(--g200)}
+.modal-close{position:absolute;top:14px;right:14px;background:none;border:none;cursor:pointer;color:var(--g400);font-size:20px;line-height:1;padding:4px}
 .modal-title{font-size:16px;font-weight:600;margin-bottom:4px;color:var(--g900)}
 .modal-sub{font-size:13px;color:var(--g400);margin-bottom:18px}
 .scanner-wrap{border-radius:var(--r);overflow:hidden;background:var(--g900);min-height:260px;position:relative}
@@ -270,25 +269,11 @@ tr:hover td{background:var(--g50)}
     </div>
 
     <!-- Step 3b: Technician direct entry -->
-    <!-- Step 3b: Technician hub selection -->
     <div class="step" id="step-tech-ready">
-      <div id="user-preview-tech" class="user-preview" style="margin-bottom:16px"></div>
-      <div id="tech-hub-section">
-        <!-- Hub dropdown shown for technicians, info note for area_manager/head -->
-        <div id="tech-hub-picker">
-          <div class="form-group">
-            <label class="form-label">Select your hub for today</label>
-            <select class="form-select" id="tech-hub-select">
-              <option value="">Select hub...</option>
-            </select>
-          </div>
-        </div>
-        <div id="tech-role-note" style="display:none">
-          <div class="al-info alert" id="tech-ready-note" style="margin-bottom:0">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-            <span id="tech-ready-msg"></span>
-          </div>
-        </div>
+      <div id="user-preview-tech" class="user-preview"></div>
+      <div class="al-info alert" id="tech-ready-note" style="margin-bottom:0">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span id="tech-ready-msg">Your hub will be set automatically when you scan the QR code at the entrance.</span>
       </div>
       <button class="btn btn-blue btn-full" style="padding:13px;margin-top:16px" id="tech-ready-btn" onclick="finishLogin()">Continue</button>
     </div>
@@ -296,14 +281,6 @@ tr:hover td{background:var(--g50)}
 </div>
 
 <!-- ══ APP SHELL ══ -->
-<!-- Loading screen shown on initial page load -->
-<div id="loading-screen" style="position:fixed;inset:0;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999">
-  <img src="https://bouncedaily.in/logo%20%281%29.png" alt="Bounce" style="height:48px;width:auto;margin-bottom:20px" onerror="this.style.display='none'"/>
-  <div style="font-size:15px;font-weight:600;color:#374151;margin-bottom:16px">Service Ops</div>
-  <div style="width:40px;height:40px;border:3px solid #e5e7eb;border-top-color:#1a56db;border-radius:50%;animation:spin .8s linear infinite"></div>
-  <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
-</div>
-
 <div id="app-shell" style="display:none">
   <div class="topbar">
     <a class="logo" href="#">
@@ -317,7 +294,6 @@ tr:hover td{background:var(--g50)}
         <div class="user-sub" id="top-role"></div>
       </div>
       <div class="hub-tag" id="top-hub"></div>
-      <button class="btn-logout" id="btn-change-hub" style="display:none;color:var(--blue);border-color:var(--blue)" onclick="openChangeHub()">Change Hub</button>
       <button class="btn-logout" onclick="doLogout()">Logout</button>
     </div>
   </div>
@@ -347,7 +323,7 @@ tr:hover td{background:var(--g50)}
     <button class="btn-capture" id="pm-capture-btn" onclick="capturePhoto()">📷 Capture</button>
     <button class="btn-retake" id="pm-retake-btn" onclick="retakePhoto()">Retake</button>
   </div>
-  <button class="btn-photo-done" id="pm-done-btn" onclick="finishPhotoSession()">Done — Submit</button>
+  <button class="btn-photo-done" id="pm-done-btn" onclick="finishPhotoSession()">✓ Done — Submit</button>
   <button style="margin-top:12px;background:none;border:none;color:rgba(255,255,255,.5);font-size:13px;cursor:pointer;font-family:inherit" onclick="cancelPhotoSession()">Cancel</button>
 </div>
 
@@ -783,54 +759,17 @@ function proceedAfterAuth(u) {
     goStep('step-hub');
   } else {
     document.getElementById('user-preview-tech').innerHTML = previewHTML;
-    const btnEl  = document.getElementById('tech-ready-btn');
-    const picker = document.getElementById('tech-hub-picker');
-    const note   = document.getElementById('tech-role-note');
-
+    const msgEl = document.getElementById('tech-ready-msg');
+    const btnEl = document.getElementById('tech-ready-btn');
     if (u.role === 'technician') {
-      // Check if already has attendance today — skip hub selection
-      const todayStr = new Date().toISOString().slice(0,10);
-      let todayAtt = null;
-      if (!_demoMode) {
-        const rows = await sb(`attendance?user_id=eq.${u.id}&date=eq.${todayStr}&select=hub_name,hub_id,checkin_time&limit=1`);
-        todayAtt = rows && rows.length ? rows[0] : null;
-      }
-      if (todayAtt && todayAtt.hub_name) {
-        // Already checked in today — restore hub and skip selection
-        state.pendingUser._todayHub   = todayAtt.hub_name;
-        state.pendingUser._todayHubId = todayAtt.hub_id;
-        picker.style.display = 'none';
-        note.style.display   = 'block';
-        const msgEl = document.getElementById('tech-ready-msg');
-        msgEl.textContent = `You are assigned to ${todayAtt.hub_name} today. ${todayAtt.checkin_time ? 'Already checked in.' : 'Tap Continue to proceed.'}`;
-        btnEl.textContent = 'Continue';
-      } else {
-        // First login today — show hub dropdown
-        picker.style.display = 'block';
-        note.style.display   = 'none';
-        btnEl.textContent    = 'Continue';
-        const sel = document.getElementById('tech-hub-select');
-        sel.innerHTML = '<option value="">Select your hub for today...</option>';
-        const cityHubs = u.city_id ? HUBS.filter(h => h.city_id === u.city_id) : HUBS;
-        (cityHubs.length ? cityHubs : HUBS).forEach(h => {
-          const o = document.createElement('option');
-          o.value = h.name; o.textContent = h.name;
-          if (u.assigned_hub_name && h.name === u.assigned_hub_name) o.selected = true;
-          sel.appendChild(o);
-        });
-      }
+      msgEl.textContent = 'Your hub will be set automatically when you scan the QR code at the entrance.';
+      btnEl.textContent = 'Go to Attendance';
+    } else if (u.role === 'area_manager') {
+      msgEl.textContent = 'You will see attendance and jobs across all hubs in your city.';
+      btnEl.textContent = 'Go to Dashboard';
     } else {
-      // Area manager / head — no hub selection needed
-      picker.style.display = 'none';
-      note.style.display   = 'block';
-      const msgEl = document.getElementById('tech-ready-msg');
-      if (u.role === 'area_manager') {
-        msgEl.textContent = 'You will see attendance and jobs across all hubs in your city.';
-        btnEl.textContent = 'Go to Dashboard';
-      } else {
-        msgEl.textContent = 'You will see attendance and jobs across all cities and hubs.';
-        btnEl.textContent = 'Go to Dashboard';
-      }
+      msgEl.textContent = 'You will see attendance and jobs across all cities and hubs.';
+      btnEl.textContent = 'Go to Dashboard';
     }
     goStep('step-tech-ready');
   }
@@ -864,40 +803,14 @@ async function finishLogin() {
     ]);
     btn.textContent = 'Continue'; btn.disabled = false;
   } else if (state.user.role === 'technician') {
-    // Get hub from dropdown
-    // Use today's hub if already set, otherwise read from dropdown
-    const todayHub = state.pendingUser?._todayHub;
-    let selectedHub = todayHub || '';
-    if (!selectedHub) {
-      const techHubSel = document.getElementById('tech-hub-select');
-      selectedHub = techHubSel ? techHubSel.value : '';
-    }
-    if (!selectedHub) {
-      const existingAlert = document.getElementById('tech-hub-alert');
-      if (!existingAlert) {
-        const al = document.createElement('div');
-        al.id = 'tech-hub-alert'; al.className = 'alert al-error';
-        al.style.marginBottom = '8px'; al.textContent = 'Please select your hub for today.';
-        const sel = document.getElementById('tech-hub-select');
-        if (sel) sel.parentElement.insertAdjacentElement('afterend', al);
-      }
-      return;
-    }
-    const hubObj = HUBS.find(h => h.name === selectedHub);
-    state.hub   = selectedHub;
-    state.hubId = state.pendingUser?._todayHubId || (hubObj ? hubObj.id : null);
+    // Hub set by QR scan
+    state.hub = null; state.hubId = null;
     state.myCheckin = null; state.myCheckout = null;
     const btn = document.querySelector('#step-tech-ready .btn-blue');
     btn.textContent = 'Loading...'; btn.disabled = true;
     await loadMyAttendance(state.user.id);
     await loadMyJobs();
-    btn.textContent = 'Continue'; btn.disabled = false;
-    // Save hub to session so re-login skips hub selection
-    try {
-      const sess = JSON.parse(localStorage.getItem('bounce_session')||'{}');
-      sess.hub = state.hub; sess.hubId = state.hubId;
-      localStorage.setItem('bounce_session', JSON.stringify(sess));
-    } catch(e) {}
+    btn.textContent = 'Go to Attendance'; btn.disabled = false;
   } else {
     // area_manager / head — no hub filter, load all hubs data
     state.hub = null; state.hubId = null;
@@ -906,30 +819,10 @@ async function finishLogin() {
     await loadAllHubsData();
     btn.textContent = 'Go to Dashboard'; btn.disabled = false;
   }
-  // Log login activity
-  if (!_demoMode) {
-    sb('login_activity', { method:'POST', prefer:'return=minimal',
-      body: JSON.stringify({
-        user_id:   state.user.id,
-        user_name: state.user.name,
-        mobile:    state.user.mobile,
-        role:      state.user.role,
-        action:    'login',
-        hub_name:  state.hub || null,
-        city:      null
-      })
-    });
-    sb(`users?id=eq.${state.user.id}`, { method:'PATCH', body: JSON.stringify({last_login_at: new Date().toISOString()}) });
-  }
-  // Persist session so page refresh doesn't log out
   try {
     localStorage.setItem('bounce_session', JSON.stringify({
-      user:      state.user,
-      hub:       state.hub,
-      hubId:     state.hubId,
-      myCheckin: state.myCheckin,
-      myCheckout:state.myCheckout,
-      myAttId:   state.myAttId || null
+      user: state.user, hub: state.hub, hubId: state.hubId,
+      myCheckin: state.myCheckin, myCheckout: state.myCheckout, myAttId: state.myAttId || null
     }));
   } catch(e) {}
 
@@ -957,49 +850,7 @@ async function refreshPage(page) {
 }
 
 function doLogout() {
-  // Technician: warn if completed jobs not closed in DMS
-  if (state.user?.role === 'technician') {
-    const doneJobs = state.jobs.filter(j => j.status === 'Done');
-    if (doneJobs.length > 0) {
-      const jobList = doneJobs.map(j =>
-        `<div style="padding:6px 0;border-bottom:1px solid var(--g100);font-size:13px">
-          <strong>${j.vehicle}</strong>
-          ${j.jc_number ? `<span class="mono" style="color:var(--g400);font-size:12px;margin-left:6px">${j.jc_number}</span>` : ''}
-        </div>`
-      ).join('');
-      document.getElementById('modal-inner').innerHTML = `
-        <button class="modal-close" onclick="closeModal();_doLogoutNow()">✕</button>
-        <div class="modal-title">Unclosed Job Cards</div>
-        <div class="modal-sub">Please ask your Service Manager to close these job cards in DMS before you leave.</div>
-        <div style="margin:12px 0;max-height:200px;overflow-y:auto">${jobList}</div>
-        <div class="al-warn alert" style="margin-bottom:12px">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          Ask your SM to close the above job card(s) in DMS.
-        </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-outline btn-full" onclick="closeModal()">Go Back</button>
-          <button class="btn btn-red btn-full" onclick="closeModal();_doLogoutNow()">Logout Anyway</button>
-        </div>`;
-      document.getElementById('modal').style.display='flex';
-      return; // wait for user choice
-    }
-  }
-  _doLogoutNow();
-}
-
-function _doLogoutNow() {
-  if (state.user && !_demoMode) {
-    sb('login_activity', { method:'POST', prefer:'return=minimal',
-      body: JSON.stringify({
-        user_id: state.user.id, user_name: state.user.name,
-        mobile: state.user.mobile, role: state.user.role, action: 'logout',
-        hub_name: state.hub || null
-      })
-    });
-  }
-  try { localStorage.removeItem('bounce_session'); } catch(e) {}
   state.user=null; state.hub=null; state.myCheckin=null; state.myCheckout=null;
-  state.myAttId=null; state.hubId=null; state.attendance={}; state.jobs=[];
   clearInterval(window._refreshT);
   window._jcCache = {};
   document.getElementById('app-shell').style.display='none';
@@ -1044,60 +895,7 @@ function renderTopbar() {
   document.getElementById('top-av').textContent   = initials;
   document.getElementById('top-name').textContent = state.user.name;
   document.getElementById('top-role').textContent = ROLE_LABEL[state.user.role] || state.user.role;
-  document.getElementById('top-hub').textContent  = state.hub || 'Select Hub';
-  // Show Change Hub button only for technicians
-  const chBtn = document.getElementById('btn-change-hub');
-  if (chBtn) chBtn.style.display = state.user.role === 'technician' ? 'block' : 'none';
-}
-
-function openChangeHub() {
-  const cityHubs = state.user.city_id ? HUBS.filter(h=>h.city_id===state.user.city_id) : HUBS;
-  const opts = (cityHubs.length ? cityHubs : HUBS)
-    .map(h=>`<option value="${h.name}" ${h.name===state.hub?'selected':''}>${h.name}</option>`).join('');
-  document.getElementById('modal-inner').innerHTML = `
-    <button class="modal-close" onclick="closeModal()">✕</button>
-    <div class="modal-title">Change Hub</div>
-    <div class="modal-sub">Select your new hub for the rest of the day. You will need to check in at the new hub location.</div>
-    <div class="form-group">
-      <label class="form-label">New Hub</label>
-      <select class="form-select" id="new-hub-sel">
-        <option value="">Select hub...</option>${opts}
-      </select>
-    </div>
-    <div class="al-info alert" style="font-size:12px;margin-bottom:12px">
-      Working hours from both hubs will be counted for today.
-    </div>
-    <div style="display:flex;gap:8px">
-      <button class="btn btn-blue btn-full" onclick="doChangeHub()">Confirm Change</button>
-      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
-    </div>`;
-  document.getElementById('modal').style.display = 'flex';
-}
-
-async function doChangeHub() {
-  const newHub = document.getElementById('new-hub-sel').value;
-  if (!newHub) { return; }
-  if (newHub === state.hub) { closeModal(); return; }
-  const hubObj = HUBS.find(h=>h.name===newHub);
-  state.hub    = newHub;
-  state.hubId  = hubObj ? hubObj.id : null;
-  state.myCheckin  = null;  // reset checkin for new hub
-  state.myCheckout = null;
-  state.myAttId    = null;
-  // Update session
-  try {
-    const sess = JSON.parse(localStorage.getItem('bounce_session')||'{}');
-    sess.hub = newHub; sess.hubId = state.hubId;
-    sess.myCheckin = null; sess.myCheckout = null; sess.myAttId = null;
-    localStorage.setItem('bounce_session', JSON.stringify(sess));
-  } catch(e) {}
-  // Remove today's hub lock so new hub is treated as fresh
-  if (state.pendingUser) state.pendingUser._todayHub = null;
-  renderTopbar();
-  closeModal();
-  await loadMyAttendance(state.user.id);
-  await loadMyJobs();
-  navigate('my-attendance');
+  document.getElementById('top-hub').textContent  = state.hub || 'Hub: scan QR';
 }
 
 function renderNav() {
@@ -1159,10 +957,9 @@ function navigate(page) {
   c.innerHTML = (fns[page]||(() => ''))();
   if (page==='qr-hub') generateManagerQR();
   if (page==='dashboard') {
-    // Load OOS count — vehicles table uses uppercase 'OOS'
-    const isWide = state.user?.role === 'area_manager' || state.user?.role === 'head';
-    const hubFilter = (!isWide && state.hub) ? `&hub_name=eq.${encodeURIComponent(state.hub)}` : '';
-    sb(`vehicles?bike_status=eq.OOS&select=reg_number${hubFilter}&limit=2000`).then(rows=>{
+    // Load OOS count from vehicles table
+    const hubFilter = state.hub ? `&hub_name=eq.${encodeURIComponent(state.hub)}` : '';
+    sb(`vehicles?bike_status=eq.OOS&select=reg_number${hubFilter}`).then(rows=>{
       const el = document.getElementById('oos-count');
       if (el) el.textContent = rows ? rows.length : '—';
     });
@@ -1170,64 +967,21 @@ function navigate(page) {
   if (page==='my-attendance') {
     document.getElementById('live-clock').textContent = nowFmt();
     _clockT = setInterval(()=>{ const e=document.getElementById('live-clock'); if(e) e.textContent=nowFmt(); else clearInterval(_clockT); },10000);
-    // Start duration counter if checked in but not out
-    if (state.myCheckin && !state.myCheckout) startDurationTimer();
   }
-  // Auto-refresh every 30s for dashboard/attendance, 60s for work orders
+  // Auto-refresh attendance every 30s for manager pages so QR scans show up live
   clearInterval(window._refreshT);
-  if (state.user && state.user.role==='hub_manager' && state.hubId && ['dashboard','attendance','workorders'].includes(page)) {
-    const interval = page==='workorders' ? 60000 : 30000;
+  if (state.user && state.user.role==='hub_manager' && state.hubId && ['dashboard','attendance'].includes(page)) {
     window._refreshT = setInterval(async ()=>{
       if (currentPage !== page) { clearInterval(window._refreshT); return; }
+      await loadAttendanceForHub(state.hubId);
+      // Re-render silently only the table part to avoid full page flash
       const c = document.getElementById('content');
-      if (!c) return;
-      if (page==='workorders') {
-        if (window._jcCache) delete window._jcCache[state.hub];
-        await loadJobsForHub(state.hubId);
-        renderWorkOrdersAsync().then(html=>{ if(currentPage===page) c.innerHTML=html; });
-      } else {
-        await loadAttendanceForHub(state.hubId);
-        c.innerHTML = (page==='dashboard'?renderDashboard:renderAttendance)();
-      }
-    }, interval);
+      if (c) { c.innerHTML = (page==='dashboard'?renderDashboard:renderAttendance)(); }
+    }, 30000);
   }
 }
 
 function nowFmt(){ return new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}); }
-
-function calcDuration(checkinStr, checkoutStr) {
-  // Parse "HH:MM am/pm" format
-  const parse12 = s => {
-    if (!s) return null;
-    const d = new Date();
-    const [time, ampm] = s.split(' ');
-    let [h, m] = time.split(':').map(Number);
-    if (ampm?.toLowerCase() === 'pm' && h !== 12) h += 12;
-    if (ampm?.toLowerCase() === 'am' && h === 12) h = 0;
-    d.setHours(h, m, 0, 0);
-    return d;
-  };
-  const start = parse12(checkinStr);
-  const end   = checkoutStr ? parse12(checkoutStr) : new Date();
-  if (!start) return '--:--';
-  const diffMs = end - start;
-  if (diffMs < 0) return '--:--';
-  const h = Math.floor(diffMs / 3600000);
-  const m = Math.floor((diffMs % 3600000) / 60000);
-  const s = Math.floor((diffMs % 60000) / 1000);
-  if (checkoutStr) return `${h}h ${m}m`;
-  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-}
-
-let _durationTimer = null;
-function startDurationTimer() {
-  clearInterval(_durationTimer);
-  _durationTimer = setInterval(() => {
-    const el = document.getElementById('duration-timer');
-    if (!el) { clearInterval(_durationTimer); return; }
-    el.textContent = calcDuration(state.myCheckin, null);
-  }, 1000);
-}
 function now24(){ return new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false}); }
 function todayStr(){ return new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'}); }
 function dateShort(){ return new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}); }
@@ -1343,8 +1097,7 @@ function renderDashboard() {
               <td style="font-size:12px">${nextJob?`<span class="badge b-open">${nextJob.id}</span> ${nextJob.issue}`:'<span style="color:var(--g300)">—</span>'}</td>
             </tr>`;
           }).join('')}</tbody>
-        </table></div>`}
-    ${!isWide ? closeJCSection(visibleJobs, state.hub) : ''}`;
+        </table></div>`}`;
 }
 
 function renderAttendance() {
@@ -1463,7 +1216,7 @@ function renderWorkOrders() {
       </div>
 
       <div id="oos-note" style="display:none;background:var(--red-lt);border:1px solid #fca5a5;border-radius:var(--r);padding:10px 14px;font-size:13px;color:var(--red);margin-bottom:8px">
-        OOS — vehicle will be marked out of service until resolved.
+        ⚠️ OOS — vehicle will be marked out of service until resolved.
       </div>
       <button class="btn btn-blue" style="margin-top:4px" onclick="addWO()">Assign Work Order</button>
     </div>
@@ -1507,53 +1260,11 @@ async function addWO() {
   const iss = document.getElementById('woi').value.trim();
   const techName = document.getElementById('wot').value;
   const p = document.getElementById('wop').value;
-  const woMsg = document.getElementById('wo-msg');
-
-  if(!v||!iss||!techName){
-    woMsg.innerHTML='<div class="alert al-error">Fill all fields and select a technician.</div>';
-    return;
-  }
-
-  // ── Block 1: Check if vehicle has "JC not opened in DMS" status ──
-  const allJcRows = window._jcCache?.[state.hub] || [];
-  const vehicleJC = allJcRows.find(j => j.reg_number === v);
-  if (vehicleJC && vehicleJC.current_jc_status === 'JC not opened in DMS') {
-    woMsg.innerHTML = '';
-    alertOpenJCFirst(v);
-    return;
-  }
-
-  // ── Block 2: Check if vehicle is already assigned (duplicate prevention) ──
-  const existingJob = state.jobs.find(j => j.vehicle === v);
-  if (existingJob) {
-    if (existingJob.status === 'In Progress') {
-      woMsg.innerHTML = `<div class="alert al-error">❌ ${v} is already In Progress with <strong>${existingJob.tech}</strong>. Cannot assign again.</div>`;
-      return;
-    }
-    if (existingJob.status === 'Done') {
-      woMsg.innerHTML = `<div class="alert al-error">❌ ${v} is already completed by <strong>${existingJob.tech}</strong>. Cannot assign again.</div>`;
-      return;
-    }
-    if (existingJob.status === 'Open') {
-      woMsg.innerHTML = `<div class="alert al-warn">⚠️ ${v} is already assigned to <strong>${existingJob.tech}</strong> (not started). Reassigning to <strong>${techName}</strong>...</div>`;
-      // Allow reassignment — update existing instead of creating new
-      existingJob.tech = techName;
-      const techUser = ALL_USERS.find(u=>u.name===techName);
-      if (!_demoMode && existingJob.db_id && techUser) {
-        await sb(`work_orders?id=eq.${existingJob.db_id}`, {
-          method:'PATCH', body:JSON.stringify({assigned_tech_id: techUser.id})
-        });
-      }
-      await loadJobsForHub(state.hubId);
-      setTimeout(()=>navigate('workorders'), 900);
-      return;
-    }
-  }
-
-  // Get work type from JC data
-  const jcData = window._jcLookup?.[v] || vehicleJC || {};
+  // Get work type from JC data (submission_type), fallback to hidden field or 'running_repair'
+  const jcData = window._jcLookup?.[v] || {};
   const submType = jcData.submission_type || '';
   const woType = submType.toLowerCase().includes('oos') ? 'oos' : 'running_repair';
+  if(!v||!iss||!techName){document.getElementById('wo-msg').innerHTML='<div class="alert al-error">Fill all fields and select a technician.</div>';return;}
   const techUser = ALL_USERS.find(u=>u.name===techName);
   const woNum = 'WO-'+String(Date.now()).slice(-6);
   const btn = document.querySelector('.wo-form-wrap .btn-blue');
@@ -1632,43 +1343,32 @@ function renderMyAttendance() {
         <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
       </button>
     </div>
+    <div class="card" style="background:linear-gradient(135deg,#1a56db 0%,#0f9e6e 100%);border:none;color:#fff;margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:11px;font-weight:600;opacity:.75;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">My Incentive</div>
+          <div style="font-size:20px;font-weight:700">Coming Soon 🎯</div>
+          <div style="font-size:12px;opacity:.7;margin-top:4px">Performance-based incentives will appear here</div>
+        </div>
+        <div style="font-size:44px;opacity:.25">₹</div>
+      </div>
+    </div>
     <div class="checkin-hero">
       <div style="font-size:12px;color:var(--g400);font-weight:500;text-transform:uppercase;letter-spacing:.05em">Current time</div>
       <div class="clock-big" id="live-clock">${nowFmt()}</div>
       <div class="date-lbl">${todayStr()}</div>
-      ${state.myCheckin && !state.myCheckout ? `
-        <div style="font-size:13px;color:var(--blue);font-weight:500;margin-bottom:4px">
-          Duration: <span id="duration-timer" class="mono" style="font-size:14px;font-weight:700">--:--:--</span>
-        </div>` : ''}
-      ${state.myCheckin && state.myCheckout ? `
-        <div style="font-size:13px;color:var(--green);font-weight:500;margin-bottom:4px">
-          Total: <span class="mono" style="font-weight:700">${calcDuration(state.myCheckin, state.myCheckout)}</span>
-        </div>` : ''}
       <div class="ci-times">
         <div class="ci-item"><div class="ci-lbl">Check-in</div><div class="ci-val ${state.myCheckin?'':'empty'}">${state.myCheckin||'--:--'}</div></div>
         <div class="ci-item"><div class="ci-lbl">Check-out</div><div class="ci-val ${state.myCheckout?'':'empty'}">${state.myCheckout||'--:--'}</div></div>
       </div>
-      <div id="att-status-msg"></div>
       ${!checked
-        ? `<button class="btn btn-green" id="btn-checkin" style="padding:14px 40px;font-size:16px;border-radius:12px;min-width:180px;display:flex;align-items:center;gap:10px;margin:0 auto" onclick="doGeoCheckin('checkin')">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
-            Check In</button>
-           <div style="font-size:12px;color:var(--g400);margin-top:10px">Tap to check in — location verified automatically</div>`
+        ? `<button class="btn btn-green" style="padding:12px 28px;font-size:15px" onclick="openScanner('checkin')">
+            ${ico('qr',16)} &nbsp;Scan QR to Check-in</button>`
         : !checkedOut
-        ? `<div style="margin-bottom:14px"><span class="badge b-present" style="font-size:13px;padding:6px 16px">Checked in at ${state.myCheckin}</span></div>
-           <button class="btn btn-red" id="btn-checkout" style="padding:14px 40px;font-size:16px;border-radius:12px;min-width:180px;display:flex;align-items:center;gap:10px;margin:0 auto" onclick="doGeoCheckin('checkout')">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-            Check Out</button>
-           <div style="font-size:12px;color:var(--g400);margin-top:10px">Tap when leaving the hub</div>`
-        : `<div style="margin-bottom:12px">
-              <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
-                <circle cx="28" cy="28" r="28" fill="#e6f7f2"/>
-                <circle cx="28" cy="28" r="22" fill="#0f9e6e"/>
-                <polyline points="18,28 25,35 38,21" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-           </div>
-           <span class="badge b-done" style="font-size:14px;padding:8px 20px">Attendance complete</span>
-           <div style="font-size:13px;color:var(--g500);margin-top:8px">${state.myCheckin} → ${state.myCheckout}</div>`}
+        ? `<div style="margin-bottom:12px"><span class="badge b-present" style="font-size:13px;padding:6px 16px">✓ Checked in at ${state.myCheckin}</span></div>
+           <button class="btn btn-red" style="padding:12px 28px;font-size:15px" onclick="openScanner('checkout')">
+            ${ico('qr',16)} &nbsp;Scan QR to Check-out</button>`
+        : `<span class="badge b-done" style="font-size:13px;padding:8px 18px">✓ Attendance complete — ${state.myCheckin} to ${state.myCheckout}</span>`}
     </div>
     <div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">This week</div>
     <div class="tw"><table>
@@ -1693,6 +1393,16 @@ function renderMyJobs() {
   const activeJob = myJobs.find(j=>j.status==='In Progress');
   return `
     <div class="page-hd"><div class="page-hd-text"><div class="page-title">My Jobs</div><div class="page-sub">${state.hub||''} — ${dateShort()}</div></div></div>
+    <div class="card" style="background:linear-gradient(135deg,#1a56db 0%,#0f9e6e 100%);border:none;color:#fff;margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:11px;font-weight:600;opacity:.75;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">My Incentive</div>
+          <div style="font-size:20px;font-weight:700">Coming Soon 🎯</div>
+          <div style="font-size:12px;opacity:.7;margin-top:4px">Performance-based incentives will appear here</div>
+        </div>
+        <div style="font-size:44px;opacity:.25">₹</div>
+      </div>
+    </div>
     ${activeJob ? `<div class="alert al-info" style="margin-bottom:16px">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
       You have an active job in progress. Complete it before starting another.
@@ -1747,7 +1457,7 @@ function renderMyJobs() {
             ${isActive ? `<button class="btn btn-green btn-sm" onclick="endJobWithPhotos(${gi})">
               📷 Complete
             </button>` : ''}
-            ${j.status==='Done'?`<span style="font-size:12px;color:var(--green);font-weight:500">Done</span>`:''}
+            ${j.status==='Done'?`<span style="font-size:12px;color:var(--green);font-weight:500">✓ Done</span>`:''}
           </div>
         </div>
       </div>`;
@@ -1775,14 +1485,7 @@ function filterVehicles(query) {
   const q = query.trim().toLowerCase();
   const dd = document.getElementById('veh-dropdown');
   const cnt = document.getElementById('veh-count');
-  if (!q) {
-    dd.style.display='none'; cnt.textContent='';
-    const woMsg = document.getElementById('wo-msg');
-    const assignBtn = document.querySelector('.wo-form-wrap .btn-blue');
-    if (woMsg) woMsg.innerHTML = '';
-    if (assignBtn) { assignBtn.disabled=false; assignBtn.style.opacity='1'; }
-    return;
-  }
+  if (!q) { dd.style.display='none'; cnt.textContent=''; return; }
   const matched = VEHICLES.filter(v => {
     const reg = (v.reg_number||'').toLowerCase();
     const model = (v.model_name||v.model||'').toLowerCase();
@@ -1791,31 +1494,12 @@ function filterVehicles(query) {
   });
   // OOS vehicles first, then active
   _vehResults = [
-    ...matched.filter(v=>v.bike_status?.toLowerCase()==='oos'),
-    ...matched.filter(v=>v.bike_status?.toLowerCase()!=='oos')
+    ...matched.filter(v=>v.bike_status==='OOS'),
+    ...matched.filter(v=>v.bike_status!=='OOS')
   ].slice(0, 50);
   cnt.textContent = VEHICLES.length > 0 ? `${_vehResults.length} found` : '';
   if (!_vehResults.length) {
-    // Fallback: search draft_jc by reg_number
-    const jcMatches = (window._jcCache?.[state.hub] || [])
-      .filter(j => (j.reg_number||'').toLowerCase().includes(q))
-      .slice(0, 20);
-    if (jcMatches.length) {
-      dd.innerHTML = jcMatches.map((j,i) => {
-        const statusColor = j.bike_status?.toLowerCase()==='oos' ? 'var(--red)' : 'var(--green)';
-        return `<div onclick="selectVehicleFromJC('${j.reg_number}','${j.job_card_number||''}')" style="padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--g100)"
-          onmouseover="this.style.background='var(--g50)'" onmouseout="this.style.background=''">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
-            <span style="font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:var(--g900)">${j.reg_number}</span>
-            <span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--red-lt);color:${statusColor};font-weight:600">OOS</span>
-          </div>
-          <div style="font-size:12px;color:var(--g500)">JC: ${j.job_card_number||'—'} · ${j.submission_type||'—'}</div>
-        </div>`;
-      }).join('');
-      cnt.textContent = jcMatches.length + ' in JC';
-    } else {
-      dd.innerHTML = `<div style="padding:12px 14px;font-size:13px;color:var(--g400)">No vehicles found for "${query}"</div>`;
-    }
+    dd.innerHTML = `<div style="padding:12px 14px;font-size:13px;color:var(--g400)">No vehicles found for "${query}"</div>`;
     dd.style.display='block'; return;
   }
   dd.innerHTML = _vehResults.map((v,i) => {
@@ -1843,32 +1527,6 @@ function showVehDropdown() {
   if (q) filterVehicles(q);
 }
 
-function selectVehicleFromJC(regNum, jcNum) {
-  // Vehicle found in JC data but not in vehicles table — set directly
-  document.getElementById('wov').value = regNum;
-  document.getElementById('veh-search').value = regNum;
-  document.getElementById('veh-dropdown').style.display = 'none';
-  document.getElementById('veh-count').textContent = '';
-  document.getElementById('veh-selected').style.display = 'block';
-  document.getElementById('veh-selected').innerHTML = `✓ <strong>${regNum}</strong> — JC: ${jcNum||'—'}`;
-  // Show JC info
-  const jcInfoEl = document.getElementById('veh-jc-info');
-  const jc = window._jcLookup?.[regNum] || (window._jcCache?.[state.hub]||[]).find(j=>j.reg_number===regNum);
-  if (jcInfoEl && jc) {
-    jcInfoEl.innerHTML = `<div style="margin-top:6px;padding:8px 10px;background:var(--blue-lt);border-radius:6px;font-size:12px;line-height:1.8">
-      <strong>JC:</strong> ${jc.job_card_number||'—'} &nbsp;·&nbsp;
-      <strong>Labour:</strong> ${jc.labour_time_hours?.toFixed(1)||'—'}h &nbsp;·&nbsp;
-      <strong>TAT:</strong> ${jc.overall_tat_days?.toFixed(1)||'—'}d &nbsp;·&nbsp;
-      <strong>Type:</strong> ${jc.submission_type||'—'}
-    </div>`;
-  }
-  // Clear warnings, reset button
-  const woMsg = document.getElementById('wo-msg');
-  if (woMsg) woMsg.innerHTML = '';
-  const assignBtn = document.querySelector('.wo-form-wrap .btn-blue');
-  if (assignBtn) { assignBtn.disabled=false; assignBtn.style.opacity='1'; }
-}
-
 function selectVehicle(idx) {
   const v = _vehResults[idx];
   document.getElementById('wov').value = v.reg_number;
@@ -1886,25 +1544,6 @@ function selectVehicle(idx) {
   if (jcInfoEl && window._jcInfoFn) {
     jcInfoEl.innerHTML = window._jcInfoFn(v.reg_number) || '';
   }
-  // Check if vehicle is already assigned in work orders
-  const existingJob = state.jobs.find(j => j.vehicle === v.reg_number);
-  const assignBtn = document.querySelector('.wo-form-wrap .btn-blue');
-  const woMsg = document.getElementById('wo-msg');
-  if (existingJob) {
-    if (existingJob.status === 'In Progress' || existingJob.status === 'Done') {
-      const statusText = existingJob.status === 'Done'
-        ? `Completed by <strong>${existingJob.tech}</strong>`
-        : `In Progress by <strong>${existingJob.tech}</strong>`;
-      if (woMsg) woMsg.innerHTML = `<div class="alert al-warn">${v.reg_number} is already assigned — ${statusText}. Cannot reassign.</div>`;
-      if (assignBtn) { assignBtn.disabled = true; assignBtn.style.opacity = '0.4'; }
-    } else if (existingJob.status === 'Open') {
-      if (woMsg) woMsg.innerHTML = `<div class="alert al-info">${v.reg_number} is assigned to <strong>${existingJob.tech}</strong> (not started). You can reassign.</div>`;
-      if (assignBtn) { assignBtn.disabled = false; assignBtn.style.opacity = '1'; }
-    }
-  } else {
-    if (woMsg) woMsg.innerHTML = '';
-    if (assignBtn) { assignBtn.disabled = false; assignBtn.style.opacity = '1'; }
-  }
 }
 
 // Close dropdown when clicking outside
@@ -1916,182 +1555,7 @@ document.addEventListener('click', e => {
   }
 });
 
-// ─ GEO CHECK-IN / OUT ─
-const GEOFENCE_RADIUS_M = 200; // metres
-
-// Haversine formula — distance between two lat/lng points in metres
-function getDistanceM(lat1, lng1, lat2, lng2) {
-  const R = 6371000;
-  const dLat = (lat2-lat1) * Math.PI/180;
-  const dLng = (lng2-lng1) * Math.PI/180;
-  const a = Math.sin(dLat/2)**2 +
-            Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) *
-            Math.sin(dLng/2)**2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-}
-
-function setAttMsg(type, msg) {
-  const el = document.getElementById('att-status-msg');
-  if (!el) return;
-  const styles = {
-    loading: 'background:var(--blue-lt);color:var(--blue)',
-    success: 'background:var(--green-lt);color:var(--green)',
-    error:   'background:var(--red-lt);color:var(--red)',
-    warn:    'background:var(--amber-lt);color:var(--amber)',
-  };
-  el.innerHTML = `<div style="padding:10px 14px;border-radius:10px;font-size:13px;font-weight:500;margin-bottom:14px;${styles[type]||''}">${msg}</div>`;
-}
-
-async function doGeoCheckin(mode) {
-  const btn = document.getElementById(mode==='checkin' ? 'btn-checkin' : 'btn-checkout');
-  if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
-  setAttMsg('loading', 'Getting your location...');
-
-  // 1. Get GPS position
-  let position;
-  try {
-    position = await new Promise((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject, {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0
-      });
-    });
-  } catch(err) {
-    const errMsg = err.code === 1
-      ? 'Location permission denied. Please allow location access in your browser settings.'
-      : err.code === 2
-      ? 'Location unavailable. Please try again outdoors or near a window.'
-      : 'Location timed out. Please try again.';
-    setAttMsg('error', errMsg);
-    if (btn) { btn.disabled=false; btn.style.opacity='1'; }
-    return;
-  }
-
-  const userLat = position.coords.latitude;
-  const userLng = position.coords.longitude;
-  const accuracy = Math.round(position.coords.accuracy);
-
-  setAttMsg('loading', `Location found (±${accuracy}m accuracy). Verifying hub...`);
-
-  // 2. Skip geofence for demo/test numbers
-  const TEST_MOBILES = ['9043207769','9876543210','9100000001','9000000001','9000000002',
-                        '9123456789','9123456790','9123456791','9123456792','9123456793'];
-  if (_demoMode || TEST_MOBILES.includes(state.user?.mobile)) {
-    setAttMsg('success', `Location check bypassed for test account. Marking attendance...`);
-    await processCheckin(mode, userLat, userLng, accuracy, null, true);
-    return;
-  }
-
-  // 3. Fetch hub coordinates from Supabase
-  let hubLat = null, hubLng = null, hubName = state.hub;
-  if (state.hub) {
-    const hubData = await sb(`hubs?name=eq.${encodeURIComponent(state.hub)}&select=lat,lng,name&limit=1`);
-    if (hubData && hubData.length && hubData[0].lat) {
-      hubLat = hubData[0].lat;
-      hubLng = hubData[0].lng;
-    }
-  }
-
-  // 4. If no coordinates configured — warn but allow
-  if (hubLat === null || hubLng === null) {
-    setAttMsg('warn', `Hub location not configured yet. Marking attendance without geofence check.`);
-    await processCheckin(mode, userLat, userLng, accuracy, null, true);
-    return;
-  }
-
-  // 4. Calculate distance
-  const distanceM = Math.round(getDistanceM(userLat, userLng, hubLat, hubLng));
-
-  // 5. Check geofence
-  if (distanceM <= GEOFENCE_RADIUS_M) {
-    setAttMsg('success', `Location verified — you are ${distanceM}m from ${hubName}. Marking attendance...`);
-    await processCheckin(mode, userLat, userLng, accuracy, distanceM, true);
-  } else {
-    setAttMsg('error', `You are ${distanceM}m away from ${hubName}. Must be within ${GEOFENCE_RADIUS_M}m to check ${mode==='checkin'?'in':'out'}. Move closer to the hub and try again.`);
-    if (btn) { btn.disabled=false; btn.style.opacity='1'; }
-    // Log failed attempt
-    if (!_demoMode && state.user) {
-      sb('tech_activity_log', { method:'POST', prefer:'return=minimal',
-        body: JSON.stringify({
-          user_id: state.user.id, tech_name: state.user.name,
-          hub_name: state.hub, action: 'geo_fail',
-          details: { mode, userLat, userLng, distanceM, hubLat, hubLng, accuracy }
-        })
-      });
-    }
-  }
-}
-
-async function processCheckin(mode, lat, lng, accuracy, distanceM, withinFence) {
-  const t12 = nowFmt();
-  const t24 = now24();
-  const geoData = { lat, lng, accuracy, distance_m: distanceM, within_fence: withinFence, timestamp: new Date().toISOString() };
-
-  if (mode === 'checkin') {
-    // Save to Supabase attendance table
-    let attId = null;
-    if (!_demoMode) {
-      const hubData = await sb(`hubs?name=eq.${encodeURIComponent(state.hub)}&select=id&limit=1`);
-      const hubId   = hubData?.[0]?.id || state.hubId;
-      const payload = {
-        user_id:        state.user.id,
-        technician_name:state.user.name,
-        phone_number:   state.user.mobile,
-        hub_id:         hubId,
-        hub_name:       state.hub,
-        date:           new Date().toISOString().slice(0,10),
-        status:         'present',
-        checkin_time:   new Date().toISOString(),
-        geo_checkin:    geoData,
-        approval_status:'pending'
-      };
-      const res = await sb('attendance?on_conflict=user_id,date', {
-        method:'POST', prefer:'resolution=merge-duplicates,return=representation',
-        body: JSON.stringify(payload)
-      });
-      attId = res?.[0]?.id || null;
-      // Log activity
-      sb('tech_activity_log', { method:'POST', prefer:'return=minimal',
-        body: JSON.stringify({ user_id:state.user.id, tech_name:state.user.name,
-          hub_name:state.hub, action:'checkin',
-          details:{ time:t12, lat, lng, distanceM, within_fence:withinFence }
-        })
-      });
-    }
-    state.myCheckin  = t12;
-    state.myAttId    = attId || 'demo-att';
-    try { const s=JSON.parse(localStorage.getItem('bounce_session')||'{}'); s.myCheckin=t12; s.myAttId=state.myAttId; localStorage.setItem('bounce_session',JSON.stringify(s)); } catch(e) {}
-    state.attendance[state.user.name] = {
-      status:'present', checkin:t24, checkout:null,
-      hub:state.hub, hub_id:state.hubId, att_id:attId,
-      geo_checkin: geoData
-    };
-    setTimeout(() => navigate('my-attendance'), 1500);
-  } else {
-    // Checkout
-    if (!_demoMode && state.myAttId) {
-      await sb(`attendance?id=eq.${state.myAttId}`, {
-        method:'PATCH',
-        body: JSON.stringify({ checkout_time: new Date().toISOString(), geo_checkout: geoData, updated_at: new Date().toISOString() })
-      });
-      sb('tech_activity_log', { method:'POST', prefer:'return=minimal',
-        body: JSON.stringify({ user_id:state.user.id, tech_name:state.user.name,
-          hub_name:state.hub, action:'checkout',
-          details:{ time:t12, lat, lng, distanceM, within_fence:withinFence }
-        })
-      });
-    }
-    state.myCheckout = t12;
-    try { const s=JSON.parse(localStorage.getItem('bounce_session')||'{}'); s.myCheckout=t12; localStorage.setItem('bounce_session',JSON.stringify(s)); } catch(e) {}
-    state.attendance[state.user.name] = {
-      ...state.attendance[state.user.name], checkout:t24, geo_checkout:geoData
-    };
-    setTimeout(() => navigate('my-attendance'), 1500);
-  }
-}
-
-// ─ QR SCANNER ─ (kept for backward compat but no longer used in main flow)
+// ─ QR SCANNER ─
 let _scanner=null, _scanMode=null;
 function openScanner(mode) {
   _scanMode=mode;
@@ -2342,17 +1806,14 @@ function cancelPhotoSession() {
 
 function stopScanner() { if(_scanner){_scanner.stop().catch(()=>{});_scanner=null;} }
 function closeModal() { stopScanner(); document.getElementById('modal').style.display='none'; }
-function modalBackdropClick(e) {
-  const inner = document.getElementById('modal-inner');
-  if (inner && !inner.contains(e.target)) closeModal();
-}
+function modalBackdropClick(e) { if(e.target===document.getElementById('modal')) closeModal(); }
 
 // ─ SUPABASE: load draft JC for a hub ──────────────────────────────────
 async function loadDraftJCForHub(hubName) {
   if (_demoMode) return [];
   // Only fetch non-Billed JCs — much faster and what we actually need
   const rows = await sb(
-    `draft_jc?hub_name=eq.${encodeURIComponent(hubName)}&select=job_card_number,dms_jc_id,reg_number,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date,bike_status&order=job_card_opened_date.desc`
+    `draft_jc?hub_name=eq.${encodeURIComponent(hubName)}&select=job_card_number,dms_jc_id,reg_number,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date&order=job_card_opened_date.desc`
   );
   return rows || [];
 }
@@ -2360,7 +1821,7 @@ async function loadDraftJCForHub(hubName) {
 async function loadDraftJCForCity(cityName) {
   if (_demoMode) return [];
   const rows = await sb(
-    `draft_jc?city=eq.${encodeURIComponent(cityName)}&select=job_card_number,dms_jc_id,reg_number,hub_name,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date,bike_status&order=job_card_opened_date.desc&limit=500`
+    `draft_jc?city=eq.${encodeURIComponent(cityName)}&select=job_card_number,dms_jc_id,reg_number,hub_name,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date&order=job_card_opened_date.desc&limit=500`
   );
   return rows || [];
 }
@@ -2368,7 +1829,7 @@ async function loadDraftJCForCity(cityName) {
 async function loadAllDraftJC() {
   if (_demoMode) return [];
   const rows = await sb(
-    `draft_jc?current_jc_status=neq.Billed&select=job_card_number,dms_jc_id,reg_number,city,hub_name,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date,bike_status&order=job_card_opened_date.desc&limit=1000`
+    `draft_jc?current_jc_status=neq.Billed&select=job_card_number,dms_jc_id,reg_number,city,hub_name,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date&order=job_card_opened_date.desc&limit=1000`
   );
   return rows || [];
 }
@@ -2387,10 +1848,8 @@ async function renderWorkOrdersAsync() {
     window._jcCache[myHub] = await loadDraftJCForHub(myHub);
   }
   const jcRows = window._jcCache[myHub];
-  // Only show bikes where bike_status is OOS (vehicles currently out of service)
-  const oosJcRows  = jcRows.filter(j => j.bike_status?.toLowerCase() === 'oos');
-  const unassigned = oosJcRows.filter(j=>j.current_jc_status==='Job Open' || j.current_jc_status==='JC not opened in DMS');
-  const assigned   = oosJcRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open' && j.current_jc_status!=='JC not opened in DMS');
+  const unassigned = jcRows.filter(j=>j.current_jc_status==='Job Open');
+  const assigned   = jcRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open');
 
   // Build JC lookup by reg_number for vehicle search enrichment
   window._jcLookup = {};
@@ -2452,12 +1911,10 @@ async function renderWorkOrdersAsync() {
       <td style="font-size:12px">${j.submission_type||'—'}</td>
       <td style="font-size:12px">${j.job_card_opened_date?new Date(j.job_card_opened_date).toLocaleDateString('en-IN'):'—'}</td>
       <td>
-        ${j.current_jc_status==='JC not opened in DMS'
-          ? `<button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" onclick="alertOpenJCFirst('${j.reg_number}')">Open JC in DMS</button>`
-          : `<select class="sel-sm" style="min-width:130px" onchange="assignTechFromJC('${j.job_card_number}','${j.reg_number}',this.value)">
-              <option value="">Assign tech...</option>
-              ${avail.length===0?`<option disabled>None present</option>`:avail.map(t=>`<option value="${t}">${t}</option>`).join('')}
-            </select>`}
+        <select class="sel-sm" style="min-width:130px" onchange="assignTechFromJC('${j.job_card_number}','${j.reg_number}',this.value)">
+          <option value="">Assign tech...</option>
+          ${avail.length===0?`<option disabled>None present</option>`:avail.map(t=>`<option value="${t}">${t}</option>`).join('')}
+        </select>
       </td>
     </tr>`;
   };
@@ -2562,30 +2019,11 @@ function woPage(key, delta) {
 
 function assignTechFromJC(jcNum, regNum, techName) {
   if (!techName) return;
-  // Pre-fill directly from JC data — no need to search vehicles table
+  // Pre-fill the assign form with this vehicle and tech
   document.getElementById('veh-search').value = regNum;
   document.getElementById('wov').value = regNum;
-  document.getElementById('veh-dropdown').style.display = 'none';
   document.getElementById('veh-selected').style.display = 'block';
-  document.getElementById('veh-selected').innerHTML = `✓ <strong>${regNum}</strong> — JC: ${jcNum}`;
-  // Show JC info if available in lookup
-  const jcInfoEl = document.getElementById('veh-jc-info');
-  const jc = window._jcLookup?.[regNum];
-  if (jcInfoEl && jc) {
-    jcInfoEl.innerHTML = `<div style="margin-top:6px;padding:8px 10px;background:var(--blue-lt);border-radius:6px;font-size:12px;line-height:1.8">
-      <strong>JC:</strong> ${jc.job_card_number||'—'} &nbsp;·&nbsp;
-      <strong>Labour:</strong> ${jc.labour_time_hours?.toFixed(1)||'—'}h &nbsp;·&nbsp;
-      <strong>TAT:</strong> ${jc.overall_tat_days?.toFixed(1)||'—'}d &nbsp;·&nbsp;
-      <strong>Type:</strong> ${jc.submission_type||'—'}
-    </div>`;
-  }
-  // Clear any existing warning
-  const woMsg = document.getElementById('wo-msg');
-  if (woMsg) woMsg.innerHTML = '';
-  // Reset assign button
-  const assignBtn = document.querySelector('.wo-form-wrap .btn-blue');
-  if (assignBtn) { assignBtn.disabled=false; assignBtn.style.opacity='1'; }
-  // Select tech
+  document.getElementById('veh-selected').innerHTML = `✓ <strong>${regNum}</strong> — from JC ${jcNum}`;
   const techSel = document.getElementById('wot');
   if (techSel) {
     for (const opt of techSel.options) {
@@ -2597,29 +2035,14 @@ function assignTechFromJC(jcNum, regNum, techName) {
   document.getElementById('woi').focus();
 }
 
-function changeTechAlert(jcNum, techName) {
-  const msg = techName
-    ? `This job card is assigned to <strong>${techName}</strong> in DMS. Please change the technician's name in DMS for job card <strong>${jcNum}</strong>. Changes will reflect here on the next data sync.`
-    : `Please change the Technician Name in DMS for job card <strong>${jcNum}</strong>. Changes will reflect here on the next data sync.`;
+function changeTechAlert(jcNum) {
   document.getElementById('modal-inner').innerHTML = `
     <button class="modal-close" onclick="closeModal()">✕</button>
-    <div class="modal-title">Change Technician in DMS</div>
+    <div class="modal-title">Change Technician</div>
     <div class="modal-sub">Job Card: <strong>${jcNum}</strong></div>
     <div class="al-warn alert" style="margin-bottom:0">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      ${msg}
-    </div>`;
-  document.getElementById('modal').style.display='flex';
-}
-
-function alertOpenJCFirst(regNum) {
-  document.getElementById('modal-inner').innerHTML = `
-    <button class="modal-close" onclick="closeModal()">✕</button>
-    <div class="modal-title">Open Job Card in DMS First</div>
-    <div class="modal-sub">Vehicle: <strong>${regNum}</strong></div>
-    <div class="al-error alert" style="margin-bottom:0">
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      This vehicle does not have an open job card in DMS yet. Please open a job card in DMS for <strong>${regNum}</strong> before assigning a technician.
+      Please change the Technician Name in DMS for this job card. Changes in DMS will reflect here on the next data sync.
     </div>`;
   document.getElementById('modal').style.display='flex';
 }
@@ -2660,10 +2083,8 @@ async function renderWorkOrdersWideAsync(role) {
   }
   const jcRows = window._jcCache[cacheKey];
 
-  // Only show bikes where bike_status is OOS (vehicles currently out of service)
-  const oosJcRows  = jcRows.filter(j => j.bike_status?.toLowerCase() === 'oos');
-  const unassigned = oosJcRows.filter(j=>j.current_jc_status==='Job Open' || j.current_jc_status==='JC not opened in DMS');
-  const assigned   = oosJcRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open' && j.current_jc_status!=='JC not opened in DMS');
+  const unassigned = jcRows.filter(j=>j.current_jc_status==='Job Open');
+  const assigned   = jcRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open');
 
   // Get present technicians for the selected hub (for assignment)
   const availTechs = selectedHub
@@ -2685,7 +2106,7 @@ async function renderWorkOrdersWideAsync(role) {
       <td style="font-size:12px">${j.submission_type||'—'}</td>
       <td style="font-size:12px">${formatDate(j.job_card_opened_date)}</td>
       <td style="font-size:12px">${j.technician_name||'—'}</td>
-      ${showChange?`<td><button class="btn btn-outline btn-sm" onclick="changeTechAlert('${j.job_card_number}','${j.technician_name||''}')">Change Tech</button></td>`:'<td>—</td>'}
+      ${showChange?`<td><button class="btn btn-outline btn-sm" onclick="changeTechAlert('${j.job_card_number}')">Change Tech</button></td>`:'<td>—</td>'}
     </tr>`;
   };
 
@@ -2805,129 +2226,35 @@ function renderAttendanceWide(role) {
 let _dashFilterCity = '';
 let _dashFilterHub  = '';
 
-// ─ CLOSE JC SECTION ─
-// Shows completed work orders that need job card closure in DMS
-function closeJCSection(jobs, hubName) {
-  const doneJobs = jobs.filter(j => j.status === 'Done');
-  if (!doneJobs.length) return '';
-
-  // Cross-reference with draft_jc to find jobs not yet billed
-  const jcCache = window._jcCache?.[hubName] || [];
-  const jcMap = {};
-  jcCache.forEach(j => { if (j.reg_number) jcMap[j.reg_number] = j; });
-
-  // Jobs that are Done in our system — show with JC details if available
-  const rows = doneJobs.map(j => {
-    const jc = jcMap[j.vehicle] || {};
-    const notBilled = jc.current_jc_status && jc.current_jc_status !== 'Billed';
-    const statusColor = notBilled ? 'var(--red)' : 'var(--green)';
-    const statusLabel = notBilled ? jc.current_jc_status : (jc.current_jc_status || 'Check DMS');
-    return `<tr>
-      <td><strong>${j.vehicle}</strong></td>
-      <td class="mono" style="font-size:11px;color:var(--g400)">${jc.job_card_number || '—'}</td>
-      <td class="mono" style="font-size:11px;color:var(--g400)">${jc.dms_jc_id || '—'}</td>
-      <td style="font-size:12px">${j.tech}</td>
-      <td style="font-size:12px;color:${statusColor};font-weight:500">${statusLabel}</td>
-      <td>${notBilled
-        ? `<span style="font-size:11px;padding:3px 10px;background:var(--red-lt);color:var(--red);border-radius:20px;font-weight:600">Close in DMS</span>`
-        : `<span style="font-size:11px;padding:3px 10px;background:var(--green-lt);color:var(--green);border-radius:20px;font-weight:600">Done</span>`}
-      </td>
-    </tr>`;
-  }).join('');
-
-  const pendingClose = doneJobs.filter(j => {
-    const jc = jcMap[j.vehicle];
-    return jc && jc.current_jc_status && jc.current_jc_status !== 'Billed';
-  }).length;
-
-  return `
-    <div style="margin-top:24px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <div style="font-size:15px;font-weight:600;color:var(--g800)">
-          Close Job Cards
-          ${pendingClose>0 ? `<span style="margin-left:8px;font-size:11px;padding:3px 10px;background:var(--red-lt);color:var(--red);border-radius:20px;font-weight:600">${pendingClose} pending</span>` : ''}
-        </div>
-        <div style="font-size:12px;color:var(--g400)">Completed today — close in DMS to bill</div>
-      </div>
-      <div class="tw"><table>
-        <thead><tr><th>Vehicle</th><th>JC Number</th><th>DMS JC ID</th><th>Technician</th><th>DMS Status</th><th>Action</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table></div>
-    </div>`;
-}
-
 // ─ INIT ─
-const hideLoading = () => {
-  const el = document.getElementById('loading-screen');
-  if (el) el.style.display = 'none';
-};
-const showLogin = () => {
-  hideLoading();
-  document.getElementById('login-page').style.display = 'flex';
-};
-
-// Safety net — if anything hangs for more than 5s, show login
-const _safetyTimer = setTimeout(() => {
-  console.warn('[session] Timeout — showing login');
-  hideLoading();
-  if (document.getElementById('app-shell').style.display === 'none') {
-    showLogin();
-  }
-}, 5000);
-
 async function initApp() {
+  await bootstrap();
   try {
-    await bootstrap();
-
     const saved = localStorage.getItem('bounce_session');
-    if (!saved) { clearTimeout(_safetyTimer); showLogin(); return; }
-
-    const sess = JSON.parse(saved);
-    if (!sess || !sess.user) { clearTimeout(_safetyTimer); showLogin(); return; }
-
-    // Restore state from session immediately (no Supabase needed for this)
-    state.user       = sess.user;
-    state.hub        = sess.hub        || null;
-    state.hubId      = sess.hubId      || null;
-    state.myCheckin  = sess.myCheckin  || null;
-    state.myCheckout = sess.myCheckout || null;
-    state.myAttId    = sess.myAttId    || null;
-
-    // Show app immediately with cached state
-    clearTimeout(_safetyTimer);
-    hideLoading();
-    document.getElementById('app-shell').style.display = 'block';
-    renderTopbar(); renderNav();
-    navigate(state.user.role !== 'technician' ? 'dashboard' : 'my-attendance');
-
-    // Then load fresh data in background (non-blocking)
-    if (state.user.role === 'hub_manager' && state.hubId) {
-      Promise.all([
-        loadAttendanceForHub(state.hubId),
-        loadJobsForHub(state.hubId),
-        loadVehiclesForHub(state.hub),
-        loadDraftJCForHub(state.hub).then(rows => {
-          if (!window._jcCache) window._jcCache = {};
-          window._jcCache[state.hub] = rows;
-        })
-      ]).then(() => navigate(currentPage)).catch(()=>{});
-    } else if (state.user.role === 'technician') {
-      Promise.all([
-        loadMyAttendance(state.user.id),
-        loadMyJobs()
-      ]).then(() => navigate(currentPage)).catch(()=>{});
-    } else {
-      loadAllHubsData().then(() => navigate(currentPage)).catch(()=>{});
+    if (saved) {
+      const sess = JSON.parse(saved);
+      if (sess && sess.user) {
+        state.user       = sess.user;
+        state.hub        = sess.hub        || null;
+        state.hubId      = sess.hubId      || null;
+        state.myCheckin  = sess.myCheckin  || null;
+        state.myCheckout = sess.myCheckout || null;
+        state.myAttId    = sess.myAttId    || null;
+        if (state.user.role === 'hub_manager' && state.hubId) {
+          await Promise.all([loadAttendanceForHub(state.hubId), loadJobsForHub(state.hubId), loadVehiclesForHub(state.hub)]);
+        } else if (state.user.role === 'technician') {
+          await loadMyAttendance(state.user.id); await loadMyJobs();
+        } else { await loadAllHubsData(); }
+        document.getElementById('login-page').style.display = 'none';
+        document.getElementById('app-shell').style.display  = 'block';
+        renderTopbar(); renderNav();
+        navigate(state.user.role !== 'technician' ? 'dashboard' : 'my-attendance');
+        return;
+      }
     }
-
-  } catch(e) {
-    console.error('[init] Failed:', e);
-    clearTimeout(_safetyTimer);
-    localStorage.removeItem('bounce_session');
-    showLogin();
-  }
+  } catch(e) { localStorage.removeItem('bounce_session'); }
+  document.getElementById('login-page').style.display = 'flex';
 }
-
 initApp();
 </script>
 </body>
