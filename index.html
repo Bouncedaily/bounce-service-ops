@@ -528,7 +528,17 @@ async function loadAttendanceForHub(hubId) {
     return;
   }
   // Live mode — fetch from Supabase, show empty if no rows yet (no fallback to demo)
-  const rows = await sb(`attendance?hub_id=eq.${hubId}&date=eq.${TODAY}&select=id,status,checkin_time,checkout_time,user_id,users(name)`);
+  // Query by both hub_id AND hub_name to catch records where hub_id was null
+  const [rowsById, rowsByName] = await Promise.all([
+    sb(`attendance?hub_id=eq.${hubId}&date=eq.${TODAY}&select=id,status,checkin_time,checkout_time,user_id,users(name)`),
+    sb(`attendance?hub_name=eq.${encodeURIComponent(hubName)}&date=eq.${TODAY}&select=id,status,checkin_time,checkout_time,user_id,users(name)`)
+  ]);
+  // Merge, deduplicate by user_id
+  const seen = new Set();
+  const rows = [...(rowsById||[]), ...(rowsByName||[])].filter(r => {
+    if (seen.has(r.user_id)) return false;
+    seen.add(r.user_id); return true;
+  });
   if (rows) {
     rows.forEach(r => {
       const name = r.users?.name; if (!name) return;
@@ -2506,11 +2516,24 @@ async function processCheckin(mode,lat,lng,accuracy,distanceM,withinFence){
   if(mode==='checkin'){
     let attId=null;
     if(!_demoMode){
-      const hubData=await sb(`hubs?name=eq.${encodeURIComponent(state.hub)}&select=id&limit=1`);
-      const hubId=hubData?.[0]?.id||state.hubId;
+      // Use state.hubId directly — already set at login
+      const hubId = state.hubId || null;
+      const hubName = state.hub || null;
       const res=await sb('attendance?on_conflict=user_id,date',{
         method:'POST',prefer:'resolution=merge-duplicates,return=representation',
-        body:JSON.stringify({user_id:state.user.id,technician_name:state.user.name,phone_number:state.user.mobile,hub_id:hubId,hub_name:state.hub,date:new Date().toISOString().slice(0,10),status:'present',checkin_time:new Date().toISOString(),geo_checkin:geoData,approval_status:'pending'})
+        body:JSON.stringify({
+          user_id:         state.user.id,
+          technician_name: state.user.name,
+          employee_id:     state.user.employee_id || null,
+          phone_number:    state.user.mobile,
+          hub_id:          hubId,
+          hub_name:        hubName,
+          date:            new Date().toISOString().slice(0,10),
+          status:          'present',
+          checkin_time:    new Date().toISOString(),
+          geo_checkin:     geoData,
+          approval_status: 'pending'
+        })
       });
       attId=res?.[0]?.id||null;
     }
