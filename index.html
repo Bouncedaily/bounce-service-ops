@@ -270,10 +270,22 @@ tr:hover td{background:var(--g50)}
 
     <!-- Step 3b: Technician direct entry -->
     <div class="step" id="step-tech-ready">
-      <div id="user-preview-tech" class="user-preview"></div>
-      <div class="al-info alert" id="tech-ready-note" style="margin-bottom:0">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        <span id="tech-ready-msg">Your hub will be set automatically when you scan the QR code at the entrance.</span>
+      <div id="user-preview-tech" class="user-preview" style="margin-bottom:16px"></div>
+      <!-- Hub picker for technicians -->
+      <div id="tech-hub-picker" style="display:none">
+        <div class="form-group">
+          <label class="form-label">Select your hub for today</label>
+          <select class="form-select" id="tech-hub-select">
+            <option value="">Select hub...</option>
+          </select>
+        </div>
+      </div>
+      <!-- Info note for area_manager / head -->
+      <div id="tech-role-note" style="display:none">
+        <div class="al-info alert" style="margin-bottom:0">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <span id="tech-ready-msg"></span>
+        </div>
       </div>
       <button class="btn btn-blue btn-full" style="padding:13px;margin-top:16px" id="tech-ready-btn" onclick="finishLogin()">Continue</button>
     </div>
@@ -760,17 +772,32 @@ function proceedAfterAuth(u) {
     goStep('step-hub');
   } else {
     document.getElementById('user-preview-tech').innerHTML = previewHTML;
-    const msgEl = document.getElementById('tech-ready-msg');
-    const btnEl = document.getElementById('tech-ready-btn');
+    const btnEl    = document.getElementById('tech-ready-btn');
+    const picker   = document.getElementById('tech-hub-picker');
+    const roleNote = document.getElementById('tech-role-note');
     if (u.role === 'technician') {
-      msgEl.textContent = 'Your hub will be set automatically when you scan the QR code at the entrance.';
-      btnEl.textContent = 'Go to Attendance';
-    } else if (u.role === 'area_manager') {
-      msgEl.textContent = 'You will see attendance and jobs across all hubs in your city.';
-      btnEl.textContent = 'Go to Dashboard';
+      picker.style.display   = 'block';
+      roleNote.style.display = 'none';
+      btnEl.textContent      = 'Continue';
+      const sel = document.getElementById('tech-hub-select');
+      sel.innerHTML = '<option value="">Select your hub for today...</option>';
+      const cityHubs = u.city_id ? HUBS.filter(h=>h.city_id===u.city_id) : HUBS;
+      (cityHubs.length ? cityHubs : HUBS).forEach(h=>{
+        const o=document.createElement('option'); o.value=h.name; o.textContent=h.name;
+        if (u.assigned_hub_name && h.name===u.assigned_hub_name) o.selected=true;
+        sel.appendChild(o);
+      });
     } else {
-      msgEl.textContent = 'You will see attendance and jobs across all cities and hubs.';
-      btnEl.textContent = 'Go to Dashboard';
+      picker.style.display   = 'none';
+      roleNote.style.display = 'block';
+      const msgEl = document.getElementById('tech-ready-msg');
+      if (u.role==='area_manager') {
+        msgEl.textContent = 'You will see attendance and jobs across all hubs in your city.';
+        btnEl.textContent = 'Go to Dashboard';
+      } else {
+        msgEl.textContent = 'You will see attendance and jobs across all cities and hubs.';
+        btnEl.textContent = 'Go to Dashboard';
+      }
     }
     goStep('step-tech-ready');
   }
@@ -804,14 +831,32 @@ async function finishLogin() {
     ]);
     btn.textContent = 'Continue'; btn.disabled = false;
   } else if (state.user.role === 'technician') {
-    // Hub set by QR scan
-    state.hub = null; state.hubId = null;
+    // Get hub from dropdown
+    const techSel = document.getElementById('tech-hub-select');
+    const selectedHub = techSel ? techSel.value : '';
+    if (!selectedHub) {
+      // Show error near dropdown
+      const existing = document.getElementById('tech-hub-err');
+      if (!existing) {
+        const err = document.createElement('div');
+        err.id='tech-hub-err'; err.className='alert al-error'; err.style.marginBottom='8px';
+        err.textContent='Please select your hub for today.';
+        if (techSel) techSel.parentElement.insertAdjacentElement('afterend', err);
+      }
+      return;
+    }
+    // Remove error if shown
+    const existing = document.getElementById('tech-hub-err');
+    if (existing) existing.remove();
+    const hubObj = HUBS.find(h=>h.name===selectedHub);
+    state.hub   = selectedHub;
+    state.hubId = hubObj ? hubObj.id : null;
     state.myCheckin = null; state.myCheckout = null;
     const btn = document.querySelector('#step-tech-ready .btn-blue');
     btn.textContent = 'Loading...'; btn.disabled = true;
     await loadMyAttendance(state.user.id);
     await loadMyJobs();
-    btn.textContent = 'Go to Attendance'; btn.disabled = false;
+    btn.textContent = 'Continue'; btn.disabled = false;
   } else {
     // area_manager / head — no hub filter, load all hubs data
     state.hub = null; state.hubId = null;
