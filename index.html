@@ -1606,23 +1606,17 @@ function renderDashboard() {
 }
 
 function renderAttendance() {
-  const myHub   = state.hub;
-  const selDate = window._attDate || TODAY;
+  const myHub = state.hub;
 
-  // All techs assigned to hub — from ALL_USERS
-  const hubUsers = ALL_USERS.filter(u=>u.role==='technician'&&(u.assigned_hub_name===myHub||Object.values(state.attendance).some(a=>a.hub===myHub&&a.name===u.name)));
-  // Techs who checked in today (from state.attendance)
-  const checkedIn = Object.entries(state.attendance);
+  // Build tech list from state.attendance (already loaded fresh before this renders)
+  const allTechs = Object.entries(state.attendance).map(([name, a]) => ({
+    name,
+    att: a,
+    userId: ALL_USERS.find(u=>u.name===name)?.id || null
+  }));
 
-  // Build full list: checked-in techs + all_users assigned to hub not checked in
-  const techSet = new Set(checkedIn.map(([n])=>n));
-  const allTechs = [
-    ...checkedIn.map(([name,a])=>({name,att:a})),
-    ...hubUsers.filter(u=>!techSet.has(u.name)).map(u=>({name:u.name,att:{status:'absent',checkin:null,checkout:null,approval:null,att_id:null},userId:u.id}))
-  ];
-
-  const absentTechs = allTechs.filter(({att})=>att.status==='absent'||att.status==='week_off');
-  const presentTechs = allTechs.filter(({att})=>att.status==='present');
+  const presentTechs = allTechs.filter(({att}) => att.status==='present');
+  const absentTechs  = allTechs.filter(({att}) => att.status==='absent' || att.status==='week_off');
 
   return `
     <div class="page-hd">
@@ -1632,48 +1626,58 @@ function renderAttendance() {
       </button>
     </div>
 
-    ${allTechs.length===0 ? `<div class="empty-state">No technicians found for ${myHub}.</div>` : `
+    ${allTechs.length===0 ? `<div class="empty-state" style="margin-top:40px">No attendance records for ${myHub} today.</div>` : `
 
     <!-- Present techs -->
     ${presentTechs.length ? `
-    <div style="font-size:14px;font-weight:600;color:var(--g700);margin-bottom:8px">Present (${presentTechs.length})</div>
-    <div class="tw" style="margin-bottom:20px"><table>
-      <thead><tr><th>Technician</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Approval</th></tr></thead>
+    <div style="font-size:13px;font-weight:600;color:var(--g500);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">
+      Present — ${presentTechs.length}
+    </div>
+    <div class="tw" style="margin-bottom:24px"><table>
+      <thead><tr><th>Technician</th><th>Check-in</th><th>Check-out</th><th>Approval</th></tr></thead>
       <tbody>${presentTechs.map(({name:t,att:a})=>{
         const ap=a.approval;
         return `<tr>
           <td><strong>${t}</strong></td>
-          <td><span class="badge b-present">Present</span></td>
           <td class="mono" style="font-size:12px">${a.checkin||'—'}</td>
           <td class="mono" style="font-size:12px">${a.checkout||'—'}</td>
-          <td>${ap==='approved'?`<span class="badge b-present">✓ Approved</span>`:ap==='denied'?`<span class="badge b-absent">✗ Denied</span>`:`<div style="display:flex;gap:6px">
-            <button class="btn btn-green btn-sm" style="padding:4px 10px;font-size:11px" onclick="approveAtt('${t}','approved')">Approve</button>
-            <button class="btn btn-red btn-sm" style="padding:4px 10px;font-size:11px" onclick="approveAtt('${t}','denied')">Deny</button>
-          </div>`}</td>
+          <td>${ap==='approved'
+            ? `<span class="badge b-present" style="font-size:11px">✓ Approved</span>`
+            : ap==='denied'
+            ? `<span class="badge b-absent" style="font-size:11px">✗ Denied</span>`
+            : `<div style="display:flex;gap:6px">
+                <button class="btn btn-green btn-sm" style="padding:4px 10px;font-size:11px" onclick="approveAtt('${t}','approved')">Approve</button>
+                <button class="btn btn-red btn-sm"   style="padding:4px 10px;font-size:11px" onclick="approveAtt('${t}','denied')">Deny</button>
+              </div>`}
+          </td>
         </tr>`;
       }).join('')}</tbody>
     </table></div>` : ''}
 
-    <!-- Absent techs with Week Off option -->
+    <!-- Absent / Week Off techs -->
     ${absentTechs.length ? `
-    <div style="font-size:14px;font-weight:600;color:var(--g700);margin-bottom:8px">
-      Absent / Not checked in (${absentTechs.length})
-      <span style="font-size:11px;font-weight:400;color:var(--g400);margin-left:8px">Week off limit: ${_woPerWeekLimit}/week</span>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div style="font-size:13px;font-weight:600;color:var(--g500);text-transform:uppercase;letter-spacing:.05em">
+        Absent — ${absentTechs.length}
+      </div>
+      <div style="font-size:11px;color:var(--g400)">Week off allowance: <strong>${_woPerWeekLimit}/week</strong></div>
     </div>
     <div class="tw"><table>
-      <thead><tr><th>Technician</th><th>Status</th><th>Week Off?</th></tr></thead>
+      <thead><tr><th>Technician</th><th>Status</th><th>Action</th></tr></thead>
       <tbody>${absentTechs.map(({name:t,att:a,userId})=>{
         const isWO = a.status==='week_off';
         return `<tr>
           <td><strong>${t}</strong></td>
-          <td><span class="badge ${isWO?'b-leave':'b-absent'}">${isWO?'Week Off':'Absent'}</span></td>
-          <td>
-            ${isWO
-              ? `<span style="color:var(--g400);font-size:12px">✓ Marked WO</span>`
-              : `<div style="display:flex;gap:8px;align-items:center">
-                  <button class="btn btn-outline btn-sm" style="font-size:11px" onclick="doMarkWO('${t}','${TODAY}','${userId||''}')">Mark Week Off</button>
-                  <span id="wo-msg-${t.replace(/\s/g,'_')}" style="font-size:11px"></span>
-                </div>`}
+          <td><span class="badge ${isWO?'b-leave':'b-absent'}" style="font-size:11px">${isWO?'Week Off':'Absent'}</span></td>
+          <td>${isWO
+            ? `<span style="color:var(--g400);font-size:12px">✓ Week off marked</span>`
+            : `<div style="display:flex;align-items:center;gap:8px">
+                <button class="btn btn-outline btn-sm" style="font-size:11px;white-space:nowrap"
+                  onclick="doMarkWO('${t}','${TODAY}','${userId||''}')">
+                  Mark as Week Off
+                </button>
+                <span id="wo-msg-${t.replace(/\s/g,'_')}" style="font-size:11px"></span>
+              </div>`}
           </td>
         </tr>`;
       }).join('')}</tbody>
