@@ -1319,12 +1319,63 @@ function calcDuration(checkinStr, checkedOut) {
 }
 
 let _durationTimer = null;
+function calcTotalHours() {
+  const hub1Mins = calcHub1Mins();
+  const p = s => {
+    if (!s) return null;
+    const [time, ampm] = s.split(' ');
+    let [h, m] = time.split(':').map(Number);
+    if (ampm?.toLowerCase()==='pm' && h!==12) h+=12;
+    if (ampm?.toLowerCase()==='am' && h===12) h=0;
+    const d = new Date(); d.setHours(h,m,0,0); return d;
+  };
+  const start = p(state.myCheckin), end = p(state.myCheckout);
+  const hub2Mins = (!start||!end) ? 0 : Math.max(0,(end-start)/60000);
+  const total = hub1Mins + hub2Mins;
+  const h = Math.floor(total/60), m = Math.round(total%60);
+  return `${h}h ${m}m`;
+}
+
+function calcHub1Mins() {
+  // Calculate hub1 working minutes if tech changed hubs
+  if (!state.hub1CheckIn || !state.hub1CheckOut) return 0;
+  const parse12 = s => {
+    if (!s) return null;
+    const [time, ampm] = s.split(' ');
+    let [h, m] = time.split(':').map(Number);
+    if (ampm?.toLowerCase()==='pm' && h!==12) h+=12;
+    if (ampm?.toLowerCase()==='am' && h===12) h=0;
+    const d = new Date(); d.setHours(h,m,0,0); return d;
+  };
+  const start = parse12(state.hub1CheckIn);
+  const end   = parse12(state.hub1CheckOut);
+  if (!start||!end) return 0;
+  return Math.max(0, (end - start) / 60000); // minutes
+}
+
 function startDurationTimer() {
   clearInterval(_durationTimer);
   _durationTimer = setInterval(()=>{
     const el = document.getElementById('duration-timer');
     if (!el) { clearInterval(_durationTimer); return; }
-    el.textContent = calcDuration(state.myCheckin, null);
+    // Include hub1 time as offset
+    const hub1Mins = calcHub1Mins();
+    const parse12 = s => {
+      if (!s) return null;
+      const [time, ampm] = s.split(' ');
+      let [h, m] = time.split(':').map(Number);
+      if (ampm?.toLowerCase()==='pm' && h!==12) h+=12;
+      if (ampm?.toLowerCase()==='am' && h===12) h=0;
+      const d = new Date(); d.setHours(h,m,0,0); return d;
+    };
+    const start = parse12(state.myCheckin);
+    if (!start) { el.textContent='00:00:00'; return; }
+    const hub2Ms  = Math.max(0, new Date() - start);
+    const totalMs = hub2Ms + (hub1Mins * 60000);
+    const h = Math.floor(totalMs/3600000);
+    const m = Math.floor((totalMs%3600000)/60000);
+    const s = Math.floor((totalMs%60000)/1000);
+    el.textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
   }, 1000);
 }
 function now24(){ return new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false}); }
@@ -1916,7 +1967,7 @@ function renderMyAttendance() {
         </div>` : ''}
       ${state.myCheckin && state.myCheckout ? `
         <div style="margin:8px 0 4px;font-size:13px;color:var(--green);font-weight:500">
-          Total hours: <span class="mono" style="font-size:15px;font-weight:700">${calcDuration(state.myCheckin, state.myCheckout)}</span>
+          Total hours: <span class="mono" style="font-size:15px;font-weight:700">${calcTotalHours()}</span>
         </div>` : ''}
       <div id="att-status-msg"></div>
       ${!checked
@@ -1950,7 +2001,13 @@ function renderMyAttendance() {
              </svg>
            </div>
            <span class="badge b-done" style="font-size:14px;padding:8px 20px">Attendance complete</span>
+           ${state.hub1 ? `
+           <div style="font-size:12px;color:var(--g500);margin-top:8px;text-align:left;max-width:260px">
+             <div>🏢 <strong>${state.hub1}</strong>: ${state.hub1CheckIn||'—'} → ${state.hub1CheckOut||'—'}</div>
+             <div>🏢 <strong>${state.hub2}</strong>: ${state.hub2CheckIn||'—'} → ${state.myCheckout||'—'}</div>
+           </div>` : `
            <div style="font-size:13px;color:var(--g500);margin-top:8px">${state.myCheckin} → ${state.myCheckout}</div>`}
+           `}
     </div>
     <div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">This week</div>
     <div class="tw"><table>
