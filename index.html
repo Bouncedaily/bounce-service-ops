@@ -875,12 +875,12 @@ async function finishLogin() {
     state.hubId = hubObj ? hubObj.id : null;
     const btn = document.querySelector('#step-hub .btn-blue');
     btn.textContent = 'Loading...'; btn.disabled = true;
-    // Load everything in parallel
+    // Load everything in parallel — include SM's own attendance
     await Promise.all([
       loadAttendanceForHub(state.hubId),
       loadJobsForHub(state.hubId),
       loadVehiclesForHub(state.hub),
-      // Pre-fetch JC data so WO tab is instant
+      loadMyAttendance(state.user.id),
       loadDraftJCForHub(state.hub).then(rows => {
         if (!window._jcCache) window._jcCache = {};
         window._jcCache[state.hub] = rows;
@@ -892,6 +892,7 @@ async function finishLogin() {
     if (state.hub && state.hubId) {
       const btn = document.querySelector('#step-tech-ready .btn-blue');
       btn.textContent = 'Loading...'; btn.disabled = true;
+      await loadMyAttendance(state.user.id);
       await loadMyJobs();
       btn.textContent = 'Go to My Attendance'; btn.disabled = false;
     } else {
@@ -973,10 +974,11 @@ function doLogout() {
 
 // ─ NAV ─
 const MGR_NAV = [
-  {id:'dashboard',     lbl:'Dashboard',     ic:'grid'},
-  {id:'attendance',    lbl:'Attendance',    ic:'users'},
-  {id:'workorders',    lbl:'Work Orders',   ic:'clipboard'},
-  {id:'work-assigned', lbl:'Work Assigned', ic:'tool'},
+  {id:'dashboard',      lbl:'Dashboard',      ic:'grid'},
+  {id:'my-attendance',  lbl:'My Attendance',  ic:'clock'},
+  {id:'attendance',     lbl:'Attendance',     ic:'users'},
+  {id:'workorders',     lbl:'Work Orders',    ic:'clipboard'},
+  {id:'work-assigned',  lbl:'Work Assigned',  ic:'tool'},
 ];
 const AREA_NAV = [
   {id:'dashboard', lbl:'Dashboard',   ic:'grid'},
