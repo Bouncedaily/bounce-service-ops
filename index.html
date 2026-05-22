@@ -513,7 +513,8 @@ async function fetchUserByMobile(mobile) {
 // ─ LOAD TODAY'S ATTENDANCE FOR A HUB ─
 async function loadAttendanceForHub(hubId) {
   state.attendance = {};
-  const hubName = HUBS.find(h=>h.id===hubId)?.name || '';
+  // Use HUBS lookup, fall back to state.hub if not found (covers race conditions)
+  const hubName = HUBS.find(h=>h.id===hubId)?.name || state.hub || '';
   if (_demoMode) {
     // Demo mode only — use fake data
     DEMO_ATTENDANCE.filter(r=>r.hub_id===hubId).forEach(r => {
@@ -2248,8 +2249,9 @@ async function renderWorkOrdersAsync() {
   if (!myHub) return '<div class="empty-state">No hub selected. Please log out and log in again.</div>';
   // Always reload attendance fresh — techs may have checked in after SM logged in
   await loadAttendanceForHub(state.hubId);
+  // Filter present techs — hub match is already guaranteed by loadAttendanceForHub scope
   const avail = Object.entries(state.attendance)
-    .filter(([,a]) => a.status==='present' && a.hub===myHub)
+    .filter(([,a]) => a.status==='present')
     .map(([name]) => name);
   const hubJobs = state.jobs.filter(j=>j.hub===myHub);
   // Use cached JC data if already loaded for this hub
