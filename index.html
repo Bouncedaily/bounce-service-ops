@@ -980,31 +980,48 @@ function refreshOosCount() {
   el.textContent = '…';
   const role   = state.user?.role;
   const isWide = role==='area_manager' || role==='head';
-  let oosFilter = '';
-  if (!isWide && state.hub) {
-    oosFilter = `&hub_name=eq.${encodeURIComponent(state.hub)}`;
-  } else if (isWide && _dashFilterHub) {
-    oosFilter = `&hub_name=eq.${encodeURIComponent(_dashFilterHub)}`;
+
+  // Build the hub list to filter by — resolve at call time so filters are current
+  let hubsToQuery = null; // null = no filter (all)
+
+  if (!isWide) {
+    // SM: always their own hub
+    hubsToQuery = state.hub ? [state.hub] : [];
+  } else if (_dashFilterHub) {
+    // Specific hub selected
+    hubsToQuery = [_dashFilterHub];
+  } else if (_dashFilterCity) {
+    // City selected — get hub names for that city from _cities + HUBS
+    const cityObj = (window._cities||[]).find(c=>c.name===_dashFilterCity);
+    hubsToQuery = cityObj
+      ? HUBS.filter(h=>h.city_id===cityObj.id).map(h=>h.name)
+      : [];
+  } else if (role==='area_manager') {
+    // AM with no filter — scope to their city
+    hubsToQuery = HUBS.filter(h=>h.city_id===state.user.city_id).map(h=>h.name);
   }
-  sb(`vehicles?bike_status=eq.OOS&select=reg_number,hub_name${oosFilter}`).then(rows=>{
+  // Head with no city/hub filter → hubsToQuery = null = fetch all
+
+  // Build query — use hub_name=in.(...) for multi-hub, =eq. for single
+  let query = 'vehicles?bike_status=eq.OOS&select=reg_number,hub_name';
+  if (hubsToQuery === null) {
+    // no filter — fetch all
+  } else if (hubsToQuery.length === 0) {
+    // impossible filter — short-circuit
+    const el2 = document.getElementById('oos-count');
+    if (el2) el2.textContent = '0';
+    return;
+  } else if (hubsToQuery.length === 1) {
+    query += `&hub_name=eq.${encodeURIComponent(hubsToQuery[0])}`;
+  } else {
+    query += `&hub_name=in.(${hubsToQuery.map(h=>encodeURIComponent(h)).join(',')})`;
+  }
+
+  sb(query).then(rows=>{
     const el2 = document.getElementById('oos-count');
     if (!el2) return;
     if (!rows) { el2.textContent='—'; return; }
-    let filtered = rows;
-    if (isWide && !_dashFilterHub) {
-      const cid = _dashFilterCity
-        ? (window._cities||[]).find(c=>c.name===_dashFilterCity)?.id
-        : state.user?.city_id;
-      if (cid) {
-        const cityHubNames = HUBS.filter(h=>h.city_id===cid).map(h=>h.name);
-        filtered = rows.filter(r=>cityHubNames.includes(r.hub_name));
-      }
-      if (role==='area_manager' && !_dashFilterCity && !_dashFilterHub) {
-        const myCityHubs = HUBS.filter(h=>h.city_id===state.user.city_id).map(h=>h.name);
-        filtered = rows.filter(r=>myCityHubs.includes(r.hub_name));
-      }
-    }
-    const unique = [...new Set(filtered.map(r=>r.reg_number))];
+    const unique = [...new Set(rows.map(r=>r.reg_number))];
     el2.textContent = unique.length;
   });
 }
