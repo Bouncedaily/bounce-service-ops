@@ -897,7 +897,7 @@ function renderTopbar() {
   document.getElementById('top-av').textContent   = initials;
   document.getElementById('top-name').textContent = state.user.name;
   document.getElementById('top-role').textContent = ROLE_LABEL[state.user.role] || state.user.role;
-  document.getElementById('top-hub').textContent  = state.hub || 'Hub: scan QR';
+  document.getElementById('top-hub').textContent  = state.hub || 'Select Hub';
 }
 
 function renderNav() {
@@ -1342,7 +1342,7 @@ function renderMyAttendance() {
     {d:'Tue',hub:'Koramangala Hub', s:'present',ci:'08:55 AM',co:'05:15 PM',hrs:'8h 20m'},
     {d:'Wed',hub:'—',               s:'leave',  ci:'—',       co:'—',       hrs:'—'},
     {d:'Thu',hub:'Hebbal Hub',      s:'present',ci:'09:00 AM',co:'05:00 PM',hrs:'8h 00m'},
-    {d:'Today',hub:state.hub,       s:state.myCheckin?'present':'open',ci:state.myCheckin||'—',co:state.myCheckout||'—',hrs:'—'},
+    {d:'Today',hub:state.hub||'—',  s:state.myCheckin?'present':'open',ci:state.myCheckin||'—',co:state.myCheckout||'—',hrs:'—'},
   ];
   return `
     <div class="page-hd"><div class="page-hd-text"><div class="page-title">My Attendance</div><div class="page-sub">${state.hub||''}</div></div>
@@ -1358,14 +1358,27 @@ function renderMyAttendance() {
         <div class="ci-item"><div class="ci-lbl">Check-in</div><div class="ci-val ${state.myCheckin?'':'empty'}">${state.myCheckin||'--:--'}</div></div>
         <div class="ci-item"><div class="ci-lbl">Check-out</div><div class="ci-val ${state.myCheckout?'':'empty'}">${state.myCheckout||'--:--'}</div></div>
       </div>
+      <div id="att-status-msg"></div>
       ${!checked
-        ? `<button class="btn btn-green" style="padding:12px 28px;font-size:15px" onclick="openScanner('checkin')">
-            ${ico('qr',16)} &nbsp;Scan QR to Check-in</button>`
+        ? `<button class="btn btn-green" id="btn-checkin" style="padding:14px 40px;font-size:16px;border-radius:12px;min-width:180px;display:flex;align-items:center;gap:10px;margin:0 auto" onclick="doGeoCheckin('checkin')">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+            Check In</button>
+           <div style="font-size:12px;color:var(--g400);margin-top:10px">Tap to check in — location verified automatically</div>`
         : !checkedOut
-        ? `<div style="margin-bottom:12px"><span class="badge b-present" style="font-size:13px;padding:6px 16px">✓ Checked in at ${state.myCheckin}</span></div>
-           <button class="btn btn-red" style="padding:12px 28px;font-size:15px" onclick="openScanner('checkout')">
-            ${ico('qr',16)} &nbsp;Scan QR to Check-out</button>`
-        : `<span class="badge b-done" style="font-size:13px;padding:8px 18px">✓ Attendance complete — ${state.myCheckin} to ${state.myCheckout}</span>`}
+        ? `<div style="margin-bottom:14px"><span class="badge b-present" style="font-size:13px;padding:6px 16px">Checked in at ${state.myCheckin}</span></div>
+           <button class="btn btn-red" id="btn-checkout" style="padding:14px 40px;font-size:16px;border-radius:12px;min-width:180px;display:flex;align-items:center;gap:10px;margin:0 auto" onclick="doGeoCheckin('checkout')">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            Check Out</button>
+           <div style="font-size:12px;color:var(--g400);margin-top:10px">Tap when leaving the hub</div>`
+        : `<div style="margin-bottom:12px">
+             <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+               <circle cx="28" cy="28" r="28" fill="#e6f7f2"/>
+               <circle cx="28" cy="28" r="22" fill="#0f9e6e"/>
+               <polyline points="18,28 25,35 38,21" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+             </svg>
+           </div>
+           <span class="badge b-done" style="font-size:14px;padding:8px 20px">Attendance complete</span>
+           <div style="font-size:13px;color:var(--g500);margin-top:8px">${state.myCheckin} → ${state.myCheckout}</div>`}
     </div>
     <div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">This week</div>
     <div class="tw"><table>
@@ -2340,6 +2353,88 @@ async function renderWorkAssignedAsync() {
           </tr></thead>
           <tbody>${rows}</tbody>
         </table></div>`}`;
+}
+
+// ─ GEO CHECK-IN / OUT ─
+const GEOFENCE_RADIUS_M = 200;
+
+function getDistanceM(lat1,lng1,lat2,lng2){
+  const R=6371000, dLat=(lat2-lat1)*Math.PI/180, dLng=(lng2-lng1)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+function setAttMsg(type,msg){
+  const el=document.getElementById('att-status-msg'); if(!el)return;
+  const s={loading:'background:var(--blue-lt);color:var(--blue)',success:'background:var(--green-lt);color:var(--green)',error:'background:var(--red-lt);color:var(--red)',warn:'background:var(--amber-lt);color:var(--amber)'};
+  el.innerHTML=msg?`<div style="padding:10px 14px;border-radius:10px;font-size:13px;font-weight:500;margin-bottom:14px;${s[type]||''}">${msg}</div>`:'';
+}
+
+const TEST_MOBILES=['9043207769','9876543210','9100000001','9000000001','9000000002','9123456789','9123456790','9123456791','9123456792','9123456793'];
+
+async function doGeoCheckin(mode){
+  const btn=document.getElementById(mode==='checkin'?'btn-checkin':'btn-checkout');
+  if(btn){btn.disabled=true;btn.style.opacity='0.6';}
+  setAttMsg('loading','Getting your location...');
+  let position;
+  try{
+    position=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{enableHighAccuracy:true,timeout:10000,maximumAge:0}));
+  }catch(err){
+    const msg=err.code===1?'Location permission denied. Please allow location access in browser settings.':err.code===2?'Location unavailable. Try again outdoors.':'Location timed out. Please try again.';
+    setAttMsg('error',msg);
+    if(btn){btn.disabled=false;btn.style.opacity='1';} return;
+  }
+  const userLat=position.coords.latitude, userLng=position.coords.longitude, accuracy=Math.round(position.coords.accuracy);
+  // Skip geofence for test numbers
+  if(_demoMode||TEST_MOBILES.includes(state.user?.mobile)){
+    setAttMsg('success','Location verified (test account). Marking attendance...');
+    await processCheckin(mode,userLat,userLng,accuracy,null,true); return;
+  }
+  // Fetch hub coords
+  let hubLat=null,hubLng=null;
+  if(state.hub){
+    const hd=await sb(`hubs?name=eq.${encodeURIComponent(state.hub)}&select=lat,lng&limit=1`);
+    if(hd&&hd.length&&hd[0].lat){hubLat=hd[0].lat;hubLng=hd[0].lng;}
+  }
+  if(hubLat===null){
+    setAttMsg('warn','Hub location not configured. Marking attendance without verification.');
+    await processCheckin(mode,userLat,userLng,accuracy,null,true); return;
+  }
+  const dist=Math.round(getDistanceM(userLat,userLng,hubLat,hubLng));
+  if(dist<=GEOFENCE_RADIUS_M){
+    setAttMsg('success',`Location verified — you are ${dist}m from ${state.hub}. Marking attendance...`);
+    await processCheckin(mode,userLat,userLng,accuracy,dist,true);
+  }else{
+    setAttMsg('error',`You are ${dist}m away from ${state.hub}. Must be within ${GEOFENCE_RADIUS_M}m. Move closer and try again.`);
+    if(btn){btn.disabled=false;btn.style.opacity='1';}
+  }
+}
+
+async function processCheckin(mode,lat,lng,accuracy,distanceM,withinFence){
+  const t12=nowFmt(),t24=now24();
+  const geoData={lat,lng,accuracy,distance_m:distanceM,within_fence:withinFence,timestamp:new Date().toISOString()};
+  if(mode==='checkin'){
+    let attId=null;
+    if(!_demoMode){
+      const hubData=await sb(`hubs?name=eq.${encodeURIComponent(state.hub)}&select=id&limit=1`);
+      const hubId=hubData?.[0]?.id||state.hubId;
+      const res=await sb('attendance?on_conflict=user_id,date',{
+        method:'POST',prefer:'resolution=merge-duplicates,return=representation',
+        body:JSON.stringify({user_id:state.user.id,technician_name:state.user.name,phone_number:state.user.mobile,hub_id:hubId,hub_name:state.hub,date:new Date().toISOString().slice(0,10),status:'present',checkin_time:new Date().toISOString(),geo_checkin:geoData,approval_status:'pending'})
+      });
+      attId=res?.[0]?.id||null;
+    }
+    state.myCheckin=t12; state.myAttId=attId||'demo-att';
+    state.attendance[state.user.name]={status:'present',checkin:t24,checkout:null,hub:state.hub,att_id:attId};
+    try{const s=JSON.parse(localStorage.getItem('bounce_session')||'{}');s.myCheckin=t12;s.myAttId=state.myAttId;localStorage.setItem('bounce_session',JSON.stringify(s));}catch(e){}
+  }else{
+    if(!_demoMode&&state.myAttId&&!state.myAttId.startsWith('demo')){
+      await sb(`attendance?id=eq.${state.myAttId}`,{method:'PATCH',body:JSON.stringify({checkout_time:new Date().toISOString(),geo_checkout:geoData,updated_at:new Date().toISOString()})});
+    }
+    state.myCheckout=t12;
+    try{const s=JSON.parse(localStorage.getItem('bounce_session')||'{}');s.myCheckout=t12;localStorage.setItem('bounce_session',JSON.stringify(s));}catch(e){}
+  }
+  setTimeout(()=>{closeModal&&closeModal();navigate('my-attendance');},1200);
 }
 
 // ─ INIT ─
