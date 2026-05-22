@@ -1930,7 +1930,7 @@ async function loadDraftJCForHub(hubName) {
   if (_demoMode) return [];
   // Only fetch non-Billed JCs — much faster and what we actually need
   const rows = await sb(
-    `draft_jc?hub_name=eq.${encodeURIComponent(hubName)}&select=job_card_number,dms_jc_id,reg_number,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date&order=job_card_opened_date.desc`
+    `draft_jc?hub_name=eq.${encodeURIComponent(hubName)}&select=job_card_number,dms_jc_id,reg_number,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date,bike_status&order=job_card_opened_date.desc`
   );
   return rows || [];
 }
@@ -1965,8 +1965,9 @@ async function renderWorkOrdersAsync() {
     window._jcCache[myHub] = await loadDraftJCForHub(myHub);
   }
   const jcRows = window._jcCache[myHub];
-  const unassigned = jcRows.filter(j=>j.current_jc_status==='Job Open');
-  const assigned   = jcRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open');
+  const oosRows    = jcRows.filter(j=>j.bike_status?.toLowerCase()==='oos');
+  const unassigned = oosRows.filter(j=>j.current_jc_status==='Job Open' || j.current_jc_status==='JC not opened in DMS');
+  const assigned   = oosRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open' && j.current_jc_status!=='JC not opened in DMS');
 
   // Build JC lookup by reg_number for vehicle search enrichment
   window._jcLookup = {};
@@ -2200,8 +2201,9 @@ async function renderWorkOrdersWideAsync(role) {
   }
   const jcRows = window._jcCache[cacheKey];
 
-  const unassigned = jcRows.filter(j=>j.current_jc_status==='Job Open');
-  const assigned   = jcRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open');
+  const oosRows    = jcRows.filter(j=>j.bike_status?.toLowerCase()==='oos');
+  const unassigned = oosRows.filter(j=>j.current_jc_status==='Job Open' || j.current_jc_status==='JC not opened in DMS');
+  const assigned   = oosRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open' && j.current_jc_status!=='JC not opened in DMS');
 
   // Get present technicians for the selected hub (for assignment)
   const availTechs = selectedHub
