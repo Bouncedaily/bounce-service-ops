@@ -762,7 +762,7 @@ async function sendOTP() {
   proceedAfterAuth(user);
 }
 
-function proceedAfterAuth(u) {
+async function proceedAfterAuth(u) {
   const initials = u.name.split(' ').map(x=>x[0]).join('').slice(0,2);
   const previewHTML = `<div class="up-avatar">${initials}</div><div><div class="up-name">${u.name}</div><div class="up-role">${ROLE_LABEL[u.role]||u.role}</div></div>`;
   if (u.role === 'hub_manager') {
