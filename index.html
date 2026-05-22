@@ -766,12 +766,38 @@ function proceedAfterAuth(u) {
   const initials = u.name.split(' ').map(x=>x[0]).join('').slice(0,2);
   const previewHTML = `<div class="up-avatar">${initials}</div><div><div class="up-name">${u.name}</div><div class="up-role">${ROLE_LABEL[u.role]||u.role}</div></div>`;
   if (u.role === 'hub_manager') {
-    // If user has an assigned hub in DB, skip hub selection entirely
-    if (u.assigned_hub_name) {
-      state.pendingUser = u;
-      state.pendingUser._autoHub = u.assigned_hub_name;
-    }
     document.getElementById('user-preview').innerHTML = previewHTML;
+    // Check if SM already has attendance today → skip hub selection
+    const todayAtt = await sb(`attendance?user_id=eq.${u.id}&date=eq.${TODAY}&select=id,hub_id,checkin_time,checkout_time,hubs(name)&limit=1`);
+    if (todayAtt && todayAtt.length) {
+      const r = todayAtt[0];
+      const hubName = r.hubs?.name || u.assigned_hub_name || '';
+      const hubObj  = HUBS.find(h=>h.name===hubName);
+      state.pendingUser = u;
+      state.pendingUser._autoHub = hubName;
+      state.hub   = hubName;
+      state.hubId = hubObj?.id || r.hub_id || null;
+      state.myCheckin  = r.checkin_time  ? new Date(r.checkin_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true})  : null;
+      state.myCheckout = r.checkout_time ? new Date(r.checkout_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}) : null;
+      state.myAttId    = r.id;
+      // Show locked-in note and skip to finishLogin
+      document.getElementById('s3-alert').innerHTML = `<div class="alert al-info" style="margin-bottom:0">Already checked in today at <strong>${hubName}</strong>. One hub per day.</div>`;
+      goStep('step-hub');
+      // Auto-continue after brief pause
+      setTimeout(async () => {
+        state.user = state.pendingUser;
+        await Promise.all([loadAttendanceForHub(state.hubId), loadJobsForHub(state.hubId), loadVehiclesForHub(state.hub),
+          loadDraftJCForHub(state.hub).then(rows => { if (!window._jcCache) window._jcCache = {}; window._jcCache[state.hub] = rows; })]);
+        try { localStorage.setItem('bounce_session', JSON.stringify({user:state.user,hub:state.hub,hubId:state.hubId,myCheckin:state.myCheckin,myCheckout:state.myCheckout,myAttId:state.myAttId||null})); } catch(e){}
+        document.getElementById('login-page').style.display='none';
+        document.getElementById('app-shell').style.display='block';
+        renderTopbar(); renderNav();
+        navigate('dashboard');
+      }, 1200);
+      return;
+    }
+    // No attendance today — show hub selection as usual
+    if (u.assigned_hub_name) { state.pendingUser = u; state.pendingUser._autoHub = u.assigned_hub_name; }
     const sel = document.getElementById('hub-select');
     sel.innerHTML = '<option value="">Select hub...</option>';
     const cityHubs = u.city_id ? HUBS.filter(h=>h.city_id===u.city_id) : HUBS;
@@ -787,17 +813,37 @@ function proceedAfterAuth(u) {
     const picker   = document.getElementById('tech-hub-picker');
     const roleNote = document.getElementById('tech-role-note');
     if (u.role === 'technician') {
-      picker.style.display   = 'block';
-      roleNote.style.display = 'none';
-      btnEl.textContent      = 'Continue';
-      const sel = document.getElementById('tech-hub-select');
-      sel.innerHTML = '<option value="">Select your hub for today...</option>';
-      const cityHubs = u.city_id ? HUBS.filter(h=>h.city_id===u.city_id) : HUBS;
-      (cityHubs.length ? cityHubs : HUBS).forEach(h=>{
-        const o=document.createElement('option'); o.value=h.name; o.textContent=h.name;
-        if (u.assigned_hub_name && h.name===u.assigned_hub_name) o.selected=true;
-        sel.appendChild(o);
-      });
+      // Check if technician already has attendance today → lock to that hub
+      const todayAtt = await sb(`attendance?user_id=eq.${u.id}&date=eq.${TODAY}&select=id,hub_id,checkin_time,checkout_time,hubs(name)&limit=1`);
+      if (todayAtt && todayAtt.length) {
+        const r = todayAtt[0];
+        const hubName = r.hubs?.name || '';
+        const hubObj  = HUBS.find(h=>h.name===hubName);
+        state.pendingUser = u;
+        state.hub   = hubName;
+        state.hubId = hubObj?.id || r.hub_id || null;
+        state.myCheckin  = r.checkin_time  ? new Date(r.checkin_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true})  : null;
+        state.myCheckout = r.checkout_time ? new Date(r.checkout_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}) : null;
+        state.myAttId    = r.id;
+        // Show locked hub, hide dropdown
+        picker.style.display   = 'none';
+        roleNote.style.display = 'block';
+        document.getElementById('tech-ready-msg').innerHTML = `Already checked in today at <strong>${hubName}</strong>. One hub per day.`;
+        btnEl.textContent = 'Go to My Attendance';
+      } else {
+        // No attendance today — show hub picker
+        picker.style.display   = 'block';
+        roleNote.style.display = 'none';
+        btnEl.textContent      = 'Continue';
+        const sel = document.getElementById('tech-hub-select');
+        sel.innerHTML = '<option value="">Select your hub for today...</option>';
+        const cityHubs = u.city_id ? HUBS.filter(h=>h.city_id===u.city_id) : HUBS;
+        (cityHubs.length ? cityHubs : HUBS).forEach(h=>{
+          const o=document.createElement('option'); o.value=h.name; o.textContent=h.name;
+          if (u.assigned_hub_name && h.name===u.assigned_hub_name) o.selected=true;
+          sel.appendChild(o);
+        });
+      }
     } else {
       picker.style.display   = 'none';
       roleNote.style.display = 'block';
@@ -842,33 +888,38 @@ async function finishLogin() {
     ]);
     btn.textContent = 'Continue'; btn.disabled = false;
   } else if (state.user.role === 'technician') {
-    // Get hub from dropdown
-    const techSel = document.getElementById('tech-hub-select');
-    const selectedHub = techSel ? techSel.value : '';
-    if (!selectedHub) {
-      // Show error near dropdown
-      const existing = document.getElementById('tech-hub-err');
-      if (!existing) {
-        const err = document.createElement('div');
-        err.id='tech-hub-err'; err.className='alert al-error'; err.style.marginBottom='8px';
-        err.textContent='Please select your hub for today.';
-        if (techSel) techSel.parentElement.insertAdjacentElement('afterend', err);
+    // If hub already set from today's attendance record, skip selection
+    if (state.hub && state.hubId) {
+      const btn = document.querySelector('#step-tech-ready .btn-blue');
+      btn.textContent = 'Loading...'; btn.disabled = true;
+      await loadMyJobs();
+      btn.textContent = 'Go to My Attendance'; btn.disabled = false;
+    } else {
+      // Get hub from dropdown
+      const techSel = document.getElementById('tech-hub-select');
+      const selectedHub = techSel ? techSel.value : '';
+      if (!selectedHub) {
+        const existing = document.getElementById('tech-hub-err');
+        if (!existing) {
+          const err = document.createElement('div');
+          err.id='tech-hub-err'; err.className='alert al-error'; err.style.marginBottom='8px';
+          err.textContent='Please select your hub for today.';
+          if (techSel) techSel.parentElement.insertAdjacentElement('afterend', err);
+        }
+        return;
       }
-      return;
+      const existing = document.getElementById('tech-hub-err');
+      if (existing) existing.remove();
+      const hubObj = HUBS.find(h=>h.name===selectedHub);
+      state.hub   = selectedHub;
+      state.hubId = hubObj?.id || null;
+      state.myCheckin = null; state.myCheckout = null;
+      const btn = document.querySelector('#step-tech-ready .btn-blue');
+      btn.textContent = 'Loading...'; btn.disabled = true;
+      await loadMyAttendance(state.user.id);
+      await loadMyJobs();
+      btn.textContent = 'Continue'; btn.disabled = false;
     }
-    // Remove error if shown
-    const existing = document.getElementById('tech-hub-err');
-    if (existing) existing.remove();
-    const hubObj = HUBS.find(h=>h.name===selectedHub);
-    state.hub   = selectedHub;
-    state.hubId = hubObj?.id || null;
-    console.log('[login] tech hub set:', state.hub, 'hubId:', state.hubId);
-    state.myCheckin = null; state.myCheckout = null;
-    const btn = document.querySelector('#step-tech-ready .btn-blue');
-    btn.textContent = 'Loading...'; btn.disabled = true;
-    await loadMyAttendance(state.user.id);
-    await loadMyJobs();
-    btn.textContent = 'Continue'; btn.disabled = false;
   } else {
     // area_manager / head — no hub filter, load all hubs data
     state.hub = null; state.hubId = null;
