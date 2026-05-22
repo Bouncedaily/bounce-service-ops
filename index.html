@@ -2471,8 +2471,9 @@ async function renderWorkOrdersAsync() {
         </div>
       </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:4px">
-        <input class="form-input" style="width:160px;font-size:12px" placeholder="Reg no. filter..." 
-          value="${_woRegFilterSM}" oninput="_woRegFilterSM=this.value;window._woPg={ua:0,as:0};navigate('workorders')"/>
+        <input class="form-input" style="width:160px;font-size:12px" placeholder="Reg no. filter..."
+          id="wo-reg-filter-sm" value="${_woRegFilterSM}"
+          oninput="_woRegFilterSM=this.value;window._woPg={ua:0,as:0};debounceWoFilter('sm')"/>
         <select class="form-select" style="width:160px;font-size:12px" onchange="_woTypeFilterSM=this.value;window._woPg={ua:0,as:0};navigate('workorders')">
           <option value="">All Types</option>
           ${[...new Set(unassignedSorted.map(j=>j.submission_type).filter(Boolean))].sort().map(t=>`<option value="${t}" ${t===_woTypeFilterSM?'selected':''}>${t}</option>`).join('')}
@@ -2511,6 +2512,37 @@ function woPage(key, delta) {
   window._woPg[key] = Math.max(0, window._woPg[key] + delta);
   navigate('workorders');
 }
+let _woFilterTimer = null;
+function debounceWoFilter(scope) {
+  clearTimeout(_woFilterTimer);
+  _woFilterTimer = setTimeout(() => {
+    // Re-render only the table rows in-place without full navigate()
+    const role = state.user?.role;
+    if (scope === 'sm') {
+      const c = document.getElementById('content');
+      if (c) {
+        // Full re-render but restore focus after
+        const el = document.getElementById('wo-reg-filter-sm');
+        const pos = el ? el.selectionStart : null;
+        navigate('workorders');
+        // Restore focus after re-render
+        requestAnimationFrame(() => {
+          const newEl = document.getElementById('wo-reg-filter-sm');
+          if (newEl) { newEl.focus(); if (pos !== null) newEl.setSelectionRange(pos, pos); }
+        });
+      }
+    } else {
+      const el = document.getElementById('wo-reg-filter-wide');
+      const pos = el ? el.selectionStart : null;
+      navigate('workorders');
+      requestAnimationFrame(() => {
+        const newEl = document.getElementById('wo-reg-filter-wide');
+        if (newEl) { newEl.focus(); if (pos !== null) newEl.setSelectionRange(pos, pos); }
+      });
+    }
+  }, 300);
+}
+
 function clearWoModelFilter() { _woModelFilterSM=''; _woModelFilterWide=''; }
 function woPgWide(key, delta) {
   if (!window._woPgWide) window._woPgWide = {ua:0,as:0};
@@ -2767,7 +2799,8 @@ async function renderWorkOrdersWideAsync(role) {
       </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:4px">
         <input class="form-input" style="width:160px;font-size:12px" placeholder="Reg no. filter..."
-          value="${_woRegFilterWide}" oninput="_woRegFilterWide=this.value;window._woPgWide={ua:0,as:0};navigate('workorders')"/>
+          id="wo-reg-filter-wide" value="${_woRegFilterWide}"
+          oninput="_woRegFilterWide=this.value;window._woPgWide={ua:0,as:0};debounceWoFilter('wide')"/>
         <select class="form-select" style="width:160px;font-size:12px" onchange="_woTypeFilterWide=this.value;window._woPgWide={ua:0,as:0};navigate('workorders')">
           <option value="">All Types</option>
           ${[...new Set(uaSorted.map(j=>j.submission_type).filter(Boolean))].sort().map(t=>`<option value="${t}" ${t===_woTypeFilterWide?'selected':''}>${t}</option>`).join('')}
