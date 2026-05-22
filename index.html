@@ -973,6 +973,8 @@ function renderNav() {
 let _clockT = null;
 function navigate(page) {
   currentPage = page;  // ← must set BEFORE async calls
+  // Persist current page so browser refresh returns here
+  try { const s=JSON.parse(localStorage.getItem('bounce_session')||'{}'); s.currentPage=page; localStorage.setItem('bounce_session',JSON.stringify(s)); } catch(e){}
   clearInterval(_clockT);
   document.querySelectorAll('.si,.bnt').forEach(e=>e.classList.remove('active'));
   ['si-','bt-'].forEach(p=>{ const e=document.getElementById(p+page); if(e) e.classList.add('active'); });
@@ -1021,11 +1023,28 @@ function navigate(page) {
   c.innerHTML = (fns[page]||(() => ''))();
   if (page==='qr-hub') generateManagerQR();
   if (page==='dashboard') {
-    // Load OOS count from vehicles table
-    const hubFilter = state.hub ? `&hub_name=eq.${encodeURIComponent(state.hub)}` : '';
-    sb(`vehicles?bike_status=eq.OOS&select=reg_number${hubFilter}`).then(rows=>{
+    // Load OOS count from vehicles table — respect active dashboard filters
+    const role = state.user?.role;
+    const isWide = role==='area_manager'||role==='head';
+    let oosFilter = '';
+    if (!isWide && state.hub) {
+      oosFilter = `&hub_name=eq.${encodeURIComponent(state.hub)}`;
+    } else if (isWide && _dashFilterHub) {
+      oosFilter = `&hub_name=eq.${encodeURIComponent(_dashFilterHub)}`;
+    }
+    // For AM without hub filter, fetch all and filter by city_id client-side
+    sb(`vehicles?bike_status=eq.OOS&select=reg_number,hub_name${oosFilter}`).then(rows=>{
       const el = document.getElementById('oos-count');
-      if (el) el.textContent = rows ? rows.length : '—';
+      if (!el) return;
+      if (!rows) { el.textContent='—'; return; }
+      let filtered = rows;
+      if (isWide && !_dashFilterHub && state.user?.city_id) {
+        const cityHubNames = HUBS.filter(h=>h.city_id===state.user.city_id).map(h=>h.name);
+        if (role==='area_manager') filtered = rows.filter(r=>cityHubNames.includes(r.hub_name));
+      }
+      // Deduplicate by reg_number
+      const unique = [...new Set(filtered.map(r=>r.reg_number))];
+      el.textContent = unique.length;
     });
   }
   if (page==='my-attendance') {
@@ -1090,41 +1109,84 @@ function renderDashboard() {
   const role   = state.user.role;
   const isWide = role === 'area_manager' || role === 'head';
 
-  // Attendance counts — from state.attendance which is populated by loadAttendanceForHub or loadAllHubsData
-  const attList = Object.values(state.attendance);
+  // Resolve active city/hub filter
+  const filterHub  = isWide ? _dashFilterHub  : state.hub;
+  const filterCity = isWide ? _dashFilterCity : null;
+
+  // Helper: does a hub name belong to the selected city?
+  function hubInCity(hubName) {
+    if (!filterCity) return true;
+    const h = HUBS.find(h=>h.name===hubName);
+    if (!h) return false;
+    // city_id → city name map from HUBS
+    const cityHubIds = HUBS.filter(x=>x.city_id===h.city_id).map(x=>x.id);
+    // Just check if any hub in HUBS has the same city_id as the matching hub
+    return h && HUBS.filter(x=>x.city_id===h.city_id).some(x=>x.name===hubName||true);
+  }
+  // Better city filter: match hub's city_id against filter
+  const cityIdForFilter = filterCity ? (() => {
+    // Find a hub whose city name matches filterCity — use name prefix heuristic
+    const match = HUBS.find(h=> h.name && h.name.toLowerCase().includes(filterCity.toLowerCase()));
+    return match ? match.city_id : null;
+  })() : null;
+
+  function attInFilter(a) {
+    if (filterHub) return a.hub === filterHub;
+    if (cityIdForFilter) {
+      const h = HUBS.find(x=>x.name===a.hub);
+      return h ? h.city_id === cityIdForFilter : false;
+    }
+    if (!isWide) return a.hub === state.hub;
+    if (role === 'area_manager') {
+      const h = HUBS.find(x=>x.name===a.hub);
+      return h ? h.city_id === state.user.city_id : false;
+    }
+    return true;
+  }
+
+  function jobInFilter(j) {
+    if (filterHub) return j.hub === filterHub;
+    if (cityIdForFilter) {
+      const h = HUBS.find(x=>x.name===j.hub);
+      return h ? h.city_id === cityIdForFilter : false;
+    }
+    if (!isWide) return j.hub === state.hub;
+    if (role === 'area_manager') {
+      const h = HUBS.find(x=>x.name===j.hub);
+      return h ? h.city_id === state.user.city_id : false;
+    }
+    return true;
+  }
+
+  // Attendance counts — filtered
+  const attList = Object.values(state.attendance).filter(attInFilter);
   const total   = attList.length;
   const present = attList.filter(a=>a.status==='present').length;
   const absent  = attList.filter(a=>a.status==='absent').length;
   const onLeave = attList.filter(a=>a.status==='leave').length;
 
-  // Jobs — hub_manager sees only their hub; wider roles see all
-  const visibleJobs = isWide ? state.jobs : state.jobs.filter(j=>j.hub===state.hub);
+  // Jobs — filtered
+  const visibleJobs = state.jobs.filter(jobInFilter);
   const done = visibleJobs.filter(j=>j.status==='Done').length;
   const open = visibleJobs.filter(j=>j.status!=='Done').length;
 
-  // Hub breakdown for wider roles
-  const hubBreakdown = isWide ? HUBS.map(h=>{
-    const cnt = attList.filter(a=>a.hub===h.name&&a.status==='present').length;
+  // Hub breakdown for wider roles — also filtered by city if set
+  const hubsToShow = isWide ? HUBS.filter(h=>{
+    if (role==='area_manager') return h.city_id===state.user.city_id;
+    if (cityIdForFilter) return h.city_id===cityIdForFilter;
+    return true;
+  }) : [];
+  const hubBreakdown = hubsToShow.map(h=>{
+    const cnt = Object.values(state.attendance).filter(a=>a.hub===h.name&&a.status==='present').length;
     const jobCnt = state.jobs.filter(j=>j.hub===h.name&&j.status!=='Done').length;
     return {name:h.name, present:cnt, openJobs:jobCnt};
-  }).filter(h=>h.present>0||h.openJobs>0) : [];
+  }).filter(h=>h.present>0||h.openJobs>0);
 
-  const subTitle = role==='head' ? 'All Cities' : role==='area_manager' ? 'All Hubs — Your City' : state.hub;
+  const filterLabel = filterHub ? filterHub : filterCity ? filterCity : (role==='head' ? 'All Cities' : role==='area_manager' ? 'Your City' : state.hub);
+  const subTitle = filterLabel;
 
-  // Tech snapshot — hub manager sees their hub; wider roles see all
-  const filterHub  = isWide ? _dashFilterHub  : state.hub;
-  const snapEntries = Object.entries(state.attendance).filter(([,a])=>{
-    if (filterHub) return a.hub===filterHub;
-    if (isWide && _dashFilterCity) {
-      const hubsInCity = HUBS.filter(h=>{
-        // match by city name approximation
-        return h.name && a.hub && h.name===a.hub;
-      });
-      return true; // show all, city filter is visual
-    }
-    if (!isWide) return a.hub===state.hub;
-    return true;
-  });
+  // Tech snapshot — filtered
+  const snapEntries = Object.entries(state.attendance).filter(([,a])=>attInFilter(a));
 
   return `
     <div class="page-hd">
@@ -1140,7 +1202,7 @@ function renderDashboard() {
       </select>`:''}
       <select class="form-select" style="width:180px" onchange="_dashFilterHub=this.value;navigate('dashboard')">
         <option value="">All Hubs</option>
-        ${HUBS.filter(h=>role==='area_manager'?h.city_id===state.user.city_id:true)
+        ${HUBS.filter(h=>role==='area_manager'?h.city_id===state.user.city_id:(cityIdForFilter?h.city_id===cityIdForFilter:true))
           .map(h=>`<option value="${h.name}" ${h.name===_dashFilterHub?'selected':''}>${h.name}</option>`).join('')}
       </select>
     </div>` : ''}
@@ -1161,7 +1223,7 @@ function renderDashboard() {
       <div class="card" style="margin:0;border-left:4px solid var(--red)">
         <div class="metric-lbl">Vehicles in OOS</div>
         <div id="oos-count" class="metric-val mv-red" style="font-size:28px">—</div>
-        <div style="font-size:12px;color:var(--g400);margin-top:4px">${isWide?'Across all hubs':'At '+state.hub}</div>
+        <div style="font-size:12px;color:var(--g400);margin-top:4px">${filterHub ? 'At '+filterHub : isWide?'Across filtered hubs':'At '+state.hub}</div>
       </div>
     </div>
     ${isWide && hubBreakdown.length ? `
@@ -2579,7 +2641,8 @@ async function initApp() {
         document.getElementById('login-page').style.display = 'none';
         document.getElementById('app-shell').style.display  = 'block';
         renderTopbar(); renderNav();
-        navigate(state.user.role !== 'technician' ? 'dashboard' : 'my-attendance');
+        const defaultPage = state.user.role !== 'technician' ? 'dashboard' : 'my-attendance';
+        navigate(sess.currentPage || defaultPage);
         return;
       }
     }
