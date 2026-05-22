@@ -1787,7 +1787,11 @@ function renderMyAttendance() {
         </div>` : ''}
       <div id="att-status-msg"></div>
       ${!checked
-        ? `<button class="btn btn-green" id="btn-checkin" style="padding:14px 40px;font-size:16px;border-radius:12px;min-width:180px;display:flex;align-items:center;gap:10px;margin:0 auto" onclick="doGeoCheckin('checkin')">
+        ? !state.hub
+          ? `<div class="alert al-error" style="margin:12px auto;max-width:360px;text-align:center">
+               <strong>No hub selected.</strong><br>Please log out and select a hub before checking in.
+             </div>`
+          : `<button class="btn btn-green" id="btn-checkin" style="padding:14px 40px;font-size:16px;border-radius:12px;min-width:180px;display:flex;align-items:center;gap:10px;margin:0 auto" onclick="doGeoCheckin('checkin')">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
             Check In</button>
            <div style="font-size:12px;color:var(--g400);margin-top:10px">Tap to check in — location verified automatically</div>`
@@ -2936,6 +2940,11 @@ function setAttMsg(type,msg){
 const TEST_MOBILES=['9043207769','9876543210','9100000001','9000000001','9000000002','9123456789','9123456790','9123456791','9123456792','9123456793'];
 
 async function doGeoCheckin(mode){
+  // Hard validation — must have hub selected
+  if (!state.hub || !state.hubId) {
+    setAttMsg('error','Please select a hub before marking attendance.');
+    return;
+  }
   const btn=document.getElementById(mode==='checkin'?'btn-checkin':'btn-checkout');
   if(btn){btn.disabled=true;btn.style.opacity='0.6';}
   setAttMsg('loading','Getting your location...');
