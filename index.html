@@ -2857,50 +2857,52 @@ function closeJCSection(jobs, hubName) {
 }
 
 // ─ INIT ─
-bootstrap().then(async () => {
-  console.log('Bounce Service Ops ready — hubs:', HUBS.length, '— users:', ALL_USERS.length);
+const hideLoading = () => {
+  const el = document.getElementById('loading-screen');
+  if (el) el.style.display = 'none';
+};
+const showLogin = () => {
+  hideLoading();
+  document.getElementById('login-page').style.display = 'flex';
+};
 
-  // Restore session from localStorage — runs before showing any UI
-  const hideLoading = () => {
-    const el = document.getElementById('loading-screen');
-    if (el) el.style.display = 'none';
-  };
-  const showLogin = () => {
-    hideLoading();
-    document.getElementById('login-page').style.display = 'flex';
-  };
+// Safety net — if anything hangs for more than 5s, show login
+const _safetyTimer = setTimeout(() => {
+  console.warn('[session] Timeout — showing login');
+  hideLoading();
+  if (document.getElementById('app-shell').style.display === 'none') {
+    showLogin();
+  }
+}, 5000);
 
+async function initApp() {
   try {
+    await bootstrap();
+
     const saved = localStorage.getItem('bounce_session');
-    console.log('[session] Checking localStorage:', saved ? 'found' : 'empty');
-    if (!saved) { showLogin(); return; }
+    if (!saved) { clearTimeout(_safetyTimer); showLogin(); return; }
 
     const sess = JSON.parse(saved);
-    console.log('[session] Parsed session user:', sess?.user?.name, sess?.user?.role);
-    if (!sess || !sess.user) { showLogin(); return; }
+    if (!sess || !sess.user) { clearTimeout(_safetyTimer); showLogin(); return; }
 
-    // Re-validate by user ID directly (faster, no mobile lookup needed)
-    let check = null;
-    if (!_demoMode) {
-      const rows = await sb(`users?id=eq.${sess.user.id}&select=id,name,mobile,role,city_id,assigned_hub_name,is_active&limit=1`);
-      check = rows && rows.length ? rows[0] : null;
-      if (!check || check.is_active === false) {
-        localStorage.removeItem('bounce_session');
-        showLogin(); return;
-      }
-    }
-
-    // Restore state — use saved session, overlay fresh DB fields if available
-    state.user       = check ? { ...sess.user, ...check } : sess.user;
+    // Restore state from session immediately (no Supabase needed for this)
+    state.user       = sess.user;
     state.hub        = sess.hub        || null;
     state.hubId      = sess.hubId      || null;
     state.myCheckin  = sess.myCheckin  || null;
     state.myCheckout = sess.myCheckout || null;
     state.myAttId    = sess.myAttId    || null;
 
-    // Load fresh data in background
+    // Show app immediately with cached state
+    clearTimeout(_safetyTimer);
+    hideLoading();
+    document.getElementById('app-shell').style.display = 'block';
+    renderTopbar(); renderNav();
+    navigate(state.user.role !== 'technician' ? 'dashboard' : 'my-attendance');
+
+    // Then load fresh data in background (non-blocking)
     if (state.user.role === 'hub_manager' && state.hubId) {
-      await Promise.all([
+      Promise.all([
         loadAttendanceForHub(state.hubId),
         loadJobsForHub(state.hubId),
         loadVehiclesForHub(state.hub),
@@ -2908,27 +2910,25 @@ bootstrap().then(async () => {
           if (!window._jcCache) window._jcCache = {};
           window._jcCache[state.hub] = rows;
         })
-      ]);
+      ]).then(() => navigate(currentPage)).catch(()=>{});
     } else if (state.user.role === 'technician') {
-      await loadMyAttendance(state.user.id);
-      await loadMyJobs();
+      Promise.all([
+        loadMyAttendance(state.user.id),
+        loadMyJobs()
+      ]).then(() => navigate(currentPage)).catch(()=>{});
     } else {
-      await loadAllHubsData();
+      loadAllHubsData().then(() => navigate(currentPage)).catch(()=>{});
     }
 
-    console.log('[session] Data loaded, showing app for:', state.user.name, state.user.role);
-    // Show app — no flash, goes straight here
-    hideLoading();
-    document.getElementById('app-shell').style.display = 'block';
-    renderTopbar(); renderNav();
-    navigate(state.user.role !== 'technician' ? 'dashboard' : 'my-attendance');
-
   } catch(e) {
-    console.error('[session] Restore failed:', e);
+    console.error('[init] Failed:', e);
+    clearTimeout(_safetyTimer);
     localStorage.removeItem('bounce_session');
     showLogin();
   }
-});
+}
+
+initApp();
 </script>
 </body>
 </html>
