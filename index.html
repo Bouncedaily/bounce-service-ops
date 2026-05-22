@@ -532,7 +532,7 @@ async function loadAttendanceForHub(hubId) {
   }
 
   // Fetch all today's attendance — filter client-side to avoid column name issues
-  const allRows = await sb(`attendance?date=eq.${TODAY}&select=id,status,checkin_time,checkout_time,user_id,hub_id,hub_name,approval_status,approved_by_name,remarks,users(name),hubs(name)`);
+  const allRows = await sb(`attendance?date=eq.${TODAY}&select=id,status,checkin_time,checkout_time,user_id,hub_id,hub_name,technician_name,approval_status,approved_by_name,remarks,users(name),hubs(name)`);
   
   // Filter to this hub — match by hub_id, hub_name column, or hubs(name) join
   const seen = new Set();
@@ -544,9 +544,9 @@ async function loadAttendanceForHub(hubId) {
     if (!matchById && !matchByCol && !matchByJoin) return false;
     seen.add(r.user_id); return true;
   });
-  console.log('[loadAttendanceForHub]', hubName, hubId, '→ total today:', (allRows||[]).length, '→ this hub:', rows.length);
+  console.log('[loadAttendanceForHub]', hubName, '→ total today:', (allRows||[]).length, '→ this hub:', rows.length, '→ names:', Object.keys(state.attendance));
   rows.forEach(r => {
-    const name = r.users?.name; if (!name) return;
+    const name = r.users?.name || r.technician_name; if (!name) return;
     state.attendance[name] = {
       status:   r.status,
       checkin:  r.checkin_time  ? new Date(r.checkin_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false}) : null,
