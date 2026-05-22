@@ -1645,10 +1645,13 @@ async function _doSaveWO_SM(v, iss, p, woType, techUser, hubObj, btn) {
   const saved = await saveWorkOrder({
     wo_number: woNum, vehicle_reg: v, issue: iss,
     assigned_tech_id: techUser?.id || null,
+    assigned_tech_name: techUser?.name || null,
     hub_id: hubObj?.id || null,
+    hub_name: hubObj?.name || state.hub || null,
     priority: p, status: 'Open',
     wo_type: woType,
-    assigned_by_id: state.user.id
+    assigned_by_id: state.user.id,
+    assigned_by_name: state.user.name || null
   });
   if (btn) { btn.textContent='Assign Work Order'; btn.disabled=false; }
   if (saved) {
@@ -1730,10 +1733,13 @@ async function _doSaveWO_Wide(v, iss, p, woType, techUser, hubObj, hubName, tech
   const saved = await saveWorkOrder({
     wo_number: woNum, vehicle_reg: v, issue: iss,
     assigned_tech_id: techUser?.id || null,
+    assigned_tech_name: techUser?.name || null,
     hub_id: hubObj?.id || null,
+    hub_name: hubObj?.name || null,
     priority: p, status: 'Open',
     wo_type: woType,
-    assigned_by_id: state.user.id
+    assigned_by_id: state.user.id,
+    assigned_by_name: state.user.name || null
   });
   if (btn) { btn.textContent='Assign Work Order'; btn.disabled=false; }
   if (saved) {
@@ -2729,9 +2735,12 @@ async function _doAssignWideJC(jcNum, regNum, techUser, hubObj) {
   const saved = await saveWorkOrder({
     wo_number: woNum, vehicle_reg: regNum, issue: `Assigned from JC ${jcNum}`,
     assigned_tech_id: techUser?.id || null,
+    assigned_tech_name: techUser?.name || null,
     hub_id: hubObj?.id || null,
+    hub_name: hubObj?.name || null,
     priority: 'Medium', status: 'Open', wo_type: 'oos',
-    assigned_by_id: state.user.id
+    assigned_by_id: state.user.id,
+    assigned_by_name: state.user.name || null
   });
   if (saved) {
     if (window._jcCache) window._jcCache = {};
@@ -3084,7 +3093,7 @@ async function renderWorkAssignedAsync() {
   let allJobs = [];
   if (!_demoMode) {
     const rows = await sb(
-      `work_orders?hub_name=eq.${encodeURIComponent(myHub)}&select=id,wo_number,vehicle_reg,issue,assigned_tech_name,priority,status,wo_type,assigned_at,started_at,completed_at,job_card_number,current_jc_status&order=assigned_at.desc&limit=1000`
+      `work_orders?hub_id=eq.${state.hubId}&select=id,wo_number,vehicle_reg,issue,assigned_tech_name,priority,status,wo_type,assigned_at,started_at,completed_at,job_card_number,current_jc_status&order=assigned_at.desc&limit=1000`
     );
     allJobs = rows || [];
   } else {
