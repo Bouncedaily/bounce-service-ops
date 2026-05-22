@@ -1055,27 +1055,32 @@ const MGR_NAV = [
   {id:'my-attendance',  lbl:'My Attendance',  ic:'clock'},
   {id:'attendance',     lbl:'Attendance',     ic:'users'},
   {id:'att-calendar',   lbl:'Att. Calendar',  ic:'calendar'},
+  {id:'productivity',   lbl:'Productivity',   ic:'bar-chart'},
   {id:'workorders',     lbl:'Work Orders',    ic:'clipboard'},
   {id:'work-assigned',  lbl:'Work Assigned',  ic:'tool'},
 ];
 const AREA_NAV = [
   {id:'dashboard', lbl:'Home',   ic:'grid'},
   {id:'attendance',   lbl:'Attendance',  ic:'users'},
-  {id:'att-calendar', lbl:'Att. Calendar',ic:'calendar'},
+  {id:'att-calendar',   lbl:'Att. Calendar',  ic:'calendar'},
+  {id:'productivity',   lbl:'Productivity',   ic:'bar-chart'},
   {id:'workorders',lbl:'Work Orders', ic:'clipboard'},
 ];
 const HEAD_NAV = [
   {id:'dashboard', lbl:'Home',   ic:'grid'},
   {id:'attendance',   lbl:'Attendance',  ic:'users'},
-  {id:'att-calendar', lbl:'Att. Calendar',ic:'calendar'},
+  {id:'att-calendar',   lbl:'Att. Calendar',  ic:'calendar'},
+  {id:'productivity',   lbl:'Productivity',   ic:'bar-chart'},
   {id:'workorders',lbl:'Work Orders', ic:'clipboard'},
 ];
 const TECH_NAV = [
   {id:'my-attendance',lbl:'My Attendance',ic:'clock'},
   {id:'my-jobs',      lbl:'My Jobs',      ic:'tool'},
+  {id:'productivity', lbl:'My Progress',  ic:'bar-chart'},
 ];
 const IC = {
   calendar: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
+  'bar-chart': '<svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></svg>',
   grid:'<polyline points="3 3 3 9 9 9 9 3 3 3"/><polyline points="15 3 15 9 21 9 21 3 15 3"/><polyline points="3 15 3 21 9 21 9 15 3 15"/><polyline points="15 15 15 21 21 21 21 15 15 15"/>',
   users:'<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>',
   clipboard:'<path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/>',
@@ -1210,6 +1215,11 @@ function navigate(page) {
   if (page==='att-calendar') {
     c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading calendar...</div>';
     loadAttCalendar(role).then(html=>{ if(currentPage===page) c.innerHTML=html; });
+    return;
+  }
+  if (page==='productivity') {
+    c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading productivity...</div>';
+    loadProductivity(role).then(html=>{ if(currentPage===page) c.innerHTML=html; });
     return;
   }
   if (page==='attendance' && (role==='area_manager'||role==='head')) {
@@ -3050,6 +3060,190 @@ async function renderWorkOrdersWideAsync(role) {
 
 
 
+
+// ── TECHNICIAN PRODUCTIVITY DASHBOARD ──────────────────────────────────────
+async function loadProductivity(role) {
+  const STANDARD_HRS = 8;
+  const userCityId   = state.user?.city_id;
+  const myCityName   = getCityNameSync(userCityId);
+  const isTech       = role==='technician';
+
+  // Date range
+  const from = _prodDateFrom;
+  const to   = _prodDateTo;
+
+  // Build hub/city scope
+  const myHubName = state.hub;
+  const hubFilter = isTech ? myHubName
+    : role==='hub_manager' ? myHubName
+    : _prodHub || null;
+
+  // Fetch work orders in date range
+  let woQuery = `work_orders?assigned_at=gte.${from}T00:00:00&assigned_at=lte.${to}T23:59:59&select=assigned_tech_name,status,time_taken_min,hub_name&limit=5000`;
+  if (isTech)               woQuery += `&assigned_tech_name=eq.${encodeURIComponent(state.user.name)}`;
+  else if (hubFilter)       woQuery += `&hub_name=eq.${encodeURIComponent(hubFilter)}`;
+
+  // Fetch attendance in date range
+  let attQuery = `attendance?date=gte.${from}&date=lte.${to}&select=technician_name,date,status,total_working_hours,hub_name&limit=5000`;
+  if (isTech)               attQuery += `&technician_name=eq.${encodeURIComponent(state.user.name)}`;
+  else if (hubFilter)       attQuery += `&hub_name=eq.${encodeURIComponent(hubFilter)}`;
+
+  const [wos, atts] = await Promise.all([sb(woQuery)||[], sb(attQuery)||[]]);
+
+  // Filter by role scope
+  let filtWOs  = wos;
+  let filtAtts = atts;
+  if (!isTech && role==='area_manager' && !hubFilter) {
+    const myHubs = HUBS.filter(h=>h.city_id===userCityId).map(h=>h.name);
+    filtWOs  = wos.filter(w=>!w.hub_name||myHubs.includes(w.hub_name));
+    filtAtts = atts.filter(a=>!a.hub_name||myHubs.includes(a.hub_name));
+  }
+  if (role==='head' && _prodCity && !hubFilter) {
+    const cityHubs = getHubsForCitySync(_prodCity).map(h=>h.name);
+    filtWOs  = wos.filter(w=>!w.hub_name||cityHubs.includes(w.hub_name));
+    filtAtts = atts.filter(a=>!a.hub_name||cityHubs.includes(a.hub_name));
+  }
+
+  // Build per-tech stats
+  const techMap = {};
+  const ensureTech = name => {
+    if (!techMap[name]) techMap[name] = { assigned:0, completed:0, totalMinutes:0, presentDays:new Set(), totalWorkHrs:0 };
+  };
+
+  filtWOs.forEach(w => {
+    if (!w.assigned_tech_name) return;
+    ensureTech(w.assigned_tech_name);
+    techMap[w.assigned_tech_name].assigned++;
+    if (w.status==='Done') {
+      techMap[w.assigned_tech_name].completed++;
+      if (w.time_taken_min) techMap[w.assigned_tech_name].totalMinutes += w.time_taken_min;
+    }
+  });
+
+  filtAtts.forEach(a => {
+    if (!a.technician_name || a.status!=='present') return;
+    ensureTech(a.technician_name);
+    techMap[a.technician_name].presentDays.add(a.date);
+    if (a.total_working_hours) techMap[a.technician_name].totalWorkHrs += a.total_working_hours;
+  });
+
+  const techs = Object.entries(techMap)
+    .map(([name, d]) => {
+      const days     = d.presentDays.size || 1;
+      const avgMins  = d.completed>0 ? (d.totalMinutes/d.completed) : 0;
+      const avgHrs   = d.totalWorkHrs/days;
+      const prodPct  = Math.min(100, Math.round((avgHrs/STANDARD_HRS)*100));
+      return { name, assigned:d.assigned, completed:d.completed, avgMins, avgHrs, prodPct, days };
+    })
+    .sort((a,b)=>b.prodPct-a.prodPct);
+
+  // Hub options
+  const hubOpts = (role==='area_manager'
+    ? HUBS.filter(h=>h.city_id===userCityId)
+    : HUBS
+  ).map(h=>`<option value="${h.name}" ${h.name===_prodHub?'selected':''}>${h.name}</option>`).join('');
+
+  const cityNames = ['Bangalore','Hyderabad','NCR','Indore'];
+  const cityOpts  = cityNames.map(c=>`<option value="${c}" ${c===_prodCity?'selected':''}>${c}</option>`).join('');
+
+  const fmt = n => isNaN(n)||n===0 ? '—' : n.toFixed(1);
+  const prodBar = pct => `<div style="display:flex;align-items:center;gap:8px">
+    <div style="flex:1;background:var(--g100);border-radius:20px;height:6px;overflow:hidden">
+      <div style="width:${pct}%;height:100%;border-radius:20px;background:${pct>=80?'var(--green)':pct>=50?'#f59e0b':'var(--red)'}"></div>
+    </div>
+    <span style="font-size:12px;font-weight:600;min-width:36px;color:${pct>=80?'var(--green)':pct>=50?'#f59e0b':'var(--red)'}">${pct}%</span>
+  </div>`;
+
+  return `
+    <div class="page-hd">
+      <div class="page-hd-text">
+        <div class="page-title">${isTech?'My Progress':'Technician Productivity'}</div>
+        <div class="page-sub">${from} → ${to}</div>
+      </div>
+      <button class="btn-refresh" onclick="navigate('productivity')" title="Refresh">
+        <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+      </button>
+    </div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:flex-end">
+      <div>
+        <label class="form-label">From</label>
+        <input type="date" class="form-input" style="width:145px" value="${from}"
+          onchange="_prodDateFrom=this.value;navigate('productivity')"/>
+      </div>
+      <div>
+        <label class="form-label">To</label>
+        <input type="date" class="form-input" style="width:145px" value="${to}"
+          onchange="_prodDateTo=this.value;navigate('productivity')"/>
+      </div>
+      ${role==='head'?`<div>
+        <label class="form-label">City</label>
+        <select class="form-select" style="width:150px" onchange="_prodCity=this.value;_prodHub='';navigate('productivity')">
+          <option value="">All Cities</option>${cityOpts}
+        </select>
+      </div>`:''}
+      ${!isTech && role!=='technician'?`<div>
+        <label class="form-label">Hub</label>
+        <select class="form-select" style="width:180px" onchange="_prodHub=this.value;navigate('productivity')">
+          <option value="">All Hubs</option>${hubOpts}
+        </select>
+      </div>`:''}
+    </div>
+
+    <!-- Summary widgets -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:20px">
+      <div class="card" style="padding:14px">
+        <div style="font-size:12px;color:var(--g500)">Technicians</div>
+        <div style="font-size:24px;font-weight:700;color:var(--g900)">${techs.length}</div>
+      </div>
+      <div class="card" style="padding:14px">
+        <div style="font-size:12px;color:var(--g500)">Jobs Assigned</div>
+        <div style="font-size:24px;font-weight:700;color:var(--blue)">${techs.reduce((s,t)=>s+t.assigned,0)}</div>
+      </div>
+      <div class="card" style="padding:14px">
+        <div style="font-size:12px;color:var(--g500)">Jobs Done</div>
+        <div style="font-size:24px;font-weight:700;color:var(--green)">${techs.reduce((s,t)=>s+t.completed,0)}</div>
+      </div>
+      <div class="card" style="padding:14px">
+        <div style="font-size:12px;color:var(--g500)">Avg Productivity</div>
+        <div style="font-size:24px;font-weight:700;color:${(techs.reduce((s,t)=>s+t.prodPct,0)/Math.max(techs.length,1))>=80?'var(--green)':'#f59e0b'}">
+          ${techs.length?Math.round(techs.reduce((s,t)=>s+t.prodPct,0)/techs.length):0}%
+        </div>
+      </div>
+    </div>
+
+    ${techs.length===0
+      ? `<div class="empty-state">No productivity data for this period.</div>`
+      : `<div class="tw">
+          <table>
+            <thead><tr>
+              <th>Technician</th>
+              <th>Assigned</th>
+              <th>Completed</th>
+              <th>Avg Min/Job</th>
+              <th>Avg Hrs/Day</th>
+              <th>Days Present</th>
+              <th style="min-width:160px">Productivity %</th>
+            </tr></thead>
+            <tbody>
+              ${techs.map(t=>`<tr>
+                <td style="font-weight:500">${t.name}</td>
+                <td style="text-align:center;color:var(--blue);font-weight:600">${t.assigned}</td>
+                <td style="text-align:center;color:var(--green);font-weight:600">${t.completed}</td>
+                <td style="text-align:center;font-size:13px">${fmt(t.avgMins)}</td>
+                <td style="text-align:center;font-size:13px">${fmt(t.avgHrs)}</td>
+                <td style="text-align:center;font-size:13px">${t.days}</td>
+                <td>${prodBar(t.prodPct)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`}
+
+    <div style="margin-top:12px;font-size:11px;color:var(--g400)">
+      Productivity % = Avg daily working hours ÷ ${STANDARD_HRS}h standard day · Sorted by productivity
+    </div>`;
+}
+
 // ── ATTENDANCE CALENDAR DASHBOARD ──────────────────────────────────────────
 async function loadAttCalendar(role) {
   const userCityId = state.user?.city_id;
@@ -3261,6 +3455,10 @@ async function getHubsForCity(cityName) { return getHubsForCitySync(cityName); }
 // ─ AREA MANAGER ATTENDANCE WITH HUB FILTER ───────────────────────────────
 let _areaAttHub    = '';
 let _calMonth      = new Date().toISOString().slice(0,7); // YYYY-MM
+let _prodDateFrom  = new Date(Date.now()-30*86400000).toISOString().slice(0,10);
+let _prodDateTo    = new Date().toISOString().slice(0,10);
+let _prodHub       = '';
+let _prodCity      = '';
 let _calHub        = '';
 let _calCity       = '';
 function renderAttendanceWide(role) {
