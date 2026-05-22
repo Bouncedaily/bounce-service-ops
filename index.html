@@ -2240,6 +2240,11 @@ function woPage(key, delta) {
   window._woPg[key] = Math.max(0, window._woPg[key] + delta);
   navigate('workorders');
 }
+function woPgWide(key, delta) {
+  if (!window._woPgWide) window._woPgWide = {ua:0,as:0};
+  window._woPgWide[key] = Math.max(0, window._woPgWide[key] + delta);
+  navigate('workorders');
+}
 
 function assignTechFromJC(jcNum, regNum, techName) {
   if (!techName) return;
@@ -2278,17 +2283,10 @@ let _headSelectedHub  = '';
 
 async function renderWorkOrdersWideAsync(role) {
   const userCityId = state.user.city_id;
-  const userCity   = userCityId ? (HUBS.find(h=>h.city_id===userCityId) ? ['Bangalore','Hyderabad','NCR','Indore'].find(c=>HUBS.filter(h=>h.city_id===userCityId).length>0) : '') : '';
-  // Get city name from cities list
   const myCityName = getCityNameSync(userCityId);
-  const allCities  = [...new Set(HUBS.map(h=>h.city_id))];
   const cityNames  = role==='head' ? ['Bangalore','Hyderabad','NCR','Indore'] : [myCityName];
-
   const selectedCity = role==='head' ? (_headSelectedCity||cityNames[0]) : myCityName;
-  const cityHubs     = HUBS.filter(h => {
-    if (role==='head') return true;
-    return h.city_id === userCityId;
-  });
+  const cityHubs   = HUBS.filter(h => role==='head' ? true : h.city_id === userCityId);
   const selectedHub  = role==='head' ? (_headSelectedHub||'') : (_areaSelectedHub||'');
   const hubsForCity  = role==='head'
     ? (selectedCity ? getHubsForCitySync(selectedCity) : cityHubs)
@@ -2311,14 +2309,36 @@ async function renderWorkOrdersWideAsync(role) {
   const unassigned = oosRows.filter(j=>j.current_jc_status==='Job Open' || j.current_jc_status==='JC not opened in DMS');
   const assigned   = oosRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open' && j.current_jc_status!=='JC not opened in DMS');
 
-  // Get present technicians for the selected hub (for assignment)
-  const availTechs = selectedHub
-    ? Object.entries(state.attendance).filter(([,a])=>a.status==='present'&&a.hub===selectedHub).map(([n])=>n)
-    : [];
+  // Sort TAT descending
+  const sortByTAT = arr => [...arr].sort((a,b)=>(b.overall_tat_days||0)-(a.overall_tat_days||0));
+  const uaSorted  = sortByTAT(unassigned);
+  const asSorted  = sortByTAT(assigned);
 
-  const formatDate = d => d ? new Date(d).toLocaleDateString('en-IN') : '—';
-  const TH = `<tr><th>Reg No.</th><th>Hub</th><th>JC Number</th><th>DMS JC ID</th><th>Reason</th><th>TAT</th><th>Labour</th><th>Type</th><th>JC Opened</th><th>Technician</th><th>Action</th></tr>`;
-  const tableRow = (j, showChange) => {
+  // Pagination — separate state from SM's _woPg
+  if (!window._woPgWide) window._woPgWide = { ua: 0, as: 0 };
+  const PAGE_SIZE = 10;
+  const paginate  = (arr, pg) => arr.slice(pg*PAGE_SIZE, (pg+1)*PAGE_SIZE);
+  const pageCount = arr => Math.ceil(arr.length / PAGE_SIZE);
+  const pagerWide = (arr, pg, key) => {
+    const total = pageCount(arr);
+    if (total<=1) return '';
+    const from = pg*PAGE_SIZE+1, to = Math.min((pg+1)*PAGE_SIZE, arr.length);
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-top:1px solid var(--g100);font-size:13px;color:var(--g500)">
+      <span>Showing ${from}–${to} of ${arr.length}</span>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-outline btn-sm" ${pg===0?'disabled':''} onclick="woPgWide('${key}',-1)">← Prev</button>
+        <span style="padding:5px 10px;background:var(--g50);border-radius:var(--r);font-weight:500">${pg+1} / ${total}</span>
+        <button class="btn btn-outline btn-sm" ${pg>=total-1?'disabled':''} onclick="woPgWide('${key}',1)">Next →</button>
+      </div>
+    </div>`;
+  };
+
+  const fmtDate = d => d ? new Date(d).toLocaleDateString('en-IN') : '—';
+
+  const TH_UA = `<tr><th>Reg No.</th><th>Hub</th><th>JC Number</th><th>DMS JC ID</th><th>Reason</th><th>TAT ↓</th><th>Labour</th><th>Type</th><th>JC Opened</th></tr>`;
+  const TH_AS = `<tr><th>Reg No.</th><th>Hub</th><th>JC Number</th><th>DMS JC ID</th><th>Reason</th><th>TAT ↓</th><th>Labour</th><th>Type</th><th>JC Opened</th><th>Technician</th></tr>`;
+
+  const rowUA = j => {
     const pc = j.overall_tat_days>3?'b-absent':j.overall_tat_days>1?'b-med':'b-present';
     return `<tr>
       <td class="mono" style="font-size:12px">${j.reg_number||'—'}</td>
@@ -2326,61 +2346,71 @@ async function renderWorkOrdersWideAsync(role) {
       <td class="mono" style="font-size:11px;color:var(--g400)">${j.job_card_number||'—'}</td>
       <td class="mono" style="font-size:11px;color:var(--g400)">${j.dms_jc_id||'—'}</td>
       <td style="font-size:12px">${j.reason_for_ending||'—'}</td>
-      <td><span class="badge ${pc}">${j.overall_tat_days?.toFixed(1)||'—'}d</span></td>
-      <td style="font-size:12px">${j.labour_time_hours?.toFixed(1)||'—'}h</td>
+      <td><span class="badge ${pc}">${j.overall_tat_days!=null?j.overall_tat_days.toFixed(1)+'d':'—'}</span></td>
+      <td style="font-size:12px">${j.labour_time_hours!=null?j.labour_time_hours.toFixed(1)+'h':'—'}</td>
       <td style="font-size:12px">${j.submission_type||'—'}</td>
-      <td style="font-size:12px">${formatDate(j.job_card_opened_date)}</td>
-      <td style="font-size:12px">${j.technician_name||'—'}</td>
-      ${showChange?`<td><button class="btn btn-outline btn-sm" onclick="changeTechAlert('${j.job_card_number}')">Change Tech</button></td>`:'<td>—</td>'}
+      <td style="font-size:12px">${fmtDate(j.job_card_opened_date)}</td>
     </tr>`;
   };
 
-  const hubOptions = hubsForCity.map(h=>`<option value="${h.name}" ${h.name===selectedHub?'selected':''}>${h.name}</option>`).join('');
+  const rowAS = j => {
+    const pc = j.overall_tat_days>3?'b-absent':j.overall_tat_days>1?'b-med':'b-present';
+    return `<tr>
+      <td class="mono" style="font-size:12px">${j.reg_number||'—'}</td>
+      <td style="font-size:11px;color:var(--g500)">${j.hub_name||'—'}</td>
+      <td class="mono" style="font-size:11px;color:var(--g400)">${j.job_card_number||'—'}</td>
+      <td class="mono" style="font-size:11px;color:var(--g400)">${j.dms_jc_id||'—'}</td>
+      <td style="font-size:12px">${j.reason_for_ending||'—'}</td>
+      <td><span class="badge ${pc}">${j.overall_tat_days!=null?j.overall_tat_days.toFixed(1)+'d':'—'}</span></td>
+      <td style="font-size:12px">${j.labour_time_hours!=null?j.labour_time_hours.toFixed(1)+'h':'—'}</td>
+      <td style="font-size:12px">${j.submission_type||'—'}</td>
+      <td style="font-size:12px">${fmtDate(j.job_card_opened_date)}</td>
+      <td style="font-size:12px">${j.technician_name||'<span style="color:var(--g300)">—</span>'}</td>
+    </tr>`;
+  };
+
+  const hubOptions  = hubsForCity.map(h=>`<option value="${h.name}" ${h.name===selectedHub?'selected':''}>${h.name}</option>`).join('');
   const cityOptions = ['Bangalore','Hyderabad','NCR','Indore'].map(c=>`<option value="${c}" ${c===selectedCity?'selected':''}>${c}</option>`).join('');
 
   return `
-    <div class="page-hd"><div class="page-hd-text"><div class="page-title">Work Orders</div>
-    <div class="page-sub">${selectedHub||selectedCity||'All'}</div></div></div>
-    <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-      ${role==='head'?`<select class="form-select" style="width:160px" onchange="_headSelectedCity=this.value;_headSelectedHub='';navigate('workorders')">
-        <option value="">All Cities</option>${cityOptions}</select>`:''}
-      <select class="form-select" style="width:180px" onchange="${role==='head'?'_headSelectedHub':'_areaSelectedHub'}=this.value;navigate('workorders')">
-        <option value="">All Hubs</option>${hubOptions}</select>
+    <div class="page-hd">
+      <div class="page-hd-text">
+        <div class="page-title">Work Orders</div>
+        <div class="page-sub">${selectedHub||selectedCity||'All'}</div>
+      </div>
+      <button class="btn-refresh" onclick="window._jcCache={};window._woPgWide={ua:0,as:0};navigate('workorders')" title="Refresh">
+        <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> Refresh
+      </button>
     </div>
-    ${selectedHub && availTechs.length>0 ? `
-    <div class="wo-form-wrap">
-      <div class="wo-form-title">Quick Assign — ${selectedHub}</div>
-      <div class="form-row">
-        <div class="form-group" style="margin:0"><label class="form-label">Vehicle</label>
-          <input class="form-input" id="veh-search" placeholder="Reg no..." autocomplete="off" oninput="filterVehicles(this.value)" onfocus="showVehDropdown()"/>
-          <div id="veh-dropdown" style="display:none;position:absolute;z-index:50;background:var(--white);border:1px solid var(--g200);border-radius:var(--r);box-shadow:var(--sh-md);max-height:200px;overflow-y:auto;width:300px"></div>
-          <input type="hidden" id="wov"/>
-          <div id="veh-selected" style="display:none;margin-top:4px;font-size:12px;color:var(--blue)"></div>
-          <div id="veh-jc-info"></div>
-        </div>
-        <div class="form-group" style="margin:0"><label class="form-label">Technician (present at ${selectedHub})</label>
-          <select class="form-select" id="wot"><option value="">Select...</option>${availTechs.map(t=>`<option>${t}</option>`).join('')}</select>
-        </div>
-      </div>
-      <div class="form-row" style="margin-top:10px">
-        <div class="form-group" style="margin:0"><label class="form-label">Issue</label><input class="form-input" id="woi" placeholder="Describe job"/></div>
-      </div>
-      <input type="hidden" id="wotype" value=""/>
-      <button class="btn btn-blue" style="margin-top:12px" onclick="addWO('${selectedHub}')">Assign Work Order</button>
-      <div id="wo-msg" style="margin-top:8px"></div>
-    </div>` : ''}
+    <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+      ${role==='head'?`<select class="form-select" style="width:160px" onchange="_headSelectedCity=this.value;_headSelectedHub='';window._woPgWide={ua:0,as:0};navigate('workorders')">
+        <option value="">All Cities</option>${cityOptions}</select>`:''}
+      <select class="form-select" style="width:180px" onchange="${role==='head'?'_headSelectedHub':'_areaSelectedHub'}=this.value;window._woPgWide={ua:0,as:0};navigate('workorders')">
+        <option value="">All Hubs</option>${hubOptions}
+      </select>
+    </div>
 
     <div style="font-size:15px;font-weight:600;color:var(--g800);margin:12px 0 8px">
-      Unassigned Work <span class="badge b-absent">${unassigned.length}</span>
+      Unassigned Work <span class="badge b-absent" style="font-size:11px">${uaSorted.length} open</span>
     </div>
-    ${unassigned.length===0 ? `<div class="empty-state" style="padding:16px">No open JCs.</div>`
-      : `<div class="tw"><table><thead>${TH}</thead><tbody>${unassigned.map(j=>tableRow(j,false)).join('')}</tbody></table></div>`}
-    <div style="font-size:15px;font-weight:600;color:var(--g800);margin:16px 0 8px">
-      Assigned Work <span class="badge b-inprog">${assigned.length}</span>
+    ${uaSorted.length===0
+      ? `<div class="empty-state" style="padding:16px">No unassigned OOS job cards.</div>`
+      : `<div class="tw">
+          <table><thead>${TH_UA}</thead><tbody>${paginate(uaSorted,window._woPgWide.ua).map(rowUA).join('')}</tbody></table>
+          ${pagerWide(uaSorted,window._woPgWide.ua,'ua')}
+        </div>`}
+
+    <div style="font-size:15px;font-weight:600;color:var(--g800);margin:20px 0 8px">
+      Assigned Work <span class="badge b-inprog" style="font-size:11px">${asSorted.length}</span>
     </div>
-    ${assigned.length===0 ? `<div class="empty-state" style="padding:16px">No assigned JCs.</div>`
-      : `<div class="tw"><table><thead>${TH}</thead><tbody>${assigned.map(j=>tableRow(j,true)).join('')}</tbody></table></div>`}`;
+    ${asSorted.length===0
+      ? `<div class="empty-state" style="padding:16px">No assigned OOS job cards.</div>`
+      : `<div class="tw">
+          <table><thead>${TH_AS}</thead><tbody>${paginate(asSorted,window._woPgWide.as).map(rowAS).join('')}</tbody></table>
+          ${pagerWide(asSorted,window._woPgWide.as,'as')}
+        </div>`}`;
 }
+
 
 // Sync helpers — use cached data, no extra Supabase calls
 function getCityNameSync(cityId) {
