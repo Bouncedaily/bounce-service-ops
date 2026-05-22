@@ -1233,6 +1233,10 @@ function navigate(page) {
     loadAttCalendar(role).then(html=>{ if(currentPage===page) c.innerHTML=html; });
     return;
   }
+  // My Attendance only for tech and SM
+  if (page==='my-attendance' && role!=='technician' && role!=='hub_manager') {
+    navigate('dashboard'); return;
+  }
   // SM attendance — reload fresh before rendering
   if (page==='attendance' && role==='hub_manager' && state.hubId) {
     c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading attendance...</div>';
