@@ -720,51 +720,72 @@ async function saveAttOverride(techName, status, hubId) {
 
 // ─ SAVE WORK ORDER ─
 // ── Duplicate vehicle assignment check ──────────────────────────────────────
-async function checkVehicleDuplicate(regNum) {
-  // Returns: null (no duplicate) | {status:'open', tech, woId, woDbId} | {status:'in_progress', tech, woId}
+async function checkVehicleDuplicate(regNum, newTechName) {
   if (_demoMode || !regNum) return null;
-  const rows = await sb(`work_orders?vehicle_reg=eq.${encodeURIComponent(regNum)}&status=in.(Open,In Progress)&select=id,wo_number,status,users!work_orders_assigned_tech_id_fkey(name)&order=assigned_at.desc&limit=5`);
+  const rows = await sb(`work_orders?vehicle_reg=eq.${encodeURIComponent(regNum)}&status=in.(Open,In Progress)&select=id,wo_number,status,assigned_tech_id,users!work_orders_assigned_tech_id_fkey(name)&order=assigned_at.desc&limit=5`);
   if (!rows || !rows.length) return null;
-  // In Progress takes priority
   const inProg = rows.find(r=>r.status==='In Progress');
   if (inProg) return { status:'in_progress', tech: inProg.users?.name||'another technician', woId: inProg.wo_number, woDbId: inProg.id };
   const open = rows.find(r=>r.status==='Open');
-  if (open) return { status:'open', tech: open.users?.name||'another technician', woId: open.wo_number, woDbId: open.id };
+  if (open) {
+    const existingTech = open.users?.name || '';
+    // Same technician — just block, no reassign option
+    if (newTechName && existingTech && existingTech === newTechName) {
+      return { status:'same_tech', tech: existingTech, woId: open.wo_number, woDbId: open.id };
+    }
+    return { status:'open', tech: existingTech||'another technician', woId: open.wo_number, woDbId: open.id };
+  }
   return null;
 }
 
+// Store replace callback globally to avoid closure serialization issues
+window._dupReplaceCallback = null;
+
 function showDupPopup(dup, onReplace) {
+  window._dupReplaceCallback = onReplace;
   const inner = document.getElementById('modal-inner');
   if (dup.status === 'in_progress') {
     inner.innerHTML = `
       <button class="modal-close" onclick="closeModal()">✕</button>
       <div class="modal-title" style="color:var(--red)">⚠️ Work In Progress</div>
-      <div class="modal-sub">Vehicle <strong>${dup.woId ? dup.woId.split(' ')[0] : ''}</strong></div>
       <div class="alert al-error" style="margin-bottom:16px">
         This vehicle's work is already <strong>In Progress</strong> by <strong>${dup.tech}</strong>.<br>
         Reassignment is not allowed while work is ongoing.
+      </div>
+      <button class="btn btn-outline" style="width:100%" onclick="closeModal()">Close</button>`;
+  } else if (dup.status === 'same_tech') {
+    inner.innerHTML = `
+      <button class="modal-close" onclick="closeModal()">✕</button>
+      <div class="modal-title">Already Assigned</div>
+      <div class="alert al-warn" style="margin-bottom:16px">
+        This vehicle is already assigned to <strong>${dup.tech}</strong>.
       </div>
       <button class="btn btn-outline" style="width:100%" onclick="closeModal()">Close</button>`;
   } else {
     inner.innerHTML = `
       <button class="modal-close" onclick="closeModal()">✕</button>
       <div class="modal-title">Vehicle Already Assigned</div>
-      <div class="modal-sub">WO: <strong>${dup.woId}</strong></div>
       <div class="alert al-warn" style="margin-bottom:16px">
         This vehicle is already assigned to <strong>${dup.tech}</strong> but work hasn't started yet.
         Do you want to replace the assignment?
       </div>
       <div style="display:flex;gap:10px">
         <button class="btn btn-outline" style="flex:1" onclick="closeModal()">No, Cancel</button>
-        <button class="btn btn-blue" style="flex:1" onclick="closeModal();(${onReplace.toString()})()">Yes, Replace</button>
+        <button class="btn btn-blue" style="flex:1" onclick="window._dupConfirmReplace()">Yes, Replace</button>
       </div>`;
   }
   document.getElementById('modal').style.display='flex';
 }
 
+window._dupConfirmReplace = async function() {
+  closeModal();
+  if (window._dupReplaceCallback) await window._dupReplaceCallback();
+  window._dupReplaceCallback = null;
+};
+
 async function cancelPreviousWO(woDbId) {
   if (!woDbId || _demoMode) return;
-  await sb(`work_orders?id=eq.${woDbId}`, { method:'PATCH', body: JSON.stringify({ status:'Cancelled', cancelled_at: new Date().toISOString() }) });
+  await sb(`work_orders?id=eq.${woDbId}`, { method:'PATCH', body: JSON.stringify({ status:'Cancelled' }) });
 }
 
 async function saveWorkOrder(wo) {
@@ -1606,7 +1627,7 @@ async function addWO() {
   const btn = document.querySelector('.wo-form-wrap .btn-blue');
 
   // Duplicate vehicle check
-  const dup = await checkVehicleDuplicate(v);
+  const dup = await checkVehicleDuplicate(v, techName);
   if (dup) {
     showDupPopup(dup, async () => {
       await cancelPreviousWO(dup.woDbId);
@@ -1691,7 +1712,7 @@ async function addWOWide() {
   const hubObj  = HUBS.find(h=>h.name===hubName);
   const btn     = document.querySelector('#wo-form-wide .btn-blue');
 
-  const dup = await checkVehicleDuplicate(v);
+  const dup = await checkVehicleDuplicate(v, techName);
   if (dup) {
     showDupPopup(dup, async () => {
       await cancelPreviousWO(dup.woDbId);
@@ -2691,7 +2712,7 @@ async function assignWideJC(jcNum, regNum, hubName, techName) {
   const techUser = ALL_USERS.find(u=>u.name===techName);
   const hubObj   = HUBS.find(h=>h.name===hubName);
 
-  const dup = await checkVehicleDuplicate(regNum);
+  const dup = await checkVehicleDuplicate(regNum, techName);
   if (dup) {
     showDupPopup(dup, async () => {
       await cancelPreviousWO(dup.woDbId);
