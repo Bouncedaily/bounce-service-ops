@@ -971,10 +971,52 @@ function renderNav() {
 }
 
 let _clockT = null;
+// ── OOS count refresh — called from navigate, filter changes, and auto-refresh ──
+function refreshOosCount() {
+  const el = document.getElementById('oos-count');
+  if (!el) return;
+  el.textContent = '…';
+  const role   = state.user?.role;
+  const isWide = role==='area_manager' || role==='head';
+  let oosFilter = '';
+  if (!isWide && state.hub) {
+    oosFilter = `&hub_name=eq.${encodeURIComponent(state.hub)}`;
+  } else if (isWide && _dashFilterHub) {
+    oosFilter = `&hub_name=eq.${encodeURIComponent(_dashFilterHub)}`;
+  }
+  sb(`vehicles?bike_status=eq.OOS&select=reg_number,hub_name${oosFilter}`).then(rows=>{
+    const el2 = document.getElementById('oos-count');
+    if (!el2) return;
+    if (!rows) { el2.textContent='—'; return; }
+    let filtered = rows;
+    if (isWide && !_dashFilterHub) {
+      const cid = _dashFilterCity
+        ? (window._cities||[]).find(c=>c.name===_dashFilterCity)?.id
+        : state.user?.city_id;
+      if (cid) {
+        const cityHubNames = HUBS.filter(h=>h.city_id===cid).map(h=>h.name);
+        filtered = rows.filter(r=>cityHubNames.includes(r.hub_name));
+      }
+      if (role==='area_manager' && !_dashFilterCity && !_dashFilterHub) {
+        const myCityHubs = HUBS.filter(h=>h.city_id===state.user.city_id).map(h=>h.name);
+        filtered = rows.filter(r=>myCityHubs.includes(r.hub_name));
+      }
+    }
+    const unique = [...new Set(filtered.map(r=>r.reg_number))];
+    el2.textContent = unique.length;
+  });
+}
+
 function navigate(page) {
   currentPage = page;  // ← must set BEFORE async calls
   // Persist current page so browser refresh returns here
-  try { const s=JSON.parse(localStorage.getItem('bounce_session')||'{}'); s.currentPage=page; localStorage.setItem('bounce_session',JSON.stringify(s)); } catch(e){}
+  try {
+    const s=JSON.parse(localStorage.getItem('bounce_session')||'{}');
+    s.currentPage=page;
+    s.dashFilterCity=_dashFilterCity;
+    s.dashFilterHub=_dashFilterHub;
+    localStorage.setItem('bounce_session',JSON.stringify(s));
+  } catch(e){}
   clearInterval(_clockT);
   document.querySelectorAll('.si,.bnt').forEach(e=>e.classList.remove('active'));
   ['si-','bt-'].forEach(p=>{ const e=document.getElementById(p+page); if(e) e.classList.add('active'); });
@@ -1023,29 +1065,7 @@ function navigate(page) {
   c.innerHTML = (fns[page]||(() => ''))();
   if (page==='qr-hub') generateManagerQR();
   if (page==='dashboard') {
-    // Load OOS count from vehicles table — respect active dashboard filters
-    const role = state.user?.role;
-    const isWide = role==='area_manager'||role==='head';
-    let oosFilter = '';
-    if (!isWide && state.hub) {
-      oosFilter = `&hub_name=eq.${encodeURIComponent(state.hub)}`;
-    } else if (isWide && _dashFilterHub) {
-      oosFilter = `&hub_name=eq.${encodeURIComponent(_dashFilterHub)}`;
-    }
-    // For AM without hub filter, fetch all and filter by city_id client-side
-    sb(`vehicles?bike_status=eq.OOS&select=reg_number,hub_name${oosFilter}`).then(rows=>{
-      const el = document.getElementById('oos-count');
-      if (!el) return;
-      if (!rows) { el.textContent='—'; return; }
-      let filtered = rows;
-      if (isWide && !_dashFilterHub && state.user?.city_id) {
-        const cityHubNames = HUBS.filter(h=>h.city_id===state.user.city_id).map(h=>h.name);
-        if (role==='area_manager') filtered = rows.filter(r=>cityHubNames.includes(r.hub_name));
-      }
-      // Deduplicate by reg_number
-      const unique = [...new Set(filtered.map(r=>r.reg_number))];
-      el.textContent = unique.length;
-    });
+    refreshOosCount();
   }
   if (page==='my-attendance') {
     document.getElementById('live-clock').textContent = nowFmt();
@@ -1054,16 +1074,29 @@ function navigate(page) {
       setTimeout(()=>{ startDurationTimer(); }, 100);
     }
   }
-  // Auto-refresh attendance every 30s for manager pages so QR scans show up live
+  // Auto-refresh: 30s for SM attendance, 5min dashboard for all roles
   clearInterval(window._refreshT);
-  if (state.user && state.user.role==='hub_manager' && state.hubId && ['dashboard','attendance'].includes(page)) {
+  if (state.user && state.user.role==='hub_manager' && state.hubId && page==='attendance') {
     window._refreshT = setInterval(async ()=>{
       if (currentPage !== page) { clearInterval(window._refreshT); return; }
       await loadAttendanceForHub(state.hubId);
-      // Re-render silently only the table part to avoid full page flash
       const c = document.getElementById('content');
-      if (c) { c.innerHTML = (page==='dashboard'?renderDashboard:renderAttendance)(); }
+      if (c) c.innerHTML = renderAttendance();
     }, 30000);
+  }
+  if (state.user && page==='dashboard') {
+    window._refreshT = setInterval(async ()=>{
+      if (currentPage !== 'dashboard') { clearInterval(window._refreshT); return; }
+      const role = state.user?.role;
+      if (role==='hub_manager' && state.hubId) {
+        await loadAttendanceForHub(state.hubId);
+      } else if (role==='area_manager' || role==='head') {
+        await loadAllHubsData();
+      }
+      const c = document.getElementById('content');
+      if (c) c.innerHTML = renderDashboard();
+      refreshOosCount();
+    }, 5 * 60 * 1000);
   }
 }
 
@@ -1123,11 +1156,10 @@ function renderDashboard() {
     // Just check if any hub in HUBS has the same city_id as the matching hub
     return h && HUBS.filter(x=>x.city_id===h.city_id).some(x=>x.name===hubName||true);
   }
-  // Better city filter: match hub's city_id against filter
+  // City filter: resolve filterCity name → city_id via _cities lookup
   const cityIdForFilter = filterCity ? (() => {
-    // Find a hub whose city name matches filterCity — use name prefix heuristic
-    const match = HUBS.find(h=> h.name && h.name.toLowerCase().includes(filterCity.toLowerCase()));
-    return match ? match.city_id : null;
+    const match = (window._cities||[]).find(c => c.name === filterCity);
+    return match ? match.id : null;
   })() : null;
 
   function attInFilter(a) {
@@ -1196,11 +1228,11 @@ function renderDashboard() {
       </button>
     </div>
     ${isWide ? `<div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-      ${role==='head'?`<select class="form-select" style="width:150px" onchange="_dashFilterCity=this.value;_dashFilterHub='';navigate('dashboard')">
+      ${role==='head'?`<select class="form-select" style="width:150px" onchange="_dashFilterCity=this.value;_dashFilterHub='';navigate('dashboard');setTimeout(refreshOosCount,200)">
         <option value="">All Cities</option>
         ${ ['Bangalore','Hyderabad','NCR','Indore'].map(c=>`<option value="${c}" ${c===_dashFilterCity?'selected':''}>${c}</option>`).join('') }
       </select>`:''}
-      <select class="form-select" style="width:180px" onchange="_dashFilterHub=this.value;navigate('dashboard')">
+      <select class="form-select" style="width:180px" onchange="_dashFilterHub=this.value;navigate('dashboard');setTimeout(refreshOosCount,200)">
         <option value="">All Hubs</option>
         ${HUBS.filter(h=>role==='area_manager'?h.city_id===state.user.city_id:(cityIdForFilter?h.city_id===cityIdForFilter:true))
           .map(h=>`<option value="${h.name}" ${h.name===_dashFilterHub?'selected':''}>${h.name}</option>`).join('')}
@@ -2633,6 +2665,8 @@ async function initApp() {
         state.myCheckin  = sess.myCheckin  || null;
         state.myCheckout = sess.myCheckout || null;
         state.myAttId    = sess.myAttId    || null;
+        if (sess.dashFilterCity) _dashFilterCity = sess.dashFilterCity;
+        if (sess.dashFilterHub)  _dashFilterHub  = sess.dashFilterHub;
         if (state.user.role === 'hub_manager' && state.hubId) {
           await Promise.all([loadAttendanceForHub(state.hubId), loadJobsForHub(state.hubId), loadVehiclesForHub(state.hub)]);
         } else if (state.user.role === 'technician') {
