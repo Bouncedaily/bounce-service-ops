@@ -2460,19 +2460,38 @@ async function renderWorkOrdersAsync() {
     </div>
     <div id="wo-msg"></div>
 
-    <div style="display:flex;align-items:center;gap:10px;margin:20px 0 10px;flex-wrap:wrap">
-      <div style="font-size:15px;font-weight:600;color:var(--g800)">
-        Unassigned Work <span class="badge b-absent" style="font-size:11px">${unassignedSorted.filter(j=>!_woModelFilterSM||j.bike_model===_woModelFilterSM).length} open</span>
+    <div style="margin:20px 0 10px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <div style="font-size:15px;font-weight:600;color:var(--g800)">
+          Unassigned Work <span class="badge b-absent" style="font-size:11px">${unassignedSorted.filter(j=>
+            (!_woRegFilterSM||j.reg_number?.toLowerCase().includes(_woRegFilterSM.toLowerCase()))&&
+            (!_woTypeFilterSM||j.submission_type===_woTypeFilterSM)&&
+            (!_woModelFilterSM||j.bike_model===_woModelFilterSM)
+          ).length} open</span>
+        </div>
       </div>
-      <select class="form-select" style="width:180px;font-size:12px" onchange="_woModelFilterSM=this.value;window._woPg={ua:0,as:0};navigate('workorders')">
-        <option value="">All Models</option>
-        ${[...new Set(unassignedSorted.map(j=>j.bike_model).filter(Boolean))].sort().map(m=>`<option value="${m}" ${m===_woModelFilterSM?'selected':''}>${m}</option>`).join('')}
-      </select>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:4px">
+        <input class="form-input" style="width:160px;font-size:12px" placeholder="Reg no. filter..." 
+          value="${_woRegFilterSM}" oninput="_woRegFilterSM=this.value;window._woPg={ua:0,as:0};navigate('workorders')"/>
+        <select class="form-select" style="width:160px;font-size:12px" onchange="_woTypeFilterSM=this.value;window._woPg={ua:0,as:0};navigate('workorders')">
+          <option value="">All Types</option>
+          ${[...new Set(unassignedSorted.map(j=>j.submission_type).filter(Boolean))].sort().map(t=>`<option value="${t}" ${t===_woTypeFilterSM?'selected':''}>${t}</option>`).join('')}
+        </select>
+        <select class="form-select" style="width:160px;font-size:12px" onchange="_woModelFilterSM=this.value;window._woPg={ua:0,as:0};navigate('workorders')">
+          <option value="">All Models</option>
+          ${[...new Set(unassignedSorted.map(j=>j.bike_model).filter(Boolean))].sort().map(m=>`<option value="${m}" ${m===_woModelFilterSM?'selected':''}>${m}</option>`).join('')}
+        </select>
+        ${(_woRegFilterSM||_woTypeFilterSM||_woModelFilterSM)?`<button class="btn btn-outline btn-sm" onclick="_woRegFilterSM='';_woTypeFilterSM='';_woModelFilterSM='';window._woPg={ua:0,as:0};navigate('workorders')">Clear</button>`:''}
+      </div>
     </div>
     ${unassignedSorted.length===0
       ? `<div class="empty-state" style="padding:20px">No open job cards at this hub.</div>`
       : `<div class="tw" id="wo-ua-table">
-          <table><thead>${TH_UA}</thead><tbody>${paginate(unassignedSorted.filter(j=>!_woModelFilterSM||j.bike_model===_woModelFilterSM),window._woPg.ua).map(rowUA).join('')}</tbody></table>
+          <table><thead>${TH_UA}</thead><tbody>${paginate(unassignedSorted.filter(j=>
+            (!_woRegFilterSM||j.reg_number?.toLowerCase().includes(_woRegFilterSM.toLowerCase()))&&
+            (!_woTypeFilterSM||j.submission_type===_woTypeFilterSM)&&
+            (!_woModelFilterSM||j.bike_model===_woModelFilterSM)
+          ),window._woPg.ua).map(rowUA).join('')}</tbody></table>
           ${pagerHTML(unassignedSorted,window._woPg.ua,'ua')}
         </div>`}
 
@@ -2555,8 +2574,12 @@ let _areaSelectedHub  = '';
 let _amAssignHub      = '';  // hub chosen in AM assign form
 let _headSelectedCity = '';
 let _headSelectedHub  = '';
-let _woModelFilterSM  = '';  // bike model filter for SM work orders
-let _woModelFilterWide = ''; // bike model filter for AM/Head work orders
+let _woModelFilterSM   = '';
+let _woModelFilterWide  = '';
+let _woRegFilterSM      = '';
+let _woRegFilterWide    = '';
+let _woTypeFilterSM     = '';
+let _woTypeFilterWide   = '';
 
 async function renderWorkOrdersWideAsync(role) {
   const userCityId = state.user.city_id;
@@ -2687,7 +2710,7 @@ async function renderWorkOrdersWideAsync(role) {
         </select>
       ` : `
         <select class="form-select" style="width:220px" onchange="loadHubForAssign(this.value)">
-          <option value="">Select Hub...</option>
+          <option value="">All Hubs</option>
           ${cityHubs.map(h=>`<option value="${h.name}" ${h.name===_amAssignHub?'selected':''}>${h.name}</option>`).join('')}
         </select>
         ${_amAssignHub ? `<span style="font-size:12px;color:var(--g400)">Showing data for <strong style="color:var(--g700)">${_amAssignHub}</strong></span>` : '<span style="font-size:12px;color:var(--g400)">Select a hub to load data</span>'}
@@ -2732,19 +2755,38 @@ async function renderWorkOrdersWideAsync(role) {
     </div>` : ''}
 
     <!-- STEP 3: Work tables -->
-    <div style="display:flex;align-items:center;gap:10px;margin:12px 0 8px;flex-wrap:wrap">
-      <div style="font-size:15px;font-weight:600;color:var(--g800)">
-        Unassigned Work <span class="badge b-absent" style="font-size:11px">${uaSorted.filter(j=>!_woModelFilterWide||j.bike_model===_woModelFilterWide).length} open</span>
+    <div style="margin:12px 0 8px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <div style="font-size:15px;font-weight:600;color:var(--g800)">
+          Unassigned Work <span class="badge b-absent" style="font-size:11px">${uaSorted.filter(j=>
+            (!_woRegFilterWide||j.reg_number?.toLowerCase().includes(_woRegFilterWide.toLowerCase()))&&
+            (!_woTypeFilterWide||j.submission_type===_woTypeFilterWide)&&
+            (!_woModelFilterWide||j.bike_model===_woModelFilterWide)
+          ).length} open</span>
+        </div>
       </div>
-      <select class="form-select" style="width:180px;font-size:12px" onchange="_woModelFilterWide=this.value;window._woPgWide={ua:0,as:0};navigate('workorders')">
-        <option value="">All Models</option>
-        ${[...new Set(uaSorted.map(j=>j.bike_model).filter(Boolean))].sort().map(m=>`<option value="${m}" ${m===_woModelFilterWide?'selected':''}>${m}</option>`).join('')}
-      </select>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:4px">
+        <input class="form-input" style="width:160px;font-size:12px" placeholder="Reg no. filter..."
+          value="${_woRegFilterWide}" oninput="_woRegFilterWide=this.value;window._woPgWide={ua:0,as:0};navigate('workorders')"/>
+        <select class="form-select" style="width:160px;font-size:12px" onchange="_woTypeFilterWide=this.value;window._woPgWide={ua:0,as:0};navigate('workorders')">
+          <option value="">All Types</option>
+          ${[...new Set(uaSorted.map(j=>j.submission_type).filter(Boolean))].sort().map(t=>`<option value="${t}" ${t===_woTypeFilterWide?'selected':''}>${t}</option>`).join('')}
+        </select>
+        <select class="form-select" style="width:160px;font-size:12px" onchange="_woModelFilterWide=this.value;window._woPgWide={ua:0,as:0};navigate('workorders')">
+          <option value="">All Models</option>
+          ${[...new Set(uaSorted.map(j=>j.bike_model).filter(Boolean))].sort().map(m=>`<option value="${m}" ${m===_woModelFilterWide?'selected':''}>${m}</option>`).join('')}
+        </select>
+        ${(_woRegFilterWide||_woTypeFilterWide||_woModelFilterWide)?`<button class="btn btn-outline btn-sm" onclick="_woRegFilterWide='';_woTypeFilterWide='';_woModelFilterWide='';window._woPgWide={ua:0,as:0};navigate('workorders')">Clear</button>`:''}
+      </div>
     </div>
     ${uaSorted.length===0
       ? `<div class="empty-state" style="padding:16px">${_amAssignHub||selectedHub||selectedCity ? 'No unassigned OOS job cards.' : 'Select a hub to view work orders.'}</div>`
       : `<div class="tw">
-          <table><thead>${TH_UA}</thead><tbody>${paginate(uaSorted.filter(j=>!_woModelFilterWide||j.bike_model===_woModelFilterWide),window._woPgWide.ua).map(rowUA).join('')}</tbody></table>
+          <table><thead>${TH_UA}</thead><tbody>${paginate(uaSorted.filter(j=>
+            (!_woRegFilterWide||j.reg_number?.toLowerCase().includes(_woRegFilterWide.toLowerCase()))&&
+            (!_woTypeFilterWide||j.submission_type===_woTypeFilterWide)&&
+            (!_woModelFilterWide||j.bike_model===_woModelFilterWide)
+          ),window._woPgWide.ua).map(rowUA).join('')}</tbody></table>
           ${pagerWide(uaSorted,window._woPgWide.ua,'ua')}
         </div>`}
 
