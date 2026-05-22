@@ -2313,8 +2313,8 @@ async function renderWorkOrdersAsync() {
   const paginate  = (arr, pg) => arr.slice(pg*PAGE_SIZE, (pg+1)*PAGE_SIZE);
   const pageCount = (arr) => Math.ceil(arr.length / PAGE_SIZE);
 
-  const TH_UA = `<tr><th>Reg No.</th><th>JC Number</th><th>DMS JC ID</th><th>Reason</th><th>TAT</th><th>Labour Hrs</th><th>Type</th><th>JC Opened</th><th>Assign Technician</th></tr>`;
-  const TH_AS = `<tr><th>Reg No.</th><th>JC Number</th><th>DMS JC ID</th><th>Reason</th><th>TAT</th><th>Labour Hrs</th><th>Type</th><th>JC Opened</th><th>Technician</th><th>Action</th></tr>`;
+  const TH_UA = `<tr><th>Reg No.</th><th>JC Number</th><th>DMS JC ID</th><th>Parts to Add</th><th>JC Status</th><th>TAT</th><th>Labour Hrs</th><th>Type</th><th>JC Opened</th><th>Assign Technician</th></tr>`;
+  const TH_AS = `<tr><th>Reg No.</th><th>JC Number</th><th>DMS JC ID</th><th>Parts to Add</th><th>JC Status</th><th>TAT</th><th>Labour Hrs</th><th>Type</th><th>JC Opened</th><th>Technician</th><th>Action</th></tr>`;
 
   const rowUA = (j) => {
     const pc = j.overall_tat_days>3?'b-absent':j.overall_tat_days>1?'b-med':'b-present';
@@ -2322,7 +2322,8 @@ async function renderWorkOrdersAsync() {
       <td class="mono" style="font-size:12px">${j.reg_number||'—'}</td>
       <td class="mono" style="font-size:11px;color:var(--g400)">${j.job_card_number||'—'}</td>
       <td class="mono" style="font-size:11px;color:var(--g400)">${j.dms_jc_id||'—'}</td>
-      <td style="font-size:12px">${j.reason_for_ending||'—'}</td>
+      <td style="font-size:12px;max-width:140px">${(j.parts_to_be_changed||'').split(',').map(p=>p.trim()).filter(Boolean).join(', ')||'—'}</td>
+      <td style="font-size:11px;color:var(--g500)">${j.current_jc_status||'—'}</td>
       <td><span class="badge ${pc}">${j.overall_tat_days?.toFixed(1)||'—'}d</span></td>
       <td style="font-size:12px">${j.labour_time_hours!=null?j.labour_time_hours.toFixed(1)+'h':'—'}</td>
       <td style="font-size:12px">${j.submission_type||'—'}</td>
@@ -2342,7 +2343,8 @@ async function renderWorkOrdersAsync() {
       <td class="mono" style="font-size:12px">${j.reg_number||'—'}</td>
       <td class="mono" style="font-size:11px;color:var(--g400)">${j.job_card_number||'—'}</td>
       <td class="mono" style="font-size:11px;color:var(--g400)">${j.dms_jc_id||'—'}</td>
-      <td style="font-size:12px">${j.reason_for_ending||'—'}</td>
+      <td style="font-size:12px;max-width:140px">${(j.parts_to_be_changed||'').split(',').map(p=>p.trim()).filter(Boolean).join(', ')||'—'}</td>
+      <td style="font-size:11px;color:var(--g500)">${j.current_jc_status||'—'}</td>
       <td><span class="badge ${pc}">${j.overall_tat_days?.toFixed(1)||'—'}d</span></td>
       <td style="font-size:12px">${j.labour_time_hours!=null?j.labour_time_hours.toFixed(1)+'h':'—'}</td>
       <td style="font-size:12px">${j.submission_type||'—'}</td>
@@ -2533,8 +2535,8 @@ async function renderWorkOrdersWideAsync(role) {
 
   const fmtDate = d => d ? new Date(d).toLocaleDateString('en-IN') : '—';
 
-  const TH_UA = `<tr><th>Reg No.</th><th>Hub</th><th>JC Number</th><th>DMS JC ID</th><th>Reason</th><th>TAT ↓</th><th>Labour</th><th>Type</th><th>JC Opened</th></tr>`;
-  const TH_AS = `<tr><th>Reg No.</th><th>Hub</th><th>JC Number</th><th>DMS JC ID</th><th>Reason</th><th>TAT ↓</th><th>Labour</th><th>Type</th><th>JC Opened</th><th>Technician</th></tr>`;
+  const TH_UA = `<tr><th>Reg No.</th><th>Hub</th><th>JC Number</th><th>DMS JC ID</th><th>Parts to Add</th><th>JC Status</th><th>TAT ↓</th><th>Labour</th><th>Type</th><th>JC Opened</th></tr>`;
+  const TH_AS = `<tr><th>Reg No.</th><th>Hub</th><th>JC Number</th><th>DMS JC ID</th><th>Parts to Add</th><th>JC Status</th><th>TAT ↓</th><th>Labour</th><th>Type</th><th>JC Opened</th><th>Technician</th></tr>`;
 
   const rowUA = j => {
     const pc = j.overall_tat_days>3?'b-absent':j.overall_tat_days>1?'b-med':'b-present';
@@ -2543,7 +2545,8 @@ async function renderWorkOrdersWideAsync(role) {
       <td style="font-size:11px;color:var(--g500)">${j.hub_name||'—'}</td>
       <td class="mono" style="font-size:11px;color:var(--g400)">${j.job_card_number||'—'}</td>
       <td class="mono" style="font-size:11px;color:var(--g400)">${j.dms_jc_id||'—'}</td>
-      <td style="font-size:12px">${j.reason_for_ending||'—'}</td>
+      <td style="font-size:12px;max-width:140px">${(j.parts_to_be_changed||'').split(',').map(p=>p.trim()).filter(Boolean).join(', ')||'—'}</td>
+      <td style="font-size:11px;color:var(--g500)">${j.current_jc_status||'—'}</td>
       <td><span class="badge ${pc}">${j.overall_tat_days!=null?j.overall_tat_days.toFixed(1)+'d':'—'}</span></td>
       <td style="font-size:12px">${j.labour_time_hours!=null?j.labour_time_hours.toFixed(1)+'h':'—'}</td>
       <td style="font-size:12px">${j.submission_type||'—'}</td>
@@ -2558,11 +2561,11 @@ async function renderWorkOrdersWideAsync(role) {
       <td style="font-size:11px;color:var(--g500)">${j.hub_name||'—'}</td>
       <td class="mono" style="font-size:11px;color:var(--g400)">${j.job_card_number||'—'}</td>
       <td class="mono" style="font-size:11px;color:var(--g400)">${j.dms_jc_id||'—'}</td>
-      <td style="font-size:12px">${j.reason_for_ending||'—'}</td>
+      <td style="font-size:12px;max-width:140px">${(j.parts_to_be_changed||'').split(',').map(p=>p.trim()).filter(Boolean).join(', ')||'—'}</td>
+      <td style="font-size:11px;color:var(--g500)">${j.current_jc_status||'—'}</td>
       <td><span class="badge ${pc}">${j.overall_tat_days!=null?j.overall_tat_days.toFixed(1)+'d':'—'}</span></td>
       <td style="font-size:12px">${j.labour_time_hours!=null?j.labour_time_hours.toFixed(1)+'h':'—'}</td>
       <td style="font-size:12px">${j.submission_type||'—'}</td>
-      <td style="font-size:12px">${fmtDate(j.job_card_opened_date)}</td>
       <td style="font-size:12px">${j.technician_name||'<span style="color:var(--g300)">—</span>'}</td>
     </tr>`;
   };
