@@ -617,7 +617,7 @@ async function loadVehiclesForHub(hubName) {
   if (_demoMode) { VEHICLES = DEMO_VEHICLES; return; }
   // Filter by hub_name from Supabase vehicles table
   const rows = await sb(
-    `vehicles?hub_name=eq.${encodeURIComponent(hubName)}&select=id,reg_number,model_name,bike_status,oos_sub_status,current_rider_name,current_odometer&order=reg_number&limit=2000`
+    `vehicles?hub_name=eq.${encodeURIComponent(hubName)}&select=id,reg_number,model_name,bike_status,oos_sub_status,current_rider_name,current_odometer,hub_name&order=reg_number&limit=2000`
   );
   if (rows && rows.length) {
     VEHICLES = rows;
@@ -1608,10 +1608,18 @@ async function addWOWide() {
   const iss      = document.getElementById('woi-wide')?.value.trim();
   const techName = document.getElementById('wot-wide')?.value;
   const p        = document.getElementById('wop-wide')?.value || 'Medium';
-  if (!v||!iss||!techName) {
-    document.getElementById('wo-msg-wide').innerHTML='<div class="alert al-error">Fill all fields and select a technician.</div>';
-    return;
+  if (!v)        { document.getElementById('wo-msg-wide').innerHTML='<div class="alert al-error">Please select a vehicle.</div>'; return; }
+  // Check vehicle belongs to selected hub
+  const selVeh = VEHICLES.find(veh=>veh.reg_number===v);
+  if (selVeh) {
+    const vehHub = selVeh.hub_name || (HUBS.find(h=>h.id===selVeh.hub_id)?.name) || '';
+    if (vehHub && vehHub !== hubName) {
+      document.getElementById('wo-msg-wide').innerHTML=`<div class="alert al-error">This vehicle belongs to <strong>${vehHub}</strong>. Select a vehicle in <strong>${hubName}</strong>.</div>`;
+      return;
+    }
   }
+  if (!iss)      { document.getElementById('wo-msg-wide').innerHTML='<div class="alert al-error">Please describe the issue.</div>'; return; }
+  if (!techName) { document.getElementById('wo-msg-wide').innerHTML='<div class="alert al-error">Please select a technician.</div>'; return; }
   const jcData  = window._jcLookup?.[v] || {};
   const submType = jcData.submission_type || '';
   const woType  = submType.toLowerCase().includes('oos') ? 'oos' : 'running_repair';
