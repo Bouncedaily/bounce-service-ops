@@ -212,7 +212,12 @@ async function sb(path, opts={}) {
                 'Content-Type':'application/json', Prefer:opts.prefer||'' },
       method:opts.method||'GET', body:opts.body
     });
-    if (!r.ok) { console.error('SB error',r.status,await r.text()); return null; }
+    if (!r.ok) {
+      const errText = await r.text();
+      console.error('SB error', r.status, errText);
+      try { return { _error:true, status:r.status, detail:JSON.parse(errText) }; }
+      catch { return { _error:true, status:r.status, detail:errText }; }
+    }
     const t = await r.text(); return t ? JSON.parse(t) : [];
   } catch(e) { console.error(e); return null; }
 }
@@ -441,12 +446,22 @@ async function doAddUser() {
     body: JSON.stringify({ name, mobile, role, employee_id:empid||null, city_id:cityId||null,
       assigned_hub_name:hub||null, notes:notes||null, created_by:adminUser.id, is_active:true })
   });
-  if (res && res.length) {
+  if (res && !res._error && res.length) {
     await loadMasterData();
     document.getElementById('add-alert').innerHTML='<div class="alert al-success">✓ User created successfully.</div>';
     setTimeout(()=>nav('users'), 1200);
   } else {
-    document.getElementById('add-alert').innerHTML='<div class="alert al-error">Failed to create user. Mobile may already exist.</div>';
+    // Surface actual Supabase error
+    let errMsg = 'Failed to create user.';
+    if (res && res._error) {
+      const d = res.detail;
+      if (d && d.message) errMsg = d.message;
+      else if (d && d.code === '23505') errMsg = 'Mobile number already exists.';
+      else if (typeof d === 'string' && d.includes('unique')) errMsg = 'Mobile number already exists.';
+      else if (d && d.code) errMsg = `Error ${d.code}: ${d.message || d.hint || 'Unknown error'}`;
+      console.error('Add user error:', d);
+    }
+    document.getElementById('add-alert').innerHTML=`<div class="alert al-error">${errMsg}</div>`;
   }
 }
 
