@@ -2501,13 +2501,6 @@ async function renderWorkOrdersWideAsync(role) {
         <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> Refresh
       </button>
     </div>
-    <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-      ${role==='head'?`<select class="form-select" style="width:160px" onchange="_headSelectedCity=this.value;_headSelectedHub='';window._woPgWide={ua:0,as:0};navigate('workorders')">
-        <option value="">All Cities</option>${cityOptions}</select>`:''}
-      <select class="form-select" style="width:180px" onchange="${role==='head'?'_headSelectedHub':'_areaSelectedHub'}=this.value;window._woPgWide={ua:0,as:0};navigate('workorders')">
-        <option value="">All Hubs</option>${hubOptions}
-      </select>
-    </div>
 
     ${role==='area_manager' ? `
     <div class="wo-form-wrap" id="wo-form-wide">
@@ -2554,6 +2547,14 @@ async function renderWorkOrdersWideAsync(role) {
       <button class="btn btn-blue" style="margin-top:12px" onclick="addWOWide()">Assign Work Order</button>` : ''}
       <div id="wo-msg-wide" style="margin-top:8px"></div>
     </div>` : ''}
+
+    <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+      ${role==='head'?`<select class="form-select" style="width:160px" onchange="_headSelectedCity=this.value;_headSelectedHub='';window._woPgWide={ua:0,as:0};navigate('workorders')">
+        <option value="">All Cities</option>${cityOptions}</select>`:''}
+      <select class="form-select" style="width:180px" onchange="${role==='head'?'_headSelectedHub':'_areaSelectedHub'}=this.value;window._woPgWide={ua:0,as:0};navigate('workorders')">
+        <option value="">All Hubs</option>${hubOptions}
+      </select>
+    </div>
 
     <div style="font-size:15px;font-weight:600;color:var(--g800);margin:12px 0 8px">
       Unassigned Work <span class="badge b-absent" style="font-size:11px">${uaSorted.length} open</span>
