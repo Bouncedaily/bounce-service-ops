@@ -2037,7 +2037,7 @@ async function loadDraftJCForHub(hubName) {
   if (_demoMode) return [];
   // Only fetch non-Billed JCs — much faster and what we actually need
   const rows = await sb(
-    `draft_jc?hub_name=eq.${encodeURIComponent(hubName)}&select=job_card_number,dms_jc_id,reg_number,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date,bike_status&order=job_card_opened_date.desc`
+    `draft_jc?hub_name=eq.${encodeURIComponent(hubName)}&select=job_card_number,dms_jc_id,reg_number,hub_name,bike_status,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date&order=job_card_opened_date.desc`
   );
   return rows || [];
 }
@@ -2286,11 +2286,11 @@ async function renderWorkOrdersWideAsync(role) {
   const userCityId = state.user.city_id;
   const myCityName = getCityNameSync(userCityId);
   const cityNames  = role==='head' ? ['Bangalore','Hyderabad','NCR','Indore'] : [myCityName];
-  const selectedCity = role==='head' ? (_headSelectedCity||cityNames[0]) : myCityName;
+  const selectedCity = role==='head' ? _headSelectedCity : myCityName;
   const cityHubs   = HUBS.filter(h => role==='head' ? true : h.city_id === userCityId);
   const selectedHub  = role==='head' ? (_headSelectedHub||'') : (_areaSelectedHub||'');
   const hubsForCity  = role==='head'
-    ? (selectedCity ? getHubsForCitySync(selectedCity) : cityHubs)
+    ? (selectedCity ? getHubsForCitySync(selectedCity) : HUBS)
     : cityHubs;
 
   if (!window._jcCache) window._jcCache = {};
