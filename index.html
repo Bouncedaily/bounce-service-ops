@@ -507,6 +507,13 @@ const DEMO_JOBS = [
   {id:'j5', wo_number:'WO-005', vehicle_reg:'KA05IJ7890', issue:'Tyre puncture repair', priority:'Medium', status:'Open',        wo_type:'oos',            assigned_at: new Date().toISOString(), hub_id:'hub-4', users:{name:'Selvam V'},  hubs:{name:'Electronic City Hub'}},
 ];
 let _demoMode = false;
+let _woPerWeekLimit = 1; // configurable from admin portal
+
+async function loadWoConfig() {
+  // Read from localStorage (set by admin portal)
+  const stored = localStorage.getItem('wo_per_week_limit');
+  if (stored) _woPerWeekLimit = parseInt(stored) || 1;
+}
 
 // ─ FETCH USER BY MOBILE ─
 async function fetchUserByMobile(mobile) {
@@ -791,6 +798,55 @@ async function cancelPreviousWO(woDbId) {
   if (!woDbId || _demoMode) return;
   // Use 'Done' as the close status — 'Cancelled' is not a valid enum value
   await sb(`work_orders?id=eq.${woDbId}`, { method:'PATCH', body: JSON.stringify({ status:'Done', completed_at: new Date().toISOString() }) });
+}
+
+// ── WEEK OFF MARKING ────────────────────────────────────────────────────────
+async function markWeekOff(techName, date, userId) {
+  // Get week boundaries (Mon-Sun)
+  const d       = new Date(date);
+  const day     = d.getDay(); // 0=Sun
+  const monday  = new Date(d); monday.setDate(d.getDate() - (day===0?6:day-1));
+  const sunday  = new Date(monday); sunday.setDate(monday.getDate()+6);
+  const monISO  = monday.toISOString().slice(0,10);
+  const sunISO  = sunday.toISOString().slice(0,10);
+
+  // Count existing WOs for this tech this week
+  const existing = await sb(`attendance?technician_name=eq.${encodeURIComponent(techName)}&status=eq.week_off&date=gte.${monISO}&date=lte.${sunISO}&select=id,date`);
+  const usedWOs  = (existing||[]).length;
+
+  if (usedWOs >= _woPerWeekLimit) {
+    return { ok: false, msg: `${techName} has already used ${usedWOs}/${_woPerWeekLimit} week off(s) this week (${monISO} – ${sunISO}).` };
+  }
+
+  // Check if attendance record exists for this date
+  const attRows = await sb(`attendance?technician_name=eq.${encodeURIComponent(techName)}&date=eq.${date}&select=id`);
+
+  if (attRows && attRows.length) {
+    // Update existing record
+    await sb(`attendance?id=eq.${attRows[0].id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'week_off', updated_at: new Date().toISOString() })
+    });
+  } else {
+    // Insert new attendance record as week_off
+    const hubObj = HUBS.find(h=>h.name===state.hub);
+    await sb('attendance', {
+      method: 'POST',
+      prefer: 'return=minimal',
+      body: JSON.stringify({
+        user_id: userId || null,
+        technician_name: techName,
+        hub_id: state.hubId || null,
+        hub_name: state.hub || null,
+        date: date,
+        status: 'week_off',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+    });
+  }
+
+  return { ok: true, msg: `Week off marked for ${techName} on ${date}. (${usedWOs+1}/${_woPerWeekLimit} this week)` };
 }
 
 async function saveWorkOrder(wo) {
@@ -1550,41 +1606,94 @@ function renderDashboard() {
 }
 
 function renderAttendance() {
-  const myHub = state.hub;
-  const hubTechs = TECHNICIANS.filter(t => (state.attendance[t]?.hub || '') === myHub);
+  const myHub   = state.hub;
+  const selDate = window._attDate || TODAY;
+
+  // All techs assigned to hub — from ALL_USERS
+  const hubUsers = ALL_USERS.filter(u=>u.role==='technician'&&(u.assigned_hub_name===myHub||Object.values(state.attendance).some(a=>a.hub===myHub&&a.name===u.name)));
+  // Techs who checked in today (from state.attendance)
+  const checkedIn = Object.entries(state.attendance);
+
+  // Build full list: checked-in techs + all_users assigned to hub not checked in
+  const techSet = new Set(checkedIn.map(([n])=>n));
+  const allTechs = [
+    ...checkedIn.map(([name,a])=>({name,att:a})),
+    ...hubUsers.filter(u=>!techSet.has(u.name)).map(u=>({name:u.name,att:{status:'absent',checkin:null,checkout:null,approval:null,att_id:null},userId:u.id}))
+  ];
+
+  const absentTechs = allTechs.filter(({att})=>att.status==='absent'||att.status==='week_off');
+  const presentTechs = allTechs.filter(({att})=>att.status==='present');
+
   return `
     <div class="page-hd">
       <div class="page-hd-text"><div class="page-title">Attendance</div><div class="page-sub">${myHub} — ${dateShort()}</div></div>
       <button class="btn-refresh" onclick="refreshPage('attendance')" title="Refresh">
-        <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> Refresh
+        <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
       </button>
     </div>
-    ${hubTechs.length===0
-      ? `<div class="empty-state">No technicians checked in at ${myHub} today.</div>`
-      : `<div class="tw"><table>
-          <thead><tr><th>Technician</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Approval</th></tr></thead>
-          <tbody>${hubTechs.map(t=>{
-            const a=state.attendance[t]||{status:'absent',checkin:null,checkout:null,approval:null};
-            const bc=a.status==='present'?'b-present':a.status==='absent'?'b-absent':'b-leave';
-            const ap=a.approval;
-            return `<tr>
-              <td><strong>${t}</strong></td>
-              <td><span class="badge ${bc}">${a.status[0].toUpperCase()+a.status.slice(1)}</span></td>
-              <td class="mono" style="font-size:12px">${a.checkin||'—'}</td>
-              <td class="mono" style="font-size:12px">${a.checkout||'—'}</td>
-              <td>
-                ${a.status==='present' ? (
-                  ap==='approved' ? `<span class="badge b-present">✓ Approved</span>` :
-                  ap==='denied'   ? `<span class="badge b-absent">✗ Denied</span>` :
-                  `<div style="display:flex;gap:6px">
-                    <button class="btn btn-green btn-sm" style="padding:4px 10px;font-size:11px" onclick="approveAtt('${t}','approved')">Approve</button>
-                    <button class="btn btn-red btn-sm" style="padding:4px 10px;font-size:11px" onclick="approveAtt('${t}','denied')">Deny</button>
-                  </div>`
-                ) : `<span style="color:var(--g300);font-size:12px">—</span>`}
-              </td>
-            </tr>`;
-          }).join('')}</tbody>
-        </table></div>`}`;
+
+    ${allTechs.length===0 ? `<div class="empty-state">No technicians found for ${myHub}.</div>` : `
+
+    <!-- Present techs -->
+    ${presentTechs.length ? `
+    <div style="font-size:14px;font-weight:600;color:var(--g700);margin-bottom:8px">Present (${presentTechs.length})</div>
+    <div class="tw" style="margin-bottom:20px"><table>
+      <thead><tr><th>Technician</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Approval</th></tr></thead>
+      <tbody>${presentTechs.map(({name:t,att:a})=>{
+        const ap=a.approval;
+        return `<tr>
+          <td><strong>${t}</strong></td>
+          <td><span class="badge b-present">Present</span></td>
+          <td class="mono" style="font-size:12px">${a.checkin||'—'}</td>
+          <td class="mono" style="font-size:12px">${a.checkout||'—'}</td>
+          <td>${ap==='approved'?`<span class="badge b-present">✓ Approved</span>`:ap==='denied'?`<span class="badge b-absent">✗ Denied</span>`:`<div style="display:flex;gap:6px">
+            <button class="btn btn-green btn-sm" style="padding:4px 10px;font-size:11px" onclick="approveAtt('${t}','approved')">Approve</button>
+            <button class="btn btn-red btn-sm" style="padding:4px 10px;font-size:11px" onclick="approveAtt('${t}','denied')">Deny</button>
+          </div>`}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>` : ''}
+
+    <!-- Absent techs with Week Off option -->
+    ${absentTechs.length ? `
+    <div style="font-size:14px;font-weight:600;color:var(--g700);margin-bottom:8px">
+      Absent / Not checked in (${absentTechs.length})
+      <span style="font-size:11px;font-weight:400;color:var(--g400);margin-left:8px">Week off limit: ${_woPerWeekLimit}/week</span>
+    </div>
+    <div class="tw"><table>
+      <thead><tr><th>Technician</th><th>Status</th><th>Week Off?</th></tr></thead>
+      <tbody>${absentTechs.map(({name:t,att:a,userId})=>{
+        const isWO = a.status==='week_off';
+        return `<tr>
+          <td><strong>${t}</strong></td>
+          <td><span class="badge ${isWO?'b-leave':'b-absent'}">${isWO?'Week Off':'Absent'}</span></td>
+          <td>
+            ${isWO
+              ? `<span style="color:var(--g400);font-size:12px">✓ Marked WO</span>`
+              : `<div style="display:flex;gap:8px;align-items:center">
+                  <button class="btn btn-outline btn-sm" style="font-size:11px" onclick="doMarkWO('${t}','${TODAY}','${userId||''}')">Mark Week Off</button>
+                  <span id="wo-msg-${t.replace(/\s/g,'_')}" style="font-size:11px"></span>
+                </div>`}
+          </td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>` : ''}
+    `}`;
+}
+
+async function doMarkWO(techName, date, userId) {
+  const msgEl = document.getElementById('wo-msg-'+techName.replace(/\s/g,'_'));
+  if (msgEl) msgEl.innerHTML = '<span style="color:var(--g400)">Checking...</span>';
+  const result = await markWeekOff(techName, date, userId||null);
+  if (result.ok) {
+    if (msgEl) msgEl.innerHTML = `<span style="color:var(--green)">✓ Done</span>`;
+    // Update local state
+    if (!state.attendance[techName]) state.attendance[techName]={};
+    state.attendance[techName].status = 'week_off';
+    setTimeout(()=>navigate('attendance'), 800);
+  } else {
+    if (msgEl) msgEl.innerHTML = `<span style="color:var(--red);font-size:11px">${result.msg}</span>`;
+  }
 }
 
 async function mgrAtt(tech,val) {

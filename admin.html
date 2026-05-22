@@ -174,6 +174,12 @@ input:checked+.slider:before{transform:translateX(18px)}
       <div class="si-section">System</div>
       <div class="si" onclick="nav('hubs')">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="9"/></svg>
+        Settings
+        </div>
+        <div class="nav-item" onclick="nav('settings')">
+        Settings
+        </div>
+        <div class="nav-item" onclick="nav('hubs')">
         Hub Locations
       </div>
       <div class="si" onclick="nav('permissions')">
@@ -277,7 +283,7 @@ function doLogout() {
 function nav(page) {
   currentPage = page;
   document.querySelectorAll('.si').forEach(e=>e.classList.remove('active'));
-  const pages = {dashboard:renderDashboard,users:renderUsers,'add-user':renderAddUser,hubs:renderHubs,permissions:renderPermissions,'login-activity':renderLoginActivity};
+  const pages = {dashboard:renderDashboard,users:renderUsers,'add-user':renderAddUser,hubs:renderHubs,permissions:renderPermissions,'login-activity':renderLoginActivity,settings:renderSettings};
   document.getElementById('content').innerHTML = (pages[page]||(() => ''))();
 }
 
@@ -558,6 +564,40 @@ async function toggleActive(userId, activate) {
 }
 
 // ─ PERMISSIONS ─
+function renderSettings() {
+  const woLimit = parseInt(localStorage.getItem('wo_per_week_limit')||'1');
+  return `
+    <div class="page-title">Settings</div>
+    <div class="page-sub">System configuration</div>
+
+    <div class="card" style="max-width:500px;margin-top:20px">
+      <h3 style="font-size:15px;font-weight:600;margin-bottom:16px">Attendance Rules</h3>
+
+      <div class="form-group">
+        <label class="form-label">Max Week Offs per technician per week</label>
+        <div style="display:flex;gap:10px;align-items:center">
+          <select class="form-select" style="width:120px" id="wo-limit-sel">
+            ${[1,2,3,4,5].map(n=>`<option value="${n}" ${n===woLimit?'selected':''}>${n} per week</option>`).join('')}
+          </select>
+          <button class="btn btn-purple" onclick="saveWoLimit()">Save</button>
+          <span id="wo-limit-msg" style="font-size:12px;color:var(--green)"></span>
+        </div>
+        <div style="font-size:12px;color:var(--g400);margin-top:6px">
+          Currently: <strong>${woLimit} week off${woLimit>1?'s':''} per week</strong> per technician.
+          Service Managers can mark week offs from their Attendance tab.
+        </div>
+      </div>
+    </div>`;
+}
+
+function saveWoLimit() {
+  const val = document.getElementById('wo-limit-sel')?.value;
+  if (!val) return;
+  localStorage.setItem('wo_per_week_limit', val);
+  document.getElementById('wo-limit-msg').textContent = `✓ Saved (${val}/week)`;
+  setTimeout(()=>{ document.getElementById('wo-limit-msg').textContent=''; nav('settings'); }, 1500);
+}
+
 function renderPermissions() {
   return `
     <div class="page-title">Role Permissions</div>
