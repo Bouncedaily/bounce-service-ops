@@ -1663,26 +1663,38 @@ function renderAttendance() {
       <div style="font-size:11px;color:var(--g400)">Week off allowance: <strong>${_woPerWeekLimit}/week</strong></div>
     </div>
     <div class="tw"><table>
-      <thead><tr><th>Technician</th><th>Status</th><th>Action</th></tr></thead>
+      <thead><tr><th>Technician</th><th>Status</th></tr></thead>
       <tbody>${absentTechs.map(({name:t,att:a,userId})=>{
         const isWO = a.status==='week_off';
         return `<tr>
           <td><strong>${t}</strong></td>
-          <td><span class="badge ${isWO?'b-leave':'b-absent'}" style="font-size:11px">${isWO?'Week Off':'Absent'}</span></td>
           <td>${isWO
-            ? `<span style="color:var(--g400);font-size:12px">✓ Week off marked</span>`
-            : `<div style="display:flex;align-items:center;gap:8px">
-                <button class="btn btn-outline btn-sm" style="font-size:11px;white-space:nowrap"
-                  onclick="doMarkWO('${t}','${TODAY}','${userId||''}')">
-                  Mark as Week Off
-                </button>
-                <span id="wo-msg-${t.replace(/\s/g,'_')}" style="font-size:11px"></span>
-              </div>`}
+            ? `<span class="badge b-leave" style="font-size:11px">Week Off ✓</span>`
+            : `<span class="badge b-absent" style="font-size:11px;cursor:pointer;text-decoration:underline dotted"
+                title="Click to mark as Week Off"
+                onclick="showWOPopup('${t}','${TODAY}','${userId||''}')">Absent</span>`}
           </td>
         </tr>`;
       }).join('')}</tbody>
     </table></div>` : ''}
     `}`;
+}
+
+function showWOPopup(techName, date, userId) {
+  const inner = document.getElementById('modal-inner');
+  inner.innerHTML = `
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div class="modal-title">Mark as Week Off</div>
+    <div class="modal-sub">${techName} — ${date}</div>
+    <div class="alert al-warn" style="margin:12px 0;font-size:13px">
+      This will mark <strong>${techName}</strong> as Week Off for today.<br>
+      Week off allowance: <strong>${_woPerWeekLimit} per week</strong>.
+    </div>
+    <div style="display:flex;gap:10px;margin-top:4px">
+      <button class="btn btn-outline" style="flex:1" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-blue"    style="flex:1" onclick="closeModal();doMarkWO('${techName}','${date}','${userId}')">Yes, Mark Week Off</button>
+    </div>`;
+  document.getElementById('modal').style.display='flex';
 }
 
 async function doMarkWO(techName, date, userId) {
