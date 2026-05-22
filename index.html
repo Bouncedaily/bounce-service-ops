@@ -1129,6 +1129,24 @@ function navigate(page) {
   if (page==='attendance' && (role==='area_manager'||role==='head')) {
     c.innerHTML = renderAttendanceWide(role); return;
   }
+  // SM attendance — reload fresh before rendering
+  if (page==='attendance' && role==='hub_manager' && state.hubId) {
+    c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading attendance...</div>';
+    (async () => {
+      await loadAttendanceForHub(state.hubId);
+      if (currentPage===page) c.innerHTML = renderAttendance();
+    })();
+    return;
+  }
+  // SM dashboard — reload attendance fresh before rendering
+  if (page==='dashboard' && role==='hub_manager' && state.hubId) {
+    c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading...</div>';
+    (async () => {
+      await loadAttendanceForHub(state.hubId);
+      if (currentPage===page) { c.innerHTML = renderDashboard(); refreshOosCount(); }
+    })();
+    return;
+  }
   const fns = {
     dashboard:renderDashboard, attendance:renderAttendance,
     'qr-hub':renderQRHub,
