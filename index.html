@@ -1098,7 +1098,14 @@ function renderTopbar() {
   document.getElementById('top-av').textContent   = initials;
   document.getElementById('top-name').textContent = state.user.name;
   document.getElementById('top-role').textContent = ROLE_LABEL[state.user.role] || state.user.role;
-  document.getElementById('top-hub').textContent  = state.hub || 'Select Hub';
+  const role = state.user.role;
+  const hubEl = document.getElementById('top-hub');
+  if (role==='technician' || role==='hub_manager') {
+    hubEl.textContent = state.hub || 'Select Hub';
+    hubEl.style.display = '';
+  } else {
+    hubEl.style.display = 'none';
+  }
 }
 
 function renderNav() {
