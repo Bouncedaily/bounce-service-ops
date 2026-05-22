@@ -648,6 +648,7 @@ async function loadMyJobs() {
       priority:           r.priority,
       status:             r.status,
       wo_type:            r.wo_type||'running_repair',
+      assigned_at:        r.assigned_at||null,
       time:               new Date(r.assigned_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false}),
       // JC details from draft_jc
       jc_number:          jc.job_card_number || null,
@@ -1386,15 +1387,44 @@ function renderMyAttendance() {
 
 function renderMyJobs() {
   const myJobs = state.jobs.filter(j=>j.tech===state.user.name);
-  const activeJob = myJobs.find(j=>j.status==='In Progress');
+  // Date filter
+  const todayISO = new Date().toISOString().slice(0,10);
+  const selDate  = window._myJobsDate || todayISO;
+  const filteredJobs = selDate === 'all'
+    ? myJobs
+    : myJobs.filter(j=>(j.assigned_at||'').slice(0,10) === selDate || (!j.assigned_at && selDate===todayISO));
+  const activeJob = filteredJobs.find(j=>j.status==='In Progress');
+  const open=filteredJobs.filter(j=>j.status==='Open').length;
+  const inProg=filteredJobs.filter(j=>j.status==='In Progress').length;
+  const done=filteredJobs.filter(j=>j.status==='Done').length;
+  const fmtSel = selDate==='all'?'All Time':new Date(selDate+'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
   return `
-    <div class="page-hd"><div class="page-hd-text"><div class="page-title">My Jobs</div><div class="page-sub">${state.hub||''} — ${dateShort()}</div></div></div>
-    ${activeJob ? `<div class="alert al-info" style="margin-bottom:16px">
+    <div class="page-hd"><div class="page-hd-text"><div class="page-title">My Jobs</div><div class="page-sub">${state.hub||''}</div></div></div>
+
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+      <div>
+        <label class="form-label" style="margin-bottom:4px">Date</label>
+        <input type="date" class="form-input" style="width:155px;padding:7px 10px"
+          value="${selDate==='all'?todayISO:selDate}"
+          onchange="window._myJobsDate=this.value;navigate('my-jobs')"/>
+      </div>
+      <div style="margin-top:18px"><button class="btn btn-outline btn-sm" onclick="window._myJobsDate='all';navigate('my-jobs')">All Time</button></div>
+      <div style="margin-top:18px"><button class="btn btn-outline btn-sm" onclick="window._myJobsDate=new Date().toISOString().slice(0,10);navigate('my-jobs')">Today</button></div>
+    </div>
+
+    <div class="metrics" style="margin-bottom:14px">
+      <div class="metric"><div class="metric-lbl">Total</div><div class="metric-val">${filteredJobs.length}</div></div>
+      <div class="metric"><div class="metric-lbl">Open</div><div class="metric-val mv-blue">${open}</div></div>
+      <div class="metric"><div class="metric-lbl">In Progress</div><div class="metric-val mv-amber">${inProg}</div></div>
+      <div class="metric"><div class="metric-lbl">Done</div><div class="metric-val mv-green">${done}</div></div>
+    </div>
+
+    ${activeJob ? `<div class="alert al-info" style="margin-bottom:14px">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
       You have an active job in progress. Complete it before starting another.
     </div>` : ''}
-    ${myJobs.length===0?'<div class="empty-state">No jobs assigned to you today.</div>':''}
-    ${myJobs.map(j=>{
+    ${filteredJobs.length===0?`<div class="empty-state">No jobs found for ${fmtSel}.</div>`:''}
+    ${filteredJobs.map(j=>{
       const gi=state.jobs.indexOf(j);
       const sc=j.status==='Done'?'b-done':j.status==='In Progress'?'b-inprog':'b-open';
       const pc=j.priority==='High'?'b-high':j.priority==='Low'?'b-low':'b-med';
