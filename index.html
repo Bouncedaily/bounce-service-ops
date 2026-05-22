@@ -1588,6 +1588,8 @@ async function updJob(i,val){
 async function loadHubForAssign(hubName) {
   if (!hubName) return;
   _amAssignHub = hubName;
+  if (!window._woPgWide) window._woPgWide = {ua:0,as:0};
+  window._woPgWide = {ua:0,as:0};
   // Load vehicles and attendance for this hub so assign form is populated
   await Promise.all([
     loadVehiclesForHub(hubName),
@@ -2555,7 +2557,7 @@ async function renderWorkOrdersWideAsync(role) {
   const cityNames  = role==='head' ? ['Bangalore','Hyderabad','NCR','Indore'] : [myCityName];
   const selectedCity = role==='head' ? _headSelectedCity : myCityName;
   const cityHubs   = HUBS.filter(h => role==='head' ? true : h.city_id === userCityId);
-  const selectedHub  = role==='head' ? (_headSelectedHub||'') : (_areaSelectedHub||'');
+  const selectedHub  = role==='head' ? (_headSelectedHub||'') : (_amAssignHub||'');
   const hubsForCity  = role==='head'
     ? (selectedCity ? getHubsForCitySync(selectedCity) : HUBS)
     : cityHubs;
@@ -2714,11 +2716,14 @@ async function renderWorkOrdersWideAsync(role) {
     </div>` : ''}
 
     <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-      ${role==='head'?`<select class="form-select" style="width:160px" onchange="_headSelectedCity=this.value;_headSelectedHub='';window._woPgWide={ua:0,as:0};navigate('workorders')">
-        <option value="">All Cities</option>${cityOptions}</select>`:''}
-      <select class="form-select" style="width:180px" onchange="${role==='head'?'_headSelectedHub':'_areaSelectedHub'}=this.value;window._woPgWide={ua:0,as:0};navigate('workorders')">
-        <option value="">All Hubs</option>${hubOptions}
-      </select>
+      ${role==='head'?`
+        <select class="form-select" style="width:160px" onchange="_headSelectedCity=this.value;_headSelectedHub='';window._woPgWide={ua:0,as:0};navigate('workorders')">
+          <option value="">All Cities</option>${cityOptions}
+        </select>
+        <select class="form-select" style="width:180px" onchange="_headSelectedHub=this.value;window._woPgWide={ua:0,as:0};navigate('workorders')">
+          <option value="">All Hubs</option>${hubOptions}
+        </select>
+      `:''}
     </div>
 
     <div style="display:flex;align-items:center;gap:10px;margin:12px 0 8px;flex-wrap:wrap">
