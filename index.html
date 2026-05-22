@@ -2228,6 +2228,8 @@ async function loadAllDraftJC() {
 async function renderWorkOrdersAsync() {
   const myHub = state.hub;
   if (!myHub) return '<div class="empty-state">No hub selected. Please log out and log in again.</div>';
+  // Always reload attendance fresh — techs may have checked in after SM logged in
+  await loadAttendanceForHub(state.hubId);
   const avail = Object.entries(state.attendance)
     .filter(([,a]) => a.status==='present' && a.hub===myHub)
     .map(([name]) => name);
