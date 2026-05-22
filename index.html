@@ -1452,8 +1452,8 @@ function renderDashboard() {
               <td><span class="badge ${bc}">${a.status[0].toUpperCase()+a.status.slice(1)}</span></td>
               <td class="mono" style="font-size:12px">${a.checkin||'—'}</td>
               <td class="mono" style="font-size:12px">${a.checkout||'—'}</td>
-              <td style="font-size:12px">${activeJob?`<span class="badge b-inprog">${activeJob.vehicle||activeJob.id}</span> ${activeJob.issue}`:'<span style="color:var(--g300)">—</span>'}</td>
-              <td style="font-size:12px">${nextJob?`<span class="badge b-open">${nextJob.vehicle||nextJob.id}</span> ${nextJob.issue}`:'<span style="color:var(--g300)">—</span>'}</td>
+              <td style="font-size:12px">${activeJob?`<span class="badge b-inprog">${activeJob.vehicle||'—'}</span> ${activeJob.issue}`:'<span style="color:var(--g300)">—</span>'}</td>
+              <td style="font-size:12px">${nextJob?`<span class="badge b-open">${nextJob.vehicle||'—'}</span> ${nextJob.issue}`:'<span style="color:var(--g300)">—</span>'}</td>
             </tr>`;
           }).join('')}</tbody>
         </table></div>`}`;
@@ -1583,14 +1583,14 @@ function renderWorkOrders() {
     ${hubJobs.length===0
       ? `<div class="empty-state">No work orders for ${myHub} yet.</div>`
       : `<div class="tw"><table>
-          <thead><tr><th>ID</th><th>Vehicle</th><th>Issue</th><th>Technician</th><th>Type</th><th>Priority</th><th>Status</th><th>Update</th></tr></thead>
+          <thead><tr><th>Vehicle</th><th>Issue</th><th>Technician</th><th>Type</th><th>Priority</th><th>Status</th><th>Update</th></tr></thead>
           <tbody>${hubJobs.map(j=>{
             const gi=state.jobs.indexOf(j);
             const sc=j.status==='Done'?'b-done':j.status==='In Progress'?'b-inprog':'b-open';
             const pc=j.priority==='High'?'b-high':j.priority==='Low'?'b-low':'b-med';
             const tc=j.wo_type==='oos'?'b-absent':'b-open';
             return `<tr>
-              <td class="mono" style="font-size:11px;color:var(--g400)">${j.id}</td>
+              
               <td style="font-size:12px">${j.vehicle}</td>
               <td>${j.issue}</td>
               <td style="font-size:12px">${j.tech}</td>
@@ -1656,7 +1656,7 @@ async function _doSaveWO_SM(v, iss, p, woType, techUser, hubObj, btn) {
   });
   if (btn) { btn.textContent='Assign Work Order'; btn.disabled=false; }
   if (saved) {
-    document.getElementById('wo-msg').innerHTML=`<div class="alert al-success">✓ ${woNum} (${woType==='oos'?'OOS':'Running Repair'}) assigned</div>`;
+    document.getElementById('wo-msg').innerHTML=`<div class="alert al-success">✓ ${v} assigned to ${techName}</div>`;
     document.getElementById('veh-search').value='';
     document.getElementById('wov').value='';
     document.getElementById('veh-selected').style.display='none';
@@ -1745,7 +1745,7 @@ async function _doSaveWO_Wide(v, iss, p, woType, techUser, hubObj, hubName, tech
   });
   if (btn) { btn.textContent='Assign Work Order'; btn.disabled=false; }
   if (saved) {
-    document.getElementById('wo-msg-wide').innerHTML=`<div class="alert al-success">✓ ${woNum} assigned to ${techName} at ${hubName}</div>`;
+    document.getElementById('wo-msg-wide').innerHTML=`<div class="alert al-success">✓ ${v} assigned to ${techName} at ${hubName}</div>`;
     document.getElementById('veh-search-wide').value='';
     document.getElementById('wov-wide').value='';
     const vsd = document.getElementById('veh-selected-wide');
@@ -2209,7 +2209,7 @@ let _photoSession = { phase: null, jobIdx: null, sides: ['front','left','back','
 function openPhotoCapture(phase, jobIdx) {
   _photoSession = { phase, jobIdx, sides:['front','left','back','right'], currentSide:0, captured:{}, stream:null };
   const job = state.jobs[jobIdx];
-  document.getElementById('pm-title').textContent = phase==='start' ? '📷 Start Photos — '+job.id : '📷 Completion Photos — '+job.id;
+  document.getElementById('pm-title').textContent = phase==='start' ? '📷 Start Photos — '+job.vehicle : '📷 Completion Photos — '+job.vehicle;
   document.getElementById('pm-sub').textContent = 'Take 4 photos: Front, Left, Back, Right side of vehicle';
   renderPhotoThumbs();
   updatePhotoSideLabel();
@@ -2261,7 +2261,7 @@ function capturePhoto() {
   ctx.fillStyle = '#fff';
   ctx.font = 'bold 13px sans-serif';
   const job = state.jobs[_photoSession.jobIdx];
-  ctx.fillText(`${job.id} · ${side.toUpperCase()} · ${_photoSession.phase.toUpperCase()} · ${new Date().toLocaleString('en-IN')}`, 10, canvas.height-12);
+  ctx.fillText(`${job.vehicle} · ${side.toUpperCase()} · ${_photoSession.phase.toUpperCase()} · ${new Date().toLocaleString('en-IN')}`, 10, canvas.height-12);
   const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
   _photoSession.captured[side] = dataUrl;
   // Show preview
@@ -3133,7 +3133,7 @@ async function renderWorkAssignedAsync() {
     const sc = j.status==='Done'?'b-done':j.status==='In Progress'?'b-inprog':'b-open';
     const pc = j.priority==='High'?'b-high':j.priority==='Low'?'b-low':'b-med';
     return `<tr>
-      <td class="mono" style="font-size:11px;color:var(--g400)">${j.wo_number||'—'}</td>
+      
       <td><strong>${j.vehicle_reg||'—'}</strong></td>
       <td class="mono" style="font-size:11px;color:var(--g400)">${j.job_card_number||'—'}</td>
       <td style="font-size:13px">${j.issue||'—'}</td>
@@ -3182,7 +3182,7 @@ async function renderWorkAssignedAsync() {
       ? `<div class="empty-state">No work orders found for ${selDate==='all'?'all time':fmtDateOnly(selDate+'T00:00:00')}.</div>`
       : `<div class="tw"><table>
           <thead><tr>
-            <th>WO No.</th><th>Vehicle</th><th>JC No.</th><th>Issue</th>
+            <th>Vehicle</th><th>JC No.</th><th>Issue</th>
             <th>Technician</th><th>Priority</th><th>Status</th>
             <th>Assigned At</th><th>Completed At</th>
           </tr></thead>
