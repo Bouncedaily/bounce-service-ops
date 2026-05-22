@@ -974,6 +974,9 @@ function navigate(page) {
   if (page==='my-attendance') {
     document.getElementById('live-clock').textContent = nowFmt();
     _clockT = setInterval(()=>{ const e=document.getElementById('live-clock'); if(e) e.textContent=nowFmt(); else clearInterval(_clockT); },10000);
+    if (state.myCheckin && !state.myCheckout) {
+      setTimeout(()=>{ startDurationTimer(); }, 100);
+    }
   }
   // Auto-refresh attendance every 30s for manager pages so QR scans show up live
   clearInterval(window._refreshT);
@@ -989,6 +992,38 @@ function navigate(page) {
 }
 
 function nowFmt(){ return new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}); }
+
+function calcDuration(checkinStr, checkedOut) {
+  const parse12 = s => {
+    if (!s) return null;
+    const [time, ampm] = s.split(' ');
+    let [h, m] = time.split(':').map(Number);
+    if (ampm?.toLowerCase()==='pm' && h!==12) h+=12;
+    if (ampm?.toLowerCase()==='am' && h===12) h=0;
+    const d = new Date(); d.setHours(h,m,0,0); return d;
+  };
+  const start = parse12(checkinStr);
+  const end   = checkedOut ? parse12(checkedOut) : new Date();
+  if (!start) return '--:--';
+  const diff = end - start;
+  if (diff < 0) return '--:--';
+  const h = Math.floor(diff/3600000);
+  const m = Math.floor((diff%3600000)/60000);
+  const s = Math.floor((diff%60000)/1000);
+  return checkedOut
+    ? `${h}h ${m}m`
+    : `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+let _durationTimer = null;
+function startDurationTimer() {
+  clearInterval(_durationTimer);
+  _durationTimer = setInterval(()=>{
+    const el = document.getElementById('duration-timer');
+    if (!el) { clearInterval(_durationTimer); return; }
+    el.textContent = calcDuration(state.myCheckin, null);
+  }, 1000);
+}
 function now24(){ return new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false}); }
 function todayStr(){ return new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'}); }
 function dateShort(){ return new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}); }
@@ -1358,6 +1393,14 @@ function renderMyAttendance() {
         <div class="ci-item"><div class="ci-lbl">Check-in</div><div class="ci-val ${state.myCheckin?'':'empty'}">${state.myCheckin||'--:--'}</div></div>
         <div class="ci-item"><div class="ci-lbl">Check-out</div><div class="ci-val ${state.myCheckout?'':'empty'}">${state.myCheckout||'--:--'}</div></div>
       </div>
+      ${state.myCheckin && !state.myCheckout ? `
+        <div style="margin:8px 0 4px;font-size:13px;color:var(--blue);font-weight:500">
+          Working: <span id="duration-timer" class="mono" style="font-size:15px;font-weight:700">00:00:00</span>
+        </div>` : ''}
+      ${state.myCheckin && state.myCheckout ? `
+        <div style="margin:8px 0 4px;font-size:13px;color:var(--green);font-weight:500">
+          Total hours: <span class="mono" style="font-size:15px;font-weight:700">${calcDuration(state.myCheckin, state.myCheckout)}</span>
+        </div>` : ''}
       <div id="att-status-msg"></div>
       ${!checked
         ? `<button class="btn btn-green" id="btn-checkin" style="padding:14px 40px;font-size:16px;border-radius:12px;min-width:180px;display:flex;align-items:center;gap:10px;margin:0 auto" onclick="doGeoCheckin('checkin')">
