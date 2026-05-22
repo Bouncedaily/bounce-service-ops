@@ -335,7 +335,8 @@ tr:hover td{background:var(--g50)}
     <button class="btn-capture" id="pm-capture-btn" onclick="capturePhoto()">📷 Capture</button>
     <button class="btn-retake" id="pm-retake-btn" onclick="retakePhoto()">Retake</button>
   </div>
-  <button class="btn-photo-done" id="pm-done-btn" onclick="finishPhotoSession()">✓ Done — Submit</button>
+  <div id="pm-upload-status"></div>
+  <button class="btn-photo-done" id="pm-done-btn" onclick="finishPhotoSession()">✓ Upload &amp; Complete</button>
   <button style="margin-top:12px;background:none;border:none;color:rgba(255,255,255,.5);font-size:13px;cursor:pointer;font-family:inherit" onclick="cancelPhotoSession()">Cancel</button>
 </div>
 
@@ -2230,36 +2231,95 @@ async function finishPhotoSession() {
   const { phase, jobIdx, captured } = _photoSession;
   const job = state.jobs[jobIdx];
   const btn = document.getElementById('pm-done-btn');
-  btn.textContent = 'Uploading photos...'; btn.disabled = true;
+  const sides = _photoSession.sides;
 
-  // Upload each photo to Supabase Storage
+  // Validate — all 4 photos must be captured before upload starts
+  const missing = sides.filter(s => !captured[s]);
+  if (missing.length > 0) {
+    const statusEl = document.getElementById('pm-upload-status');
+    if (statusEl) statusEl.innerHTML = `<div style="color:#f87171;font-size:13px;margin-top:8px">
+      ⚠️ Missing photos: ${missing.join(', ')}. Please capture all 4 sides before submitting.
+    </div>`;
+    return;
+  }
+
+  btn.disabled = true;
+
+  // Show progress UI
+  const statusEl = document.getElementById('pm-upload-status');
+  const updateProgress = (done, total, currentSide, failed) => {
+    if (!statusEl) return;
+    if (failed) {
+      statusEl.innerHTML = `<div style="color:#f87171;font-size:13px;margin-top:8px">
+        ❌ Upload failed for <strong>${failed}</strong> photo. Please try again.
+      </div>`;
+    } else {
+      const pct = Math.round((done/total)*100);
+      statusEl.innerHTML = `<div style="margin-top:10px">
+        <div style="font-size:13px;color:rgba(255,255,255,.8);margin-bottom:6px">
+          Uploading ${done}/${total} — ${currentSide || 'done'}
+        </div>
+        <div style="background:rgba(255,255,255,.15);border-radius:20px;height:6px;overflow:hidden">
+          <div style="background:#4ade80;height:100%;width:${pct}%;transition:width .3s;border-radius:20px"></div>
+        </div>
+      </div>`;
+    }
+  };
+
+  updateProgress(0, sides.length, sides[0]);
+
+  // Upload all 4 photos — one at a time with progress, validate each
   const uploaded = [];
-  for (const side of _photoSession.sides) {
+  let uploadFailed = false;
+
+  for (let i = 0; i < sides.length; i++) {
+    const side = sides[i];
+    updateProgress(i, sides.length, side);
     const dataUrl = captured[side];
-    if (!dataUrl) continue;
+
     // Convert base64 to blob
     const res = await fetch(dataUrl);
     const blob = await res.blob();
     const filename = `${job.db_id}/${phase}/${side}_${Date.now()}.jpg`;
-    let photoUrl = dataUrl; // fallback to base64 if upload fails
+    let photoUrl = dataUrl; // fallback
+
     if (!_demoMode) {
-      const r = await fetch(`${SUPABASE_URL}/storage/v1/object/job-photos/${filename}`, {
-        method:'POST',
-        headers:{ 'apikey':SUPABASE_KEY, 'Authorization':'Bearer '+SUPABASE_KEY, 'Content-Type':'image/jpeg' },
-        body: blob
-      });
-      if (r.ok) {
-        photoUrl = `${SUPABASE_URL}/storage/v1/object/public/job-photos/${filename}`;
+      try {
+        const r = await fetch(`${SUPABASE_URL}/storage/v1/object/job-photos/${filename}`, {
+          method: 'POST',
+          headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer '+SUPABASE_KEY, 'Content-Type': 'image/jpeg' },
+          body: blob
+        });
+        if (r.ok) {
+          photoUrl = `${SUPABASE_URL}/storage/v1/object/public/job-photos/${filename}`;
+        } else {
+          console.error(`Photo upload failed for ${side}:`, r.status);
+          updateProgress(i, sides.length, null, side);
+          uploadFailed = true;
+          btn.disabled = false;
+          btn.textContent = 'Retry Upload';
+          return;
+        }
+        // Save record to job_photos table
+        await sb(`job_photos`, { method: 'POST', body: JSON.stringify({
+          work_order_id: job.db_id, phase, side, photo_url: photoUrl, taken_by: state.user.id
+        })});
+      } catch(e) {
+        console.error(`Photo upload error for ${side}:`, e);
+        updateProgress(i, sides.length, null, side);
+        uploadFailed = true;
+        btn.disabled = false;
+        btn.textContent = 'Retry Upload';
+        return;
       }
-      // Save record to job_photos table
-      await sb(`job_photos`, { method:'POST', body: JSON.stringify({
-        work_order_id: job.db_id, phase, side, photo_url: photoUrl, taken_by: state.user.id
-      })});
     }
-    uploaded.push(photoUrl);  // store as plain URL array
+    uploaded.push(photoUrl);
+    updateProgress(i + 1, sides.length, sides[i+1] || 'done');
   }
 
-  // Update job status
+  // All 4 uploaded successfully — now update job status
+  if (statusEl) statusEl.innerHTML = `<div style="color:#4ade80;font-size:13px;margin-top:8px">✓ All ${sides.length} photos uploaded successfully</div>`;
+
   const newStatus = phase==='start' ? 'In Progress' : 'Done';
   state.jobs[jobIdx].status = newStatus;
   if (phase==='start') state.jobs[jobIdx].start_photos = uploaded;
@@ -2267,12 +2327,14 @@ async function finishPhotoSession() {
 
   if (!_demoMode) {
     await updateWOStatus(job.db_id, newStatus);
-    // Update start/end photos flag
-    const patch = phase==='start' ? {status:'In Progress', started_at: new Date().toISOString(), start_photos_done:true}
-                                  : {status:'Done', completed_at: new Date().toISOString(), end_photos_done:true};
-    await sb(`work_orders?id=eq.${job.db_id}`, { method:'PATCH', body: JSON.stringify(patch) });
+    const patch = phase==='start'
+      ? { status: 'In Progress', started_at: new Date().toISOString(), start_photos_done: true }
+      : { status: 'Done', completed_at: new Date().toISOString(), end_photos_done: true };
+    await sb(`work_orders?id=eq.${job.db_id}`, { method: 'PATCH', body: JSON.stringify(patch) });
   }
 
+  // Small delay to show success message, then close
+  await new Promise(r => setTimeout(r, 800));
   stopCamera();
   document.getElementById('photo-modal').style.display='none';
   navigate('my-jobs');
