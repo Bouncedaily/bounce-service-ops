@@ -934,6 +934,7 @@ const AREA_NAV = [
 const HEAD_NAV = [
   {id:'dashboard', lbl:'Dashboard',   ic:'grid'},
   {id:'attendance',lbl:'Attendance',  ic:'users'},
+  {id:'workorders',lbl:'Work Orders', ic:'clipboard'},
 ];
 const TECH_NAV = [
   {id:'my-attendance',lbl:'My Attendance',ic:'clock'},
@@ -1255,7 +1256,7 @@ function renderDashboard() {
       <div class="card" style="margin:0;border-left:4px solid var(--red)">
         <div class="metric-lbl">Vehicles in OOS</div>
         <div id="oos-count" class="metric-val mv-red" style="font-size:28px">—</div>
-        <div style="font-size:12px;color:var(--g400);margin-top:4px">${filterHub ? 'At '+filterHub : isWide?'Across filtered hubs':'At '+state.hub}</div>
+        <div style="font-size:12px;color:var(--g400);margin-top:4px">${filterHub ? 'At '+filterHub : isWide ? (filterCity ? 'In '+filterCity : 'Across all hubs') : 'At '+state.hub}</div>
       </div>
     </div>
     ${isWide && hubBreakdown.length ? `
@@ -2044,7 +2045,7 @@ async function loadDraftJCForHub(hubName) {
 async function loadDraftJCForCity(cityName) {
   if (_demoMode) return [];
   const rows = await sb(
-    `draft_jc?city=eq.${encodeURIComponent(cityName)}&select=job_card_number,dms_jc_id,reg_number,hub_name,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date&order=job_card_opened_date.desc&limit=500`
+    `draft_jc?city=eq.${encodeURIComponent(cityName)}&select=job_card_number,dms_jc_id,reg_number,hub_name,bike_status,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date&order=job_card_opened_date.desc&limit=500`
   );
   return rows || [];
 }
@@ -2052,7 +2053,7 @@ async function loadDraftJCForCity(cityName) {
 async function loadAllDraftJC() {
   if (_demoMode) return [];
   const rows = await sb(
-    `draft_jc?current_jc_status=neq.Billed&select=job_card_number,dms_jc_id,reg_number,city,hub_name,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date&order=job_card_opened_date.desc&limit=1000`
+    `draft_jc?current_jc_status=neq.Billed&select=job_card_number,dms_jc_id,reg_number,city,hub_name,bike_status,current_jc_status,parts_to_be_changed,technician_name,reason_for_ending,overall_tat_days,submission_type,labour_time_hours,job_card_opened_date&order=job_card_opened_date.desc&limit=1000`
   );
   return rows || [];
 }
