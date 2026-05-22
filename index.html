@@ -369,6 +369,9 @@ let state = {
   attendance: {},  // { techName: { status, checkin, checkout, hub, hub_id, att_id } }
   jobs: [],        // loaded from Supabase
   myCheckin: null, myCheckout: null,
+  hub1: null, hub1Id: null, hub1CheckIn: null, hub1CheckOut: null,
+  hub2: null, hub2Id: null, hub2CheckIn: null,
+  changingHub: false,
 };
 
 // ─ SUPABASE CORE ─
@@ -1926,11 +1929,19 @@ function renderMyAttendance() {
             Check In</button>
            <div style="font-size:12px;color:var(--g400);margin-top:10px">Tap to check in — location verified automatically</div>`
         : !checkedOut
-        ? `<div style="margin-bottom:14px"><span class="badge b-present" style="font-size:13px;padding:6px 16px">Checked in at ${state.myCheckin}</span></div>
-           <button class="btn btn-red" id="btn-checkout" style="padding:14px 40px;font-size:16px;border-radius:12px;min-width:180px;display:flex;align-items:center;gap:10px;margin:0 auto" onclick="doGeoCheckin('checkout')">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-            Check Out</button>
-           <div style="font-size:12px;color:var(--g400);margin-top:10px">Tap when leaving the hub</div>`
+        ? `<div style="margin-bottom:10px">
+             <span class="badge b-present" style="font-size:13px;padding:6px 16px">✓ ${state.hub} — checked in at ${state.myCheckin}</span>
+           </div>
+           <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:4px">
+             <button class="btn btn-red" id="btn-checkout" style="padding:13px 28px;font-size:15px;border-radius:12px;display:flex;align-items:center;gap:8px" onclick="doGeoCheckin('checkout')">
+               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+               Check Out</button>
+             ${!state.hub2 ? `<button class="btn btn-outline" style="padding:13px 28px;font-size:15px;border-radius:12px;display:flex;align-items:center;gap:8px" onclick="showChangeHubModal()">
+               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+               Change Hub</button>` : ''}
+           </div>
+           ${state.hub2 ? `<div style="font-size:12px;color:var(--blue);margin-top:6px">Hub 2: <strong>${state.hub2}</strong> — checked in at <strong>${state.hub2CheckIn||'—'}</strong></div>` : ''}
+           <div style="font-size:12px;color:var(--g400);margin-top:8px">Check out when leaving the hub</div>`
         : `<div style="margin-bottom:12px">
              <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
                <circle cx="28" cy="28" r="28" fill="#e6f7f2"/>
@@ -3629,6 +3640,78 @@ function setAttMsg(type,msg){
 
 const TEST_MOBILES=['9043207769','9876543210','9100000001','9000000001','9000000002','9123456789','9123456790','9123456791','9123456792','9123456793'];
 
+function showChangeHubModal() {
+  const userCityId = state.user?.city_id;
+  const cityHubs   = userCityId ? HUBS.filter(h=>h.city_id===userCityId) : HUBS;
+  const hubOpts    = cityHubs
+    .filter(h=>h.name!==state.hub) // exclude current hub
+    .map(h=>`<option value="${h.name}" data-id="${h.id}">${h.name}</option>`).join('');
+
+  const inner = document.getElementById('modal-inner');
+  inner.innerHTML = `
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div class="modal-title">Change Hub</div>
+    <div class="alert al-warn" style="margin-bottom:16px;font-size:13px">
+      Changing hub will close your current session at <strong>${state.hub}</strong>.
+      You must check in at the new hub via geofencing.
+    </div>
+    <div class="form-group">
+      <label class="form-label">Select new hub</label>
+      <select class="form-select" id="change-hub-sel">
+        <option value="">Select hub...</option>
+        ${hubOpts}
+      </select>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-outline" style="flex:1" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-blue" style="flex:1" onclick="confirmChangeHub()">Confirm Change</button>
+    </div>`;
+  document.getElementById('modal').style.display='flex';
+}
+
+async function confirmChangeHub() {
+  const sel    = document.getElementById('change-hub-sel');
+  const newHub = sel?.value;
+  const newHubId = HUBS.find(h=>h.name===newHub)?.id;
+  if (!newHub) { alert('Please select a hub'); return; }
+
+  closeModal();
+
+  // Save hub1 info before switching
+  state.hub1       = state.hub;
+  state.hub1Id     = state.hubId;
+  state.hub1CheckIn = state.myCheckin;
+
+  // Close current attendance session — mark checkout time
+  if (state.myAttId && !_demoMode) {
+    const now = new Date().toISOString();
+    const checkoutTime = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
+    state.hub1CheckOut = checkoutTime;
+    await sb(`attendance?id=eq.${state.myAttId}`, {
+      method:'PATCH',
+      body: JSON.stringify({ checkout_time: now })
+    });
+  }
+
+  // Switch to new hub — clear current session, force new check-in
+  state.hub       = newHub;
+  state.hubId     = newHubId;
+  state.hub2      = newHub;
+  state.hub2Id    = newHubId;
+  state.myCheckin = null;
+  state.myCheckout = null;
+  state.myAttId   = null;
+
+  // Update session storage
+  try { localStorage.setItem('bounce_session', JSON.stringify({
+    user:state.user, hub:state.hub, hubId:state.hubId,
+    hub1:state.hub1, hub1Id:state.hub1Id, hub1CheckIn:state.hub1CheckIn, hub1CheckOut:state.hub1CheckOut,
+    hub2:state.hub2, myCheckin:null, myCheckout:null, myAttId:null
+  })); } catch(e){}
+
+  navigate('my-attendance');
+}
+
 async function doGeoCheckin(mode){
   // Hard validation — must have hub selected
   if (!state.hub || !state.hubId) {
@@ -3705,6 +3788,7 @@ async function processCheckin(mode,lat,lng,accuracy,distanceM,withinFence){
       console.log('[checkin] saved att:', attId, 'hub:', hubName, 'hub_id:', hubId);
     }
     state.myCheckin=t12; state.myAttId=attId||'demo-att';
+    if (state.hub2 && !state.hub2CheckIn) state.hub2CheckIn = t12;
     state.attendance[state.user.name]={status:'present',checkin:t24,checkout:null,hub:state.hub,att_id:attId};
     try{const s=JSON.parse(localStorage.getItem('bounce_session')||'{}');s.myCheckin=t12;s.myAttId=state.myAttId;localStorage.setItem('bounce_session',JSON.stringify(s));}catch(e){}
   }else{
@@ -3733,6 +3817,8 @@ async function initApp() {
         state.myAttId    = sess.myAttId    || null;
         if (sess.dashFilterCity) _dashFilterCity = sess.dashFilterCity;
         if (sess.dashFilterHub)  _dashFilterHub  = sess.dashFilterHub;
+        if (sess.hub1)        { state.hub1=sess.hub1; state.hub1Id=sess.hub1Id; state.hub1CheckIn=sess.hub1CheckIn; state.hub1CheckOut=sess.hub1CheckOut; }
+        if (sess.hub2)        { state.hub2=sess.hub2; state.hub2Id=sess.hub2Id; state.hub2CheckIn=sess.hub2CheckIn; }
         if (state.user.role === 'hub_manager' && state.hubId) {
           await Promise.all([loadAttendanceForHub(state.hubId), loadJobsForHub(state.hubId), loadVehiclesForHub(state.hub)]);
         } else if (state.user.role === 'technician') {
