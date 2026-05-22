@@ -979,19 +979,19 @@ function doLogout() {
 
 // ─ NAV ─
 const MGR_NAV = [
-  {id:'dashboard',      lbl:'Dashboard',      ic:'grid'},
+  {id:'dashboard',      lbl:'Home',      ic:'grid'},
   {id:'my-attendance',  lbl:'My Attendance',  ic:'clock'},
   {id:'attendance',     lbl:'Attendance',     ic:'users'},
   {id:'workorders',     lbl:'Work Orders',    ic:'clipboard'},
   {id:'work-assigned',  lbl:'Work Assigned',  ic:'tool'},
 ];
 const AREA_NAV = [
-  {id:'dashboard', lbl:'Dashboard',   ic:'grid'},
+  {id:'dashboard', lbl:'Home',   ic:'grid'},
   {id:'attendance',lbl:'Attendance',  ic:'users'},
   {id:'workorders',lbl:'Work Orders', ic:'clipboard'},
 ];
 const HEAD_NAV = [
-  {id:'dashboard', lbl:'Dashboard',   ic:'grid'},
+  {id:'dashboard', lbl:'Home',   ic:'grid'},
   {id:'attendance',lbl:'Attendance',  ic:'users'},
   {id:'workorders',lbl:'Work Orders', ic:'clipboard'},
 ];
@@ -1317,7 +1317,7 @@ function renderDashboard() {
 
   return `
     <div class="page-hd">
-      <div class="page-hd-text"><div class="page-title">Dashboard</div><div class="page-sub">${todayStr()} &nbsp;·&nbsp; ${subTitle}</div></div>
+      <div class="page-hd-text"><div class="page-title">Home</div><div class="page-sub">${todayStr()} &nbsp;·&nbsp; ${subTitle}</div></div>
       <button class="btn-refresh" onclick="refreshPage('dashboard')" title="Refresh">
         <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> Refresh
       </button>
