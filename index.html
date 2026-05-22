@@ -1054,17 +1054,20 @@ const MGR_NAV = [
   {id:'dashboard',      lbl:'Home',      ic:'grid'},
   {id:'my-attendance',  lbl:'My Attendance',  ic:'clock'},
   {id:'attendance',     lbl:'Attendance',     ic:'users'},
+  {id:'att-calendar',   lbl:'Att. Calendar',  ic:'calendar'},
   {id:'workorders',     lbl:'Work Orders',    ic:'clipboard'},
   {id:'work-assigned',  lbl:'Work Assigned',  ic:'tool'},
 ];
 const AREA_NAV = [
   {id:'dashboard', lbl:'Home',   ic:'grid'},
-  {id:'attendance',lbl:'Attendance',  ic:'users'},
+  {id:'attendance',   lbl:'Attendance',  ic:'users'},
+  {id:'att-calendar', lbl:'Att. Calendar',ic:'calendar'},
   {id:'workorders',lbl:'Work Orders', ic:'clipboard'},
 ];
 const HEAD_NAV = [
   {id:'dashboard', lbl:'Home',   ic:'grid'},
-  {id:'attendance',lbl:'Attendance',  ic:'users'},
+  {id:'attendance',   lbl:'Attendance',  ic:'users'},
+  {id:'att-calendar', lbl:'Att. Calendar',ic:'calendar'},
   {id:'workorders',lbl:'Work Orders', ic:'clipboard'},
 ];
 const TECH_NAV = [
@@ -1072,6 +1075,7 @@ const TECH_NAV = [
   {id:'my-jobs',      lbl:'My Jobs',      ic:'tool'},
 ];
 const IC = {
+  calendar: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
   grid:'<polyline points="3 3 3 9 9 9 9 3 3 3"/><polyline points="15 3 15 9 21 9 21 3 15 3"/><polyline points="3 15 3 21 9 21 9 15 3 15"/><polyline points="15 15 15 21 21 21 21 15 15 15"/>',
   users:'<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>',
   clipboard:'<path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/>',
@@ -1203,8 +1207,18 @@ function navigate(page) {
     })();
     return;
   }
+  if (page==='att-calendar') {
+    c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading calendar...</div>';
+    loadAttCalendar(role).then(html=>{ if(currentPage===page) c.innerHTML=html; });
+    return;
+  }
   if (page==='attendance' && (role==='area_manager'||role==='head')) {
     c.innerHTML = renderAttendanceWide(role); return;
+  }
+  if (page==='att-calendar' && role==='hub_manager') {
+    c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading calendar...</div>';
+    loadAttCalendar(role).then(html=>{ if(currentPage===page) c.innerHTML=html; });
+    return;
   }
   // SM attendance — reload fresh before rendering
   if (page==='attendance' && role==='hub_manager' && state.hubId) {
@@ -3035,6 +3049,199 @@ async function renderWorkOrdersWideAsync(role) {
 }
 
 
+
+// ── ATTENDANCE CALENDAR DASHBOARD ──────────────────────────────────────────
+async function loadAttCalendar(role) {
+  const userCityId = state.user?.city_id;
+  const myCityName = getCityNameSync(userCityId);
+
+  // Parse selected month
+  const [yr, mo] = _calMonth.split('-').map(Number);
+  const daysInMonth = new Date(yr, mo, 0).getDate();
+  const firstDay    = new Date(yr, mo-1, 1);
+  const lastDay     = new Date(yr, mo, 0);
+  const startISO    = `${yr}-${String(mo).padStart(2,'0')}-01`;
+  const endISO      = `${yr}-${String(mo).padStart(2,'0')}-${String(daysInMonth).padStart(2,'0')}`;
+
+  // Build hub filter
+  const cityHubs = role==='hub_manager'
+    ? [state.hub]
+    : role==='area_manager'
+      ? HUBS.filter(h=>h.city_id===userCityId).map(h=>h.name)
+      : _calCity ? getHubsForCitySync(_calCity).map(h=>h.name) : HUBS.map(h=>h.name);
+
+  const hubFilter = role==='hub_manager'
+    ? state.hub
+    : _calHub || null;
+
+  // Fetch attendance for month
+  let query = `attendance?date=gte.${startISO}&date=lte.${endISO}&select=technician_name,date,status,hub_name&limit=5000`;
+  if (hubFilter) query += `&hub_name=eq.${encodeURIComponent(hubFilter)}`;
+
+  const rows = await sb(query) || [];
+
+  // Filter by role scope
+  let filtered = rows;
+  if (role==='hub_manager') {
+    filtered = rows.filter(r=>r.hub_name===state.hub || !r.hub_name);
+  } else if (role==='area_manager') {
+    const myHubs = HUBS.filter(h=>h.city_id===userCityId).map(h=>h.name);
+    filtered = rows.filter(r=>!r.hub_name||myHubs.includes(r.hub_name));
+  }
+
+  // Build matrix: { techName: { 'YYYY-MM-DD': status } }
+  const matrix = {};
+  filtered.forEach(r => {
+    if (!r.technician_name) return;
+    if (!matrix[r.technician_name]) matrix[r.technician_name] = {};
+    matrix[r.technician_name][r.date] = r.status;
+  });
+
+  const techs = Object.keys(matrix).sort();
+  const days   = Array.from({length:daysInMonth},(_,i)=>i+1);
+  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  // Helper: is weekend
+  const isWeekend = d => {
+    const day = new Date(yr, mo-1, d).getDay();
+    return day===0||day===6;
+  };
+
+  // Build date keys
+  const dateKey = d => `${yr}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+
+  // Status cell
+  const cell = (status, isWknd) => {
+    if (!status && isWknd) return `<td style="background:var(--g100);color:var(--g400);font-size:11px;text-align:center;padding:4px 2px">WO</td>`;
+    if (!status) return `<td style="color:var(--g300);text-align:center;padding:4px 2px;font-size:11px">—</td>`;
+    const s = status.toLowerCase();
+    if (s==='present') return `<td style="background:#dcfce7;color:#166534;font-weight:600;text-align:center;padding:4px 2px;font-size:11px">P</td>`;
+    if (s==='absent')  return `<td style="background:#fee2e2;color:#991b1b;font-weight:600;text-align:center;padding:4px 2px;font-size:11px">A</td>`;
+    if (s==='leave')   return `<td style="background:#fef9c3;color:#854d0e;font-weight:600;text-align:center;padding:4px 2px;font-size:11px">L</td>`;
+    return `<td style="text-align:center;padding:4px 2px;font-size:11px">${status.slice(0,1).toUpperCase()}</td>`;
+  };
+
+  // Summary per tech
+  const summary = tech => {
+    const data = matrix[tech]||{};
+    const vals  = Object.values(data);
+    return {
+      P: vals.filter(v=>v==='present').length,
+      A: vals.filter(v=>v==='absent').length,
+      L: vals.filter(v=>v==='leave').length,
+    };
+  };
+
+  // Month options
+  const months = [];
+  for (let i=0;i<12;i++) {
+    const d = new Date(2026,i,1);
+    const val = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    months.push({val, lbl: d.toLocaleDateString('en-IN',{month:'long',year:'numeric'})});
+  }
+
+  // Hub options for filter
+  const hubOpts = cityHubs.map(h=>`<option value="${h}" ${h===_calHub?'selected':''}>${h}</option>`).join('');
+  const cityNames = ['Bangalore','Hyderabad','NCR','Indore'];
+  const cityOpts  = cityNames.map(c=>`<option value="${c}" ${c===_calCity?'selected':''}>${c}</option>`).join('');
+
+  // Excel export
+  const exportCSV = () => {
+    const header = ['Technician',...days.map(d=>`${d}/${mo}`),'Present','Absent','Leave'];
+    const rows2  = techs.map(t=>{
+      const s = summary(t);
+      return [t,...days.map(d=>matrix[t]?.[dateKey(d)]?.slice(0,1).toUpperCase()||''),s.P,s.A,s.L];
+    });
+    const csv = [header,...rows2].map(r=>r.join(',')).join('\n');
+    const blob = new Blob([csv],{type:'text/csv'});
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href=url; a.download=`Attendance_${_calMonth}.csv`; a.click();
+  };
+  window._exportAttCSV = exportCSV;
+
+  return `
+    <div class="page-hd">
+      <div class="page-hd-text">
+        <div class="page-title">Attendance Calendar</div>
+        <div class="page-sub">${hubFilter||myCityName||'All'} — ${firstDay.toLocaleDateString('en-IN',{month:'long',year:'numeric'})}</div>
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="window._exportAttCSV()" style="display:flex;align-items:center;gap:6px;font-size:12px">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export CSV
+      </button>
+    </div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:flex-end">
+      <div>
+        <label class="form-label">Month</label>
+        <select class="form-select" style="width:190px" onchange="_calMonth=this.value;navigate('att-calendar')">
+          ${months.map(m=>`<option value="${m.val}" ${m.val===_calMonth?'selected':''}>${m.lbl}</option>`).join('')}
+        </select>
+      </div>
+      ${role==='head'?`<div>
+        <label class="form-label">City</label>
+        <select class="form-select" style="width:150px" onchange="_calCity=this.value;_calHub='';navigate('att-calendar')">
+          <option value="">All Cities</option>${cityOpts}
+        </select>
+      </div>`:''}
+      ${role!=='hub_manager'?`<div>
+        <label class="form-label">Hub</label>
+        <select class="form-select" style="width:180px" onchange="_calHub=this.value;navigate('att-calendar')">
+          <option value="">All Hubs</option>${hubOpts}
+        </select>
+      </div>`:''}
+    </div>
+
+    <!-- Legend -->
+    <div style="display:flex;gap:12px;margin-bottom:12px;font-size:12px;flex-wrap:wrap">
+      <span><span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:4px;font-weight:600">P</span> Present</span>
+      <span><span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:4px;font-weight:600">A</span> Absent</span>
+      <span><span style="background:#fef9c3;color:#854d0e;padding:2px 8px;border-radius:4px;font-weight:600">L</span> Leave</span>
+      <span><span style="background:var(--g100);color:var(--g400);padding:2px 8px;border-radius:4px;font-weight:600">WO</span> Week Off</span>
+    </div>
+
+    ${techs.length===0
+      ? `<div class="empty-state">No attendance data for this period.</div>`
+      : `<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+        <table style="border-collapse:collapse;min-width:100%;font-size:12px">
+          <thead>
+            <tr>
+              <th style="position:sticky;left:0;background:var(--g800);color:var(--white);padding:8px 12px;text-align:left;min-width:130px;z-index:2;white-space:nowrap">Technician</th>
+              ${days.map(d=>{
+                const wknd = isWeekend(d);
+                const dn   = dayNames[new Date(yr,mo-1,d).getDay()];
+                return `<th style="padding:4px 3px;text-align:center;min-width:32px;background:${wknd?'var(--g200)':'var(--g800)'};color:var(--white);font-weight:500">
+                  <div>${d}</div>
+                  <div style="font-size:9px;opacity:.7">${dn}</div>
+                </th>`;
+              }).join('')}
+              <th style="padding:8px 6px;text-align:center;background:#166534;color:white;min-width:36px">P</th>
+              <th style="padding:8px 6px;text-align:center;background:#991b1b;color:white;min-width:36px">A</th>
+              <th style="padding:8px 6px;text-align:center;background:#854d0e;color:white;min-width:36px">L</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${techs.map((t,ti)=>{
+              const s = summary(t);
+              const bg = ti%2===0?'var(--white)':'var(--g50)';
+              return `<tr>
+                <td style="position:sticky;left:0;background:${bg};padding:6px 12px;font-weight:500;border-bottom:1px solid var(--g100);white-space:nowrap;z-index:1">${t}</td>
+                ${days.map(d=>{
+                  const wknd  = isWeekend(d);
+                  const status = matrix[t]?.[dateKey(d)];
+                  return cell(status, wknd);
+                }).join('')}
+                <td style="text-align:center;font-weight:600;color:#166534;padding:6px 4px">${s.P}</td>
+                <td style="text-align:center;font-weight:600;color:#991b1b;padding:6px 4px">${s.A}</td>
+                <td style="text-align:center;font-weight:600;color:#854d0e;padding:6px 4px">${s.L}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>`}`;
+}
+
 // Sync helpers — use cached data, no extra Supabase calls
 function getCityNameSync(cityId) {
   if (!cityId) return '';
@@ -3052,7 +3259,10 @@ async function getCityName(cityId) { return getCityNameSync(cityId); }
 async function getHubsForCity(cityName) { return getHubsForCitySync(cityName); }
 
 // ─ AREA MANAGER ATTENDANCE WITH HUB FILTER ───────────────────────────────
-let _areaAttHub = '';
+let _areaAttHub    = '';
+let _calMonth      = new Date().toISOString().slice(0,7); // YYYY-MM
+let _calHub        = '';
+let _calCity       = '';
 function renderAttendanceWide(role) {
   const userCityId = state.user.city_id;
   const cityHubs   = HUBS.filter(h => role==='area_manager' ? h.city_id===userCityId : true);
