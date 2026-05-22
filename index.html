@@ -2505,6 +2505,27 @@ function woPgWide(key, delta) {
   navigate('workorders');
 }
 
+async function assignWideJC(jcNum, regNum, hubName, techName) {
+  if (!techName) return;
+  const techUser = ALL_USERS.find(u=>u.name===techName);
+  const hubObj   = HUBS.find(h=>h.name===hubName);
+  const woNum    = 'WO-'+String(Date.now()).slice(-6);
+  const saved = await saveWorkOrder({
+    wo_number: woNum, vehicle_reg: regNum, issue: `Assigned from JC ${jcNum}`,
+    assigned_tech_id: techUser?.id || null,
+    hub_id: hubObj?.id || null,
+    priority: 'Medium', status: 'Open', wo_type: 'oos',
+    assigned_by_id: state.user.id
+  });
+  if (saved) {
+    // Clear cache and reload
+    if (window._jcCache) window._jcCache = {};
+    navigate('workorders');
+  } else {
+    alert('Failed to assign. Please try again.');
+  }
+}
+
 function assignTechFromJC(jcNum, regNum, techName) {
   if (!techName) return;
   // Pre-fill the assign form with this vehicle and tech
@@ -2601,11 +2622,15 @@ async function renderWorkOrdersWideAsync(role) {
 
   const fmtDate = d => d ? new Date(d).toLocaleDateString('en-IN') : '—';
 
-  const TH_UA = `<tr><th>Reg No.</th><th>Hub</th><th>JC Number</th><th>DMS JC ID</th><th>Parts to Add</th><th>JC Status</th><th>TAT ↓</th><th>Labour</th><th>Type</th><th>JC Opened</th></tr>`;
-  const TH_AS = `<tr><th>Reg No.</th><th>Hub</th><th>JC Number</th><th>DMS JC ID</th><th>Parts to Add</th><th>JC Status</th><th>TAT ↓</th><th>Labour</th><th>Type</th><th>JC Opened</th><th>Technician</th></tr>`;
+  const TH_UA = `<tr><th>Reg No.</th><th>Hub</th><th>JC Number</th><th>DMS JC ID</th><th>Parts to Add</th><th>JC Status</th><th>TAT ↓</th><th>Labour</th><th>Type</th><th>JC Opened</th>${role==='area_manager'?'<th>Assign</th>':''}</tr>`;
+  const TH_AS = `<tr><th>Reg No.</th><th>Hub</th><th>JC Number</th><th>DMS JC ID</th><th>Parts to Add</th><th>JC Status</th><th>TAT ↓</th><th>Labour</th><th>Type</th><th>JC Opened</th><th>Technician</th>${role==='area_manager'?'<th>Action</th>':''}</tr>`;
 
   const rowUA = j => {
     const pc = j.overall_tat_days>3?'b-absent':j.overall_tat_days>1?'b-med':'b-present';
+    // Get present techs for this row's hub
+    const hubTechs = Object.entries(state.attendance)
+      .filter(([,a])=>a.status==='present'&&(a.hub===j.hub_name||!j.hub_name))
+      .map(([n])=>n);
     return `<tr>
       <td class="mono" style="font-size:12px">${j.reg_number||'—'}</td>
       <td style="font-size:11px;color:var(--g500)">${j.hub_name||'—'}</td>
@@ -2617,6 +2642,12 @@ async function renderWorkOrdersWideAsync(role) {
       <td style="font-size:12px">${j.labour_time_hours!=null?j.labour_time_hours.toFixed(1)+'h':'—'}</td>
       <td style="font-size:12px">${j.submission_type||'—'}</td>
       <td style="font-size:12px">${fmtDate(j.job_card_opened_date)}</td>
+      ${role==='area_manager'?`<td>
+        <select class="sel-sm" style="min-width:130px" onchange="assignWideJC('${j.job_card_number}','${j.reg_number}','${j.hub_name||''}',this.value)">
+          <option value="">Assign tech...</option>
+          ${hubTechs.length===0?'<option disabled>None present</option>':hubTechs.map(t=>`<option value="${t}">${t}</option>`).join('')}
+        </select>
+      </td>`:''}
     </tr>`;
   };
 
@@ -2633,6 +2664,7 @@ async function renderWorkOrdersWideAsync(role) {
       <td style="font-size:12px">${j.labour_time_hours!=null?j.labour_time_hours.toFixed(1)+'h':'—'}</td>
       <td style="font-size:12px">${j.submission_type||'—'}</td>
       <td style="font-size:12px">${j.technician_name||'<span style="color:var(--g300)">—</span>'}</td>
+      ${role==='area_manager'?`<td><button class="btn btn-outline btn-sm" onclick="changeTechAlert('${j.job_card_number}')">Change Tech</button></td>`:''}
     </tr>`;
   };
 
