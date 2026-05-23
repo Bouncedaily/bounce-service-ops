@@ -2228,11 +2228,10 @@ function renderMyJobs() {
   const filteredJobs = selDate === 'all'
     ? myJobs
     : myJobs.filter(j=>
-        // Always show Open/In Progress regardless of date — pending from previous days
+        // Always show Open/In Progress — pending from any day
         j.status === 'Open' || j.status === 'In Progress' ||
-        // Done jobs filtered by selected date
-        (j.assigned_at||'').slice(0,10) === selDate ||
-        (!j.assigned_at && selDate===todayISO)
+        // Done/other jobs — filter by selected date
+        (j.assigned_at||'').slice(0,10) === selDate
       );
   const activeJob = filteredJobs.find(j=>j.status==='In Progress');
   // FIFO: sort Open jobs by assigned_at ascending — only oldest can be started
@@ -2257,7 +2256,7 @@ function renderMyJobs() {
           onchange="window._myJobsDate=this.value;navigate('my-jobs')"/>
       </div>
       <div style="margin-top:18px"><button class="btn btn-outline btn-sm" onclick="window._myJobsDate='all';navigate('my-jobs')">All Time</button></div>
-      <div style="margin-top:18px"><button class="btn btn-outline btn-sm" onclick="window._myJobsDate=new Date().toISOString().slice(0,10);navigate('my-jobs')">Today</button></div>
+      <div style="margin-top:18px"><button class="btn btn-outline btn-sm" onclick="window._myJobsDate=new Date().toISOString().slice(0,10);navigate('my-jobs')">Today + Pending</button></div>
     </div>
 
     <div class="metrics" style="margin-bottom:14px">
