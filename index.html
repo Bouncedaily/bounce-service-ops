@@ -1113,8 +1113,13 @@ async function refreshPage(page) {
 
 function doLogout() {
   state.user=null; state.hub=null; state.myCheckin=null; state.myCheckout=null;
+  state.hub1=null; state.hub1Id=null; state.hub1CheckIn=null; state.hub1CheckOut=null;
+  state.hub2=null; state.hub2Id=null; state.hub2CheckIn=null;
   clearInterval(window._refreshT);
+  clearInterval(window._durationTimer);
   window._jcCache = {};
+  // Clear session so hard refresh doesn't auto-login
+  localStorage.removeItem('bounce_session');
   document.getElementById('app-shell').style.display='none';
   document.getElementById('login-page').style.display='flex';
   document.getElementById('mobile-input').value='';
