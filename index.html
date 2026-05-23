@@ -3548,7 +3548,8 @@ async function loadAttCalendar(role) {
     if (r.user_id && !techUserIds[r.technician_name]) techUserIds[r.technician_name] = r.user_id;
   });
 
-  const techs = Object.keys(matrix).sort();
+  const techs    = Object.keys(matrix).sort();
+  const days     = Array.from({length:daysInMonth},(_,i)=>i+1);
   const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
   // Helper: is weekend
