@@ -1720,7 +1720,7 @@ function showWOPopup(techName, date, userId) {
     <div class="modal-title">Mark as Week Off</div>
     <div class="modal-sub">${techName} — ${date}</div>
     <div class="alert al-warn" style="margin:12px 0;font-size:13px">
-      This will mark <strong>${techName}</strong> as Week Off for today.<br>
+      This will mark <strong>${techName}</strong> as Week Off for <strong>${date}</strong>.<br>
       Week off allowance: <strong>${_woPerWeekLimit} per week</strong>.
     </div>
     <div style="display:flex;gap:10px;margin-top:4px">
@@ -1735,13 +1735,19 @@ async function doMarkWO(techName, date, userId) {
   if (msgEl) msgEl.innerHTML = '<span style="color:var(--g400)">Checking...</span>';
   const result = await markWeekOff(techName, date, userId||null);
   if (result.ok) {
-    if (msgEl) msgEl.innerHTML = `<span style="color:var(--green)">✓ Done</span>`;
     // Update local state
     if (!state.attendance[techName]) state.attendance[techName]={};
     state.attendance[techName].status = 'week_off';
-    setTimeout(()=>navigate('attendance'), 800);
+    // Stay on calendar tab and refresh
+    _attTab = 'calendar';
+    setTimeout(()=>navigate('attendance'), 500);
   } else {
-    if (msgEl) msgEl.innerHTML = `<span style="color:var(--red);font-size:11px">${result.msg}</span>`;
+    // Show error in a toast-style alert
+    const errEl = document.createElement('div');
+    errEl.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#fee2e2;color:#991b1b;padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.15)';
+    errEl.textContent = result.msg;
+    document.body.appendChild(errEl);
+    setTimeout(()=>errEl.remove(), 4000);
   }
 }
 
@@ -3506,7 +3512,7 @@ async function loadAttCalendar(role) {
     : _calHub || null;
 
   // Fetch attendance for month
-  let query = `attendance?date=gte.${startISO}&date=lte.${endISO}&select=technician_name,date,status,hub_name&limit=5000`;
+  let query = `attendance?date=gte.${startISO}&date=lte.${endISO}&select=technician_name,user_id,date,status,hub_name&limit=5000`;
   if (hubFilter) query += `&hub_name=eq.${encodeURIComponent(hubFilter)}`;
 
   const rows = await sb(query) || [];
@@ -3522,20 +3528,15 @@ async function loadAttCalendar(role) {
 
   // Build matrix: { techName: { 'YYYY-MM-DD': status } }
   const matrix = {};
+  const techUserIds = {}; // name → user_id
   filtered.forEach(r => {
     if (!r.technician_name) return;
     if (!matrix[r.technician_name]) matrix[r.technician_name] = {};
     matrix[r.technician_name][r.date] = r.status;
+    if (r.user_id && !techUserIds[r.technician_name]) techUserIds[r.technician_name] = r.user_id;
   });
 
   const techs = Object.keys(matrix).sort();
-  // Map tech names to user IDs for WO marking
-  const techUserIds = {};
-  techs.forEach(t => {
-    const u = ALL_USERS.find(u=>u.name===t);
-    if (u) techUserIds[t] = u.id;
-  });
-  const days   = Array.from({length:daysInMonth},(_,i)=>i+1);
   const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
   // Helper: is weekend
@@ -3636,11 +3637,11 @@ async function loadAttCalendar(role) {
     </div>
 
     <!-- Legend -->
-    <div style="display:flex;gap:12px;margin-bottom:12px;font-size:12px;flex-wrap:wrap">
+    <div style="display:flex;gap:12px;margin-bottom:12px;font-size:12px;flex-wrap:wrap;align-items:center">
       <span><span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:4px;font-weight:600">P</span> Present</span>
-      <span><span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:4px;font-weight:600">A</span> Absent</span>
+      <span><span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:4px;font-weight:600;cursor:${role==='hub_manager'?'pointer':'default'}">${role==='hub_manager'?'A ↗':'A'}</span> Absent${role==='hub_manager'?' <span style="color:var(--g400)">(tap to mark WO)</span>':''}</span>
       <span><span style="background:#fef9c3;color:#854d0e;padding:2px 8px;border-radius:4px;font-weight:600">L</span> Leave</span>
-      <span><span style="background:var(--g100);color:var(--g400);padding:2px 8px;border-radius:4px;font-weight:600">WO</span> Week Off</span>
+      <span><span style="background:var(--g100);color:var(--g500);padding:2px 8px;border-radius:4px;font-weight:600">WO</span> Week Off</span>
     </div>
 
     ${techs.length===0
