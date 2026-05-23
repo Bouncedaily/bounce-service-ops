@@ -2866,7 +2866,7 @@ async function renderWorkOrdersAsync() {
       <td style="font-size:12px">${j.submission_type||'—'}</td>
       <td style="font-size:12px">${j.job_card_opened_date?new Date(j.job_card_opened_date).toLocaleDateString('en-IN'):'—'}</td>
       <td style="font-size:12px">${j.technician_name||'<span style="color:var(--g300)">—</span>'}</td>
-      <td><button class="btn btn-outline btn-sm" onclick="changeTechAlert('${j.job_card_number}')">Change Tech</button></td>
+      ${role==='area_manager'?`<td><button class="btn btn-outline btn-sm" onclick="changeTechAlert('${j.job_card_number}')">Change Tech</button></td>`:''}
     </tr>`;
   };
 
@@ -3156,8 +3156,8 @@ async function renderWorkOrdersWideAsync(role) {
 
   const fmtDate = d => d ? new Date(d).toLocaleDateString('en-IN') : '—';
 
-  const TH_UA = `<tr><th>Reg No.</th><th>Hub</th><th>JC Number</th><th>DMS JC ID</th><th>Parts to Add</th><th>JC Status</th><th>TAT ↓</th><th>Labour Hrs</th><th>Type</th><th>JC Opened</th><th>Assign Technician</th></tr>`;
-  const TH_AS = `<tr><th>Reg No.</th><th>Hub</th><th>JC Number</th><th>DMS JC ID</th><th>Parts to Add</th><th>JC Status</th><th>TAT ↓</th><th>Labour Hrs</th><th>Type</th><th>JC Opened</th><th>Technician</th><th>Action</th></tr>`;
+  const TH_UA = `<tr><th>Reg No.</th><th>Hub</th><th>JC Number</th><th>DMS JC ID</th><th>Parts to Add</th><th>JC Status</th><th>TAT ↓</th><th>Labour Hrs</th><th>Type</th><th>JC Opened</th>${role==='area_manager'?'<th>Assign Technician</th>':''}</tr>`;
+  const TH_AS = `<tr><th>Reg No.</th><th>Hub</th><th>JC Number</th><th>DMS JC ID</th><th>Parts to Add</th><th>JC Status</th><th>TAT ↓</th><th>Labour Hrs</th><th>Type</th><th>JC Opened</th><th>Technician</th>${role==='area_manager'?'<th>Action</th>':''}</tr>`;
 
   const rowUA = j => {
     const pc = j.overall_tat_days>3?'b-absent':j.overall_tat_days>1?'b-med':'b-present';
@@ -3176,12 +3176,12 @@ async function renderWorkOrdersWideAsync(role) {
       <td style="font-size:12px">${j.labour_time_hours!=null?j.labour_time_hours.toFixed(1)+'h':'—'}</td>
       <td style="font-size:12px">${j.submission_type||'—'}</td>
       <td style="font-size:12px">${fmtDate(j.job_card_opened_date)}</td>
-      <td>
+      ${role==='area_manager'?`<td>
         <select class="sel-sm" style="min-width:130px" onchange="assignWideJC('${j.job_card_number}','${j.reg_number}','${j.hub_name||''}',this.value)">
           <option value="">Assign tech...</option>
           ${hubTechs.length===0?'<option disabled>None present</option>':hubTechs.map(t=>`<option value="${t}">${t}</option>`).join('')}
         </select>
-      </td>
+      </td>`:''}
     </tr>`;
   };
 
@@ -3198,7 +3198,7 @@ async function renderWorkOrdersWideAsync(role) {
       <td style="font-size:12px">${j.labour_time_hours!=null?j.labour_time_hours.toFixed(1)+'h':'—'}</td>
       <td style="font-size:12px">${j.submission_type||'—'}</td>
       <td style="font-size:12px">${j.technician_name||'<span style="color:var(--g300)">—</span>'}</td>
-      <td><button class="btn btn-outline btn-sm" onclick="changeTechAlert('${j.job_card_number}')">Change Tech</button></td>
+      ${role==='area_manager'?`<td><button class="btn btn-outline btn-sm" onclick="changeTechAlert('${j.job_card_number}')">Change Tech</button></td>`:''}
     </tr>`;
   };
 
