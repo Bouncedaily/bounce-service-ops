@@ -1296,12 +1296,14 @@ function navigate(page) {
       </div>
       <div id="att-wide-cal" style="padding:20px;text-align:center;color:var(--g400)">Loading calendar...</div>`;
       c.innerHTML = subTabsHtml;
-      loadAttCalendar(role).then(html => {
-        if (currentPage === 'attendance') c.innerHTML = html;
-      }).catch(err => {
-        console.error('loadAttCalendar error:', err);
-        c.innerHTML = `<div style="padding:40px;color:var(--red)">Error loading calendar: ${err.message}</div>`;
-      });
+      (async () => {
+        try {
+          const html = await loadAttCalendar(role);
+          document.getElementById('content').innerHTML = html || '<div style="padding:40px;color:red">Empty result</div>';
+        } catch(err) {
+          document.getElementById('content').innerHTML = `<div style="padding:40px;color:var(--red);font-size:13px">Calendar error: ${err.message}</div>`;
+        }
+      })();
     } else {
       c.innerHTML = renderAttendanceWide(role);
     }
@@ -1332,13 +1334,14 @@ function navigate(page) {
       </div>
       <div id="att-sm-cal" style="padding:20px;text-align:center;color:var(--g400)">Loading calendar...</div>`;
       c.innerHTML = subTabsHtml;
-      loadAttCalendar(role).then(html => {
-        console.log('[cal] got html length:', html?.length, 'currentPage:', currentPage);
-        if (currentPage === 'attendance') c.innerHTML = html || '<div style="padding:40px;color:red">Calendar returned empty</div>';
-      }).catch(err => {
-        console.error('[cal] error:', err);
-        c.innerHTML = `<div style="padding:40px;color:var(--red)">Error: ${err.message}</div>`;
-      });
+      (async () => {
+        try {
+          const html = await loadAttCalendar(role);
+          document.getElementById('content').innerHTML = html || '<div style="padding:40px;color:red">Empty result</div>';
+        } catch(err) {
+          document.getElementById('content').innerHTML = `<div style="padding:40px;color:var(--red);font-size:13px">Calendar error: ${err.message}<br><pre>${err.stack||''}</pre></div>`;
+        }
+      })();
     } else {
       c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading attendance...</div>';
       (async () => {
