@@ -2129,7 +2129,7 @@ function renderMyAttendance() {
     {d:'Tue',hub:'Koramangala Hub', s:'present',ci:'08:55 AM',co:'05:15 PM',hrs:'8h 20m'},
     {d:'Wed',hub:'—',               s:'leave',  ci:'—',       co:'—',       hrs:'—'},
     {d:'Thu',hub:'Hebbal Hub',      s:'present',ci:'09:00 AM',co:'05:00 PM',hrs:'8h 00m'},
-    {d:'Today',hub:state.hub||'—',  s:state.myCheckin?'present':'open',ci:state.myCheckin||'—',co:state.myCheckout||'—',hrs:'—'},
+    {d:'Today',hub:state.hub1||state.hub||'—', s:state.myCheckin?'present':'open',ci:state.hub1CheckIn||state.myCheckin||'—',co:state.myCheckout||'—',hrs:'—'},
   ];
   return `
     <div class="page-hd"><div class="page-hd-text"><div class="page-title">My Attendance</div><div class="page-sub">${state.hub||''}</div></div>
@@ -2142,7 +2142,7 @@ function renderMyAttendance() {
       <div class="clock-big" id="live-clock">${nowFmt()}</div>
       <div class="date-lbl">${todayStr()}</div>
       <div class="ci-times">
-        <div class="ci-item"><div class="ci-lbl">Check-in</div><div class="ci-val ${state.myCheckin?'':'empty'}">${state.myCheckin||'--:--'}</div></div>
+        <div class="ci-item"><div class="ci-lbl">Check-in</div><div class="ci-val ${(state.hub1CheckIn||state.myCheckin)?'':'empty'}">${state.hub1CheckIn||state.myCheckin||'--:--'}</div></div>
         <div class="ci-item"><div class="ci-lbl">Check-out</div><div class="ci-val ${state.myCheckout?'':'empty'}">${state.myCheckout||'--:--'}</div></div>
       </div>
       ${state.myCheckin && !state.myCheckout ? `
@@ -2174,7 +2174,7 @@ function renderMyAttendance() {
             })()
         : !checkedOut
         ? `<div style="margin-bottom:10px">
-             <span class="badge b-present" style="font-size:13px;padding:6px 16px">✓ ${state.hub} — checked in at ${state.myCheckin}</span>
+             <span class="badge b-present" style="font-size:13px;padding:6px 16px">✓ ${state.hub1||state.hub} — checked in at ${state.hub1CheckIn||state.myCheckin}</span>
            </div>
            <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:4px">
              <button class="btn btn-red" id="btn-checkout" style="padding:13px 28px;font-size:15px;border-radius:12px;display:flex;align-items:center;gap:8px" onclick="doGeoCheckin('checkout')">
