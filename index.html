@@ -932,7 +932,7 @@ async function proceedAfterAuth(u) {
         state.hub2CheckIn  = latestAtt?.checkin_time ? new Date(latestAtt.checkin_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}) : null;
       }
       // Show first hub as original check-in hub
-      document.getElementById('s3-alert').innerHTML = `<div class="alert al-info" style="margin-bottom:0">Already checked in today at <strong>${hubName}</strong>${allTodayAtt.length>1?' → <strong>'+currentHub+'</strong>':''} . One hub per day.</div>`;
+      document.getElementById('s3-alert').innerHTML = `<div class="alert al-info" style="margin-bottom:0">Already checked in today at <strong>${hubName}</strong>${allTodayAtt.length>1?' → <strong>'+currentHub+'</strong>':''}.</div>`;
       goStep('step-hub');
       // Auto-continue after brief pause
       setTimeout(async () => {
@@ -979,7 +979,7 @@ async function proceedAfterAuth(u) {
         // Show locked hub, hide dropdown
         picker.style.display   = 'none';
         roleNote.style.display = 'block';
-        document.getElementById('tech-ready-msg').innerHTML = `Already checked in today at <strong>${hubName}</strong>. One hub per day.`;
+        document.getElementById('tech-ready-msg').innerHTML = `Already checked in today at <strong>${hubName}</strong>.`;
         btnEl.textContent = 'Go to My Attendance';
       } else {
         // No attendance today — show hub picker
