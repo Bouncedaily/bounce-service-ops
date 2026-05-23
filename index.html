@@ -906,20 +906,33 @@ async function proceedAfterAuth(u) {
   if (u.role === 'hub_manager') {
     document.getElementById('user-preview').innerHTML = previewHTML;
     // Check if SM already has attendance today → skip hub selection
-    const todayAtt = await sb(`attendance?user_id=eq.${u.id}&date=eq.${TODAY}&select=id,hub_id,checkin_time,checkout_time,hubs(name)&limit=1`);
+    const todayAtt = await sb(`attendance?user_id=eq.${u.id}&date=eq.${TODAY}&select=id,hub_id,hub_name,checkin_time,checkout_time,hubs(name)&order=checkin_time.asc&limit=1`);
     if (todayAtt && todayAtt.length) {
       const r = todayAtt[0];
-      const hubName = r.hubs?.name || u.assigned_hub_name || '';
+      const hubName = r.hubs?.name || r.hub_name || u.assigned_hub_name || '';
       const hubObj  = HUBS.find(h=>h.name===hubName);
       state.pendingUser = u;
       state.pendingUser._autoHub = hubName;
-      state.hub   = hubName;
-      state.hubId = hubObj?.id || r.hub_id || null;
+      // Check if hub was changed today — get latest att record too
+      const allTodayAtt = await sb(`attendance?user_id=eq.${u.id}&date=eq.${TODAY}&select=id,hub_id,hub_name,checkin_time,checkout_time,hubs(name)&order=checkin_time.asc`) || [];
+      const latestAtt = allTodayAtt[allTodayAtt.length-1];
+      const currentHub = latestAtt?.hubs?.name || latestAtt?.hub_name || hubName;
+      const currentHubObj = HUBS.find(h=>h.name===currentHub) || hubObj;
+      state.hub   = currentHub;
+      state.hubId = currentHubObj?.id || latestAtt?.hub_id || r.hub_id || null;
       state.myCheckin  = r.checkin_time  ? new Date(r.checkin_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true})  : null;
-      state.myCheckout = r.checkout_time ? new Date(r.checkout_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}) : null;
-      state.myAttId    = r.id;
-      // Show locked-in note and skip to finishLogin
-      document.getElementById('s3-alert').innerHTML = `<div class="alert al-info" style="margin-bottom:0">Already checked in today at <strong>${hubName}</strong>. One hub per day.</div>`;
+      state.myCheckout = latestAtt?.checkout_time ? new Date(latestAtt.checkout_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}) : null;
+      state.myAttId    = latestAtt?.id || r.id;
+      // Restore hub1/hub2 if changed
+      if (allTodayAtt.length > 1) {
+        state.hub1 = hubName; state.hub1Id = hubObj?.id || r.hub_id;
+        state.hub1CheckIn  = state.myCheckin;
+        state.hub1CheckOut = r.checkout_time ? new Date(r.checkout_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}) : null;
+        state.hub2 = currentHub; state.hub2Id = currentHubObj?.id;
+        state.hub2CheckIn  = latestAtt?.checkin_time ? new Date(latestAtt.checkin_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}) : null;
+      }
+      // Show first hub as original check-in hub
+      document.getElementById('s3-alert').innerHTML = `<div class="alert al-info" style="margin-bottom:0">Already checked in today at <strong>${hubName}</strong>${allTodayAtt.length>1?' → <strong>'+currentHub+'</strong>':''} . One hub per day.</div>`;
       goStep('step-hub');
       // Auto-continue after brief pause
       setTimeout(async () => {
@@ -952,7 +965,7 @@ async function proceedAfterAuth(u) {
     const roleNote = document.getElementById('tech-role-note');
     if (u.role === 'technician') {
       // Check if technician already has attendance today → lock to that hub
-      const todayAtt = await sb(`attendance?user_id=eq.${u.id}&date=eq.${TODAY}&select=id,hub_id,checkin_time,checkout_time,hubs(name)&limit=1`);
+      const todayAtt = await sb(`attendance?user_id=eq.${u.id}&date=eq.${TODAY}&select=id,hub_id,hub_name,checkin_time,checkout_time,hubs(name)&order=checkin_time.asc&limit=1`);
       if (todayAtt && todayAtt.length) {
         const r = todayAtt[0];
         const hubName = r.hubs?.name || '';
