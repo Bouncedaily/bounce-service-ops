@@ -507,6 +507,10 @@ const DEMO_JOBS = [
   {id:'j5', wo_number:'WO-005', vehicle_reg:'KA05IJ7890', issue:'Tyre puncture repair', priority:'Medium', status:'Open',        wo_type:'oos',            assigned_at: new Date().toISOString(), hub_id:'hub-4', users:{name:'Selvam V'},  hubs:{name:'Electronic City Hub'}},
 ];
 let _demoMode = false;
+const CHECKIN_CUTOFF_HOUR = 13;   // 1 PM
+const CHECKIN_CUTOFF_MIN  = 30;   // 1:30 PM
+const HALF_DAY_MIN_HRS    = 5;    // < 5hrs = absent
+const FULL_DAY_MIN_HRS    = 9;    // < 9hrs = half day, >= 9hrs = present
 let _woPerWeekLimit = 1; // configurable from admin portal
 
 async function loadWoConfig() {
@@ -2155,10 +2159,18 @@ function renderMyAttendance() {
           ? `<div class="alert al-error" style="margin:12px auto;max-width:360px;text-align:center">
                <strong>No hub selected.</strong><br>Please log out and select a hub before checking in.
              </div>`
-          : `<button class="btn btn-green" id="btn-checkin" style="padding:14px 40px;font-size:16px;border-radius:12px;min-width:180px;display:flex;align-items:center;gap:10px;margin:0 auto" onclick="doGeoCheckin('checkin')">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
-            Check In</button>
-           <div style="font-size:12px;color:var(--g400);margin-top:10px">Tap to check in — location verified automatically</div>`
+          : (() => {
+              const _now = new Date();
+              const _cutoff = _now.getHours() > CHECKIN_CUTOFF_HOUR || (_now.getHours()===CHECKIN_CUTOFF_HOUR && _now.getMinutes()>=CHECKIN_CUTOFF_MIN);
+              return _cutoff
+                ? `<div class="alert al-error" style="max-width:320px;margin:0 auto;text-align:center;line-height:1.6">
+                     Check-in is not allowed after 1:30 PM.
+                   </div>`
+                : `<button class="btn btn-green" id="btn-checkin" style="padding:14px 40px;font-size:16px;border-radius:12px;min-width:180px;display:flex;align-items:center;gap:10px;margin:0 auto" onclick="doGeoCheckin('checkin')">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+                    Check In</button>
+                  <div style="font-size:12px;color:var(--g400);margin-top:10px">Tap to check in — location verified automatically</div>`;
+            })()
         : !checkedOut
         ? `<div style="margin-bottom:10px">
              <span class="badge b-present" style="font-size:13px;padding:6px 16px">✓ ${state.hub} — checked in at ${state.myCheckin}</span>
@@ -3569,7 +3581,8 @@ async function loadAttCalendar(role) {
           onclick="showWOPopup('${techName}','${dateStr}','${userId||''}')" >A</td>`
       : `<td style="background:#fee2e2;color:#991b1b;font-weight:600;text-align:center;padding:4px 2px;font-size:11px">A</td>`;
     if (s==='leave')    return `<td style="background:#fef9c3;color:#854d0e;font-weight:600;text-align:center;padding:4px 2px;font-size:11px">L</td>`;
-    if (s==='week_off') return `<td style="background:#f3e8ff;color:#6b21a8;font-weight:600;text-align:center;padding:4px 2px;font-size:11px">WO</td>`;
+    if (s==='week_off')  return `<td style="background:#f3e8ff;color:#6b21a8;font-weight:600;text-align:center;padding:4px 2px;font-size:11px">WO</td>`;
+    if (s==='half_day')  return `<td style="background:#fef3c7;color:#92400e;font-weight:600;text-align:center;padding:4px 2px;font-size:11px">HD</td>`;
     return `<td style="text-align:center;padding:4px 2px;font-size:11px">${status.slice(0,1).toUpperCase()}</td>`;
   };
 
@@ -3578,9 +3591,10 @@ async function loadAttCalendar(role) {
     const data = matrix[tech]||{};
     const vals  = Object.values(data);
     return {
-      P: vals.filter(v=>v==='present').length,
-      A: vals.filter(v=>v==='absent').length,
-      L: vals.filter(v=>v==='leave').length,
+      P:  vals.filter(v=>v==='present').length,
+      HD: vals.filter(v=>v==='half_day').length,
+      A:  vals.filter(v=>v==='absent').length,
+      L:  vals.filter(v=>v==='leave').length,
     };
   };
 
@@ -3655,6 +3669,7 @@ async function loadAttCalendar(role) {
       <span><span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:4px;font-weight:600;cursor:${role==='hub_manager'?'pointer':'default'}">${role==='hub_manager'?'A ↗':'A'}</span> Absent${role==='hub_manager'?' <span style="color:var(--g400)">(tap to mark WO)</span>':''}</span>
       <span><span style="background:#fef9c3;color:#854d0e;padding:2px 8px;border-radius:4px;font-weight:600">L</span> Leave</span>
       <span><span style="background:var(--g100);color:var(--g500);padding:2px 8px;border-radius:4px;font-weight:600">WO</span> Week Off</span>
+      <span><span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-weight:600">HD</span> Half Day (5–9hrs)</span>
     </div>
 
     ${techs.length===0
@@ -3673,6 +3688,7 @@ async function loadAttCalendar(role) {
                 </th>`;
               }).join('')}
               <th style="padding:8px 6px;text-align:center;background:#166534;color:white;min-width:36px">P</th>
+              <th style="padding:8px 6px;text-align:center;background:#92400e;color:white;min-width:36px">HD</th>
               <th style="padding:8px 6px;text-align:center;background:#991b1b;color:white;min-width:36px">A</th>
               <th style="padding:8px 6px;text-align:center;background:#854d0e;color:white;min-width:36px">L</th>
             </tr>
@@ -3691,6 +3707,7 @@ async function loadAttCalendar(role) {
                   return cell(status, wknd, t, dk, uid);
                 }).join('')}
                 <td style="text-align:center;font-weight:600;color:#166534;padding:6px 4px">${s.P}</td>
+                <td style="text-align:center;font-weight:600;color:#92400e;padding:6px 4px">${s.HD}</td>
                 <td style="text-align:center;font-weight:600;color:#991b1b;padding:6px 4px">${s.A}</td>
                 <td style="text-align:center;font-weight:600;color:#854d0e;padding:6px 4px">${s.L}</td>
               </tr>`;
@@ -3975,6 +3992,14 @@ async function doGeoCheckin(mode){
     setAttMsg('error','Please select a hub before marking attendance.');
     return;
   }
+  // Block check-in after 1:30 PM
+  if (mode==='checkin') {
+    const now = new Date();
+    if (now.getHours() > CHECKIN_CUTOFF_HOUR || (now.getHours()===CHECKIN_CUTOFF_HOUR && now.getMinutes()>=CHECKIN_CUTOFF_MIN)) {
+      setAttMsg('error','Check-in is not allowed after 1:30 PM.');
+      return;
+    }
+  }
   const btn=document.getElementById(mode==='checkin'?'btn-checkin':'btn-checkout');
   if(btn){btn.disabled=true;btn.style.opacity='0.6';}
   setAttMsg('loading','Getting your location...');
@@ -4050,7 +4075,28 @@ async function processCheckin(mode,lat,lng,accuracy,distanceM,withinFence){
     try{const s=JSON.parse(localStorage.getItem('bounce_session')||'{}');s.myCheckin=t12;s.myAttId=state.myAttId;s.myCheckinDate=TODAY;localStorage.setItem('bounce_session',JSON.stringify(s));}catch(e){}
   }else{
     if(!_demoMode&&state.myAttId&&!state.myAttId.startsWith('demo')){
-      await sb(`attendance?id=eq.${state.myAttId}`,{method:'PATCH',body:JSON.stringify({checkout_time:new Date().toISOString(),geo_checkout:geoData,updated_at:new Date().toISOString()})});
+      // Calculate working hours and determine final status
+      const checkoutTime = new Date();
+      const checkinTime  = (() => {
+        if (!state.myCheckin) return null;
+        const [time, ampm] = state.myCheckin.split(' ');
+        let [h, m] = time.split(':').map(Number);
+        if (ampm?.toLowerCase()==='pm' && h!==12) h+=12;
+        if (ampm?.toLowerCase()==='am' && h===12) h=0;
+        const d = new Date(); d.setHours(h,m,0,0); return d;
+      })();
+      const totalMins = checkinTime ? ((checkoutTime - checkinTime) / 60000) + calcHub1Mins() : 0;
+      const totalHrs  = totalMins / 60;
+      const finalStatus = totalHrs >= FULL_DAY_MIN_HRS ? 'present'
+                        : totalHrs >= HALF_DAY_MIN_HRS ? 'half_day'
+                        : 'absent';
+      await sb(`attendance?id=eq.${state.myAttId}`,{method:'PATCH',body:JSON.stringify({
+        checkout_time: checkoutTime.toISOString(),
+        total_working_hours: parseFloat(totalHrs.toFixed(2)),
+        status: finalStatus,
+        geo_checkout:geoData,
+        updated_at:new Date().toISOString()
+      })});
     }
     state.myCheckout=t12;
     try{const s=JSON.parse(localStorage.getItem('bounce_session')||'{}');s.myCheckout=t12;localStorage.setItem('bounce_session',JSON.stringify(s));}catch(e){}
