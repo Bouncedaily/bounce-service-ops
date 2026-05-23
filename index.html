@@ -2161,7 +2161,8 @@ function renderMyAttendance() {
              </div>`
           : (() => {
               const _now = new Date();
-              const _cutoff = _now.getHours() > CHECKIN_CUTOFF_HOUR || (_now.getHours()===CHECKIN_CUTOFF_HOUR && _now.getMinutes()>=CHECKIN_CUTOFF_MIN);
+              const _isTest = TEST_MOBILES.includes(state.user?.mobile);
+              const _cutoff = !_isTest && (_now.getHours() > CHECKIN_CUTOFF_HOUR || (_now.getHours()===CHECKIN_CUTOFF_HOUR && _now.getMinutes()>=CHECKIN_CUTOFF_MIN));
               return _cutoff
                 ? `<div class="alert al-error" style="max-width:320px;margin:0 auto;text-align:center;line-height:1.6">
                      Check-in is not allowed after 1:30 PM.
@@ -3992,8 +3993,8 @@ async function doGeoCheckin(mode){
     setAttMsg('error','Please select a hub before marking attendance.');
     return;
   }
-  // Block check-in after 1:30 PM
-  if (mode==='checkin') {
+  // Block check-in after 1:30 PM (skip for test numbers)
+  if (mode==='checkin' && !TEST_MOBILES.includes(state.user?.mobile)) {
     const now = new Date();
     if (now.getHours() > CHECKIN_CUTOFF_HOUR || (now.getHours()===CHECKIN_CUTOFF_HOUR && now.getMinutes()>=CHECKIN_CUTOFF_MIN)) {
       setAttMsg('error','Check-in is not allowed after 1:30 PM.');
