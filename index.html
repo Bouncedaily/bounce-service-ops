@@ -1297,8 +1297,7 @@ function navigate(page) {
       <div id="att-wide-cal" style="padding:20px;text-align:center;color:var(--g400)">Loading calendar...</div>`;
       c.innerHTML = subTabsHtml;
       loadAttCalendar(role).then(html => {
-        const el = document.getElementById('att-wide-cal');
-        if (el) el.outerHTML = html;
+        if (currentPage === 'attendance') c.innerHTML = html;
       });
     } else {
       c.innerHTML = renderAttendanceWide(role);
@@ -1331,8 +1330,7 @@ function navigate(page) {
       <div id="att-sm-cal" style="padding:20px;text-align:center;color:var(--g400)">Loading calendar...</div>`;
       c.innerHTML = subTabsHtml;
       loadAttCalendar(role).then(html => {
-        const el = document.getElementById('att-sm-cal');
-        if (el) el.outerHTML = html;
+        if (currentPage === 'attendance') c.innerHTML = html;
       });
     } else {
       c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading attendance...</div>';
@@ -3407,6 +3405,10 @@ async function loadProductivity(role) {
         <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
       </button>
     </div>
+    <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--g100);padding-bottom:0">
+      <button onclick="_attTab='today';navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid transparent;color:var(--g500);margin-bottom:-2px">Today</button>
+      <button onclick="_attTab='calendar';navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid var(--blue);color:var(--blue);margin-bottom:-2px">Calendar</button>
+    </div>
 
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:flex-end">
       <div>
@@ -3606,7 +3608,7 @@ async function loadAttCalendar(role) {
   return `
     <div class="page-hd">
       <div class="page-hd-text">
-        <div class="page-title">Attendance Calendar</div>
+        <div class="page-title">Attendance</div>
         <div class="page-sub">${hubFilter||myCityName||'All'} — ${firstDay.toLocaleDateString('en-IN',{month:'long',year:'numeric'})}</div>
       </div>
       <button class="btn btn-outline btn-sm" onclick="window._exportAttCSV()" style="display:flex;align-items:center;gap:6px;font-size:12px">
@@ -3618,19 +3620,19 @@ async function loadAttCalendar(role) {
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:flex-end">
       <div>
         <label class="form-label">Month</label>
-        <select class="form-select" style="width:190px" onchange="_calMonth=this.value;navigate('att-calendar')">
+        <select class="form-select" style="width:190px" onchange="_calMonth=this.value;navigate('attendance')">
           ${months.map(m=>`<option value="${m.val}" ${m.val===_calMonth?'selected':''}>${m.lbl}</option>`).join('')}
         </select>
       </div>
       ${role==='head'?`<div>
         <label class="form-label">City</label>
-        <select class="form-select" style="width:150px" onchange="_calCity=this.value;_calHub='';navigate('att-calendar')">
+        <select class="form-select" style="width:150px" onchange="_calCity=this.value;_calHub='';navigate('attendance')">
           <option value="">All Cities</option>${cityOpts}
         </select>
       </div>`:''}
       ${role!=='hub_manager'?`<div>
         <label class="form-label">Hub</label>
-        <select class="form-select" style="width:180px" onchange="_calHub=this.value;navigate('att-calendar')">
+        <select class="form-select" style="width:180px" onchange="_calHub=this.value;navigate('attendance')">
           <option value="">All Hubs</option>${hubOpts}
         </select>
       </div>`:''}
