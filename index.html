@@ -2227,7 +2227,13 @@ function renderMyJobs() {
   const selDate  = window._myJobsDate || todayISO;
   const filteredJobs = selDate === 'all'
     ? myJobs
-    : myJobs.filter(j=>(j.assigned_at||'').slice(0,10) === selDate || (!j.assigned_at && selDate===todayISO));
+    : myJobs.filter(j=>
+        // Always show Open/In Progress regardless of date — pending from previous days
+        j.status === 'Open' || j.status === 'In Progress' ||
+        // Done jobs filtered by selected date
+        (j.assigned_at||'').slice(0,10) === selDate ||
+        (!j.assigned_at && selDate===todayISO)
+      );
   const activeJob = filteredJobs.find(j=>j.status==='In Progress');
   // FIFO: sort Open jobs by assigned_at ascending — only oldest can be started
   const _prio = {High:0,Medium:1,Low:2};
