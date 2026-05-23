@@ -759,26 +759,24 @@ function showDupPopup(dup, onReplace) {
     inner.innerHTML = `
       <button class="modal-close" onclick="closeModal()">✕</button>
       <div class="modal-title" style="color:var(--red)">⚠️ Work In Progress</div>
-      <div class="alert al-error" style="margin-bottom:16px">
-        This vehicle's work is already <strong>In Progress</strong> by <strong>${dup.tech}</strong>.<br>
-        Reassignment is not allowed while work is ongoing.
+      <div class="alert al-error" style="margin-bottom:16px;line-height:1.6">
+        This vehicle is already in progress by "${dup.tech}". Reassignment is not allowed while work is ongoing.
       </div>
       <button class="btn btn-outline" style="width:100%" onclick="closeModal()">Close</button>`;
   } else if (dup.status === 'same_tech') {
     inner.innerHTML = `
       <button class="modal-close" onclick="closeModal()">✕</button>
       <div class="modal-title">Already Assigned</div>
-      <div class="alert al-warn" style="margin-bottom:16px">
-        This vehicle is already assigned to <strong>${dup.tech}</strong>.
+      <div class="alert al-warn" style="margin-bottom:16px;line-height:1.6">
+        This vehicle is already assigned to "${dup.tech}".
       </div>
       <button class="btn btn-outline" style="width:100%" onclick="closeModal()">Close</button>`;
   } else {
     inner.innerHTML = `
       <button class="modal-close" onclick="closeModal()">✕</button>
       <div class="modal-title">Vehicle Already Assigned</div>
-      <div class="alert al-warn" style="margin-bottom:16px">
-        This vehicle is already assigned to <strong>${dup.tech}</strong> but work hasn't started yet.
-        Do you want to replace the assignment?
+      <div class="alert al-warn" style="margin-bottom:16px;line-height:1.6">
+        This vehicle is assigned to "${dup.tech}" but work hasn't started. Replace the assignment?
       </div>
       <div style="display:flex;gap:10px">
         <button class="btn btn-outline" style="flex:1" onclick="closeModal()">No, Cancel</button>
@@ -1727,9 +1725,8 @@ function showWOPopup(techName, date, userId) {
     <button class="modal-close" onclick="closeModal()">✕</button>
     <div class="modal-title">Mark as Week Off</div>
     <div class="modal-sub">${techName} — ${date}</div>
-    <div class="alert al-warn" style="margin:12px 0;font-size:13px">
-      This will mark <strong>${techName}</strong> as Week Off for <strong>${date}</strong>.<br>
-      Week off allowance: <strong>${_woPerWeekLimit} per week</strong>.
+    <div class="alert al-warn" style="margin:12px 0;font-size:13px;line-height:1.6">
+      Mark "${techName}" as Week Off for ${date}? Allowance: ${_woPerWeekLimit} per week.
     </div>
     <div style="display:flex;gap:10px;margin-top:4px">
       <button class="btn btn-outline" style="flex:1" onclick="closeModal()">Cancel</button>
@@ -1966,7 +1963,7 @@ async function addWOWide() {
   if (selVeh) {
     const vehHub = selVeh.hub_name || (HUBS.find(h=>h.id===selVeh.hub_id)?.name) || '';
     if (vehHub && vehHub !== hubName) {
-      document.getElementById('wo-msg-wide').innerHTML=`<div class="alert al-error">This vehicle belongs to <strong>${vehHub}</strong>. Select a vehicle in <strong>${hubName}</strong>.</div>`;
+      document.getElementById('wo-msg-wide').innerHTML=`<div class="alert al-error">This vehicle belongs to "${vehHub}". Please select a vehicle from "${hubName}".</div>`;
       return;
     }
   }
@@ -3908,9 +3905,8 @@ function showChangeHubModal() {
   inner.innerHTML = `
     <button class="modal-close" onclick="closeModal()">✕</button>
     <div class="modal-title">Change Hub</div>
-    <div class="alert al-warn" style="margin-bottom:16px;font-size:13px">
-      Changing hub will close your current session at <strong>${state.hub}</strong>.
-      You must check in at the new hub via geofencing.
+    <div class="alert al-warn" style="margin-bottom:16px;font-size:13px;line-height:1.6">
+      Changing hub will close your current session at "${state.hub}". You must check in at the new hub via geofencing.
     </div>
     <div class="form-group">
       <label class="form-label">Select new hub</label>
