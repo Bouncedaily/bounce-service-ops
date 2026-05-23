@@ -3528,6 +3528,10 @@ async function loadAttCalendar(role) {
   } else if (role==='area_manager') {
     const myHubs = HUBS.filter(h=>h.city_id===userCityId).map(h=>h.name);
     filtered = rows.filter(r=>!r.hub_name||myHubs.includes(r.hub_name));
+  } else if (role==='head' && _calCity && !_calHub) {
+    // Head selected city but no specific hub — filter by city's hubs
+    const cityHubNames = getHubsForCitySync(_calCity).map(h=>h.name);
+    filtered = rows.filter(r=>!r.hub_name||cityHubNames.includes(r.hub_name));
   }
 
   // Build matrix: { techName: { 'YYYY-MM-DD': status } }
@@ -3590,7 +3594,7 @@ async function loadAttCalendar(role) {
 
   // Hub options for filter
   const hubOpts = cityHubs.map(h=>`<option value="${h}" ${h===_calHub?'selected':''}>${h}</option>`).join('');
-  const cityNames = ['Bangalore','Hyderabad','NCR','Indore'];
+  const cityNames = (window._cities||[]).map(c=>c.name);
   const cityOpts  = cityNames.map(c=>`<option value="${c}" ${c===_calCity?'selected':''}>${c}</option>`).join('');
 
   // Excel export
