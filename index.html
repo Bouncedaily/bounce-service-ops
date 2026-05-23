@@ -4047,7 +4047,7 @@ async function processCheckin(mode,lat,lng,accuracy,distanceM,withinFence){
     state.myCheckin=t12; state.myAttId=attId||'demo-att';
     if (state.hub2 && !state.hub2CheckIn) state.hub2CheckIn = t12;
     state.attendance[state.user.name]={status:'present',checkin:t24,checkout:null,hub:state.hub,att_id:attId};
-    try{const s=JSON.parse(localStorage.getItem('bounce_session')||'{}');s.myCheckin=t12;s.myAttId=state.myAttId;localStorage.setItem('bounce_session',JSON.stringify(s));}catch(e){}
+    try{const s=JSON.parse(localStorage.getItem('bounce_session')||'{}');s.myCheckin=t12;s.myAttId=state.myAttId;s.myCheckinDate=TODAY;localStorage.setItem('bounce_session',JSON.stringify(s));}catch(e){}
   }else{
     if(!_demoMode&&state.myAttId&&!state.myAttId.startsWith('demo')){
       await sb(`attendance?id=eq.${state.myAttId}`,{method:'PATCH',body:JSON.stringify({checkout_time:new Date().toISOString(),geo_checkout:geoData,updated_at:new Date().toISOString()})});
@@ -4069,13 +4069,22 @@ async function initApp() {
         state.user       = sess.user;
         state.hub        = sess.hub        || null;
         state.hubId      = sess.hubId      || null;
-        state.myCheckin  = sess.myCheckin  || null;
-        state.myCheckout = sess.myCheckout || null;
-        state.myAttId    = sess.myAttId    || null;
+        // Only restore checkin state if it's from today
+        const isToday = sess.myCheckinDate === TODAY;
+        state.myCheckin  = (isToday && sess.myCheckin)  ? sess.myCheckin  : null;
+        state.myCheckout = (isToday && sess.myCheckout) ? sess.myCheckout : null;
+        state.myAttId    = (isToday && sess.myAttId)    ? sess.myAttId    : null;
         if (sess.dashFilterCity) _dashFilterCity = sess.dashFilterCity;
         if (sess.dashFilterHub)  _dashFilterHub  = sess.dashFilterHub;
-        if (sess.hub1)        { state.hub1=sess.hub1; state.hub1Id=sess.hub1Id; state.hub1CheckIn=sess.hub1CheckIn; state.hub1CheckOut=sess.hub1CheckOut; }
-        if (sess.hub2)        { state.hub2=sess.hub2; state.hub2Id=sess.hub2Id; state.hub2CheckIn=sess.hub2CheckIn; }
+        // Only restore hub1/hub2 if session is from today
+        const sessDate = sess.myCheckinDate || '';
+        if (sess.hub1 && sessDate === TODAY) {
+          state.hub1=sess.hub1; state.hub1Id=sess.hub1Id;
+          state.hub1CheckIn=sess.hub1CheckIn; state.hub1CheckOut=sess.hub1CheckOut;
+        }
+        if (sess.hub2 && sessDate === TODAY) {
+          state.hub2=sess.hub2; state.hub2Id=sess.hub2Id; state.hub2CheckIn=sess.hub2CheckIn;
+        }
         if (state.user.role === 'hub_manager' && state.hubId) {
           await Promise.all([loadAttendanceForHub(state.hubId), loadJobsForHub(state.hubId), loadVehiclesForHub(state.hub)]);
         } else if (state.user.role === 'technician') {
