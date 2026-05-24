@@ -1155,7 +1155,7 @@ const HEAD_NAV = [
   {id:'workorders',lbl:'Work Orders', ic:'clipboard'},
 ];
 const TECH_NAV = [
-  {id:'my-attendance',lbl:'My Attendance',ic:'clock'},
+  {id:'attendance',    lbl:'Attendance',   ic:'clock'},
   {id:'my-jobs',      lbl:'My Jobs',      ic:'tool'},
   {id:'tech-profile', lbl:'My Profile',   ic:'user'},
 ];
@@ -1352,6 +1352,26 @@ function navigate(page) {
     return;
   }
   // My Attendance only for tech and SM
+  // Tech attendance — merged into Attendance tab with Today/Calendar sub-tabs
+  if (page==='attendance' && role==='technician') {
+    if (_attTab==='calendar') {
+      c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading calendar...</div>';
+      (async()=>{
+        try {
+          const html = await loadAttCalendar(role);
+          document.getElementById('content').innerHTML = html;
+        } catch(e) { document.getElementById('content').innerHTML = `<div style="padding:40px;color:var(--red)">Error: ${e.message}</div>`; }
+      })();
+    } else {
+      c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading...</div>';
+      (async()=>{
+        if (state.hubId) await loadAttendanceForHub(state.hubId);
+        if (currentPage===page) c.innerHTML = renderMyAttendance();
+      })();
+    }
+    return;
+  }
+  if (page==='my-attendance') { _attTab='today'; navigate('attendance'); return; }
   if (page==='my-attendance' && role!=='technician' && role!=='hub_manager') {
     navigate('dashboard'); return;
   }
@@ -1668,7 +1688,7 @@ function renderDashboard() {
       </div>`).join('')}
     </div>` : ''}
     <div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">Technician snapshot</div>
-    ${_attTab==='calendar' ? '<div id="att-wide-cal"><div style=\"padding:20px;text-align:center;color:var(--g400)\">Loading calendar...</div></div>' : snapEntries.length===0
+    ${snapEntries.length===0
       ? `<div class="empty-state" style="padding:32px 20px">
             <div style="font-size:32px;margin-bottom:12px">👋</div>
             <div style="font-weight:600;margin-bottom:6px;color:var(--g700)">No check-ins yet today</div>
@@ -2247,11 +2267,10 @@ function renderMyAttendance() {
            `}
     </div>
     <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:2px solid var(--g100);padding-bottom:0">
-      <button onclick="window._myAttTab='today';navigate('my-attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${(window._myAttTab||'today')==='today'?'var(--blue)':'transparent'};color:${(window._myAttTab||'today')==='today'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Today</button>
-      <button onclick="window._myAttTab='month';navigate('my-attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${(window._myAttTab||'today')==='month'?'var(--blue)':'transparent'};color:${(window._myAttTab||'today')==='month'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">This Month</button>
+      <button onclick="_attTab='today';localStorage.setItem('att_tab','today');navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${_attTab==='today'?'var(--blue)':'transparent'};color:${_attTab==='today'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Today</button>
+      <button onclick="_attTab='calendar';localStorage.setItem('att_tab','calendar');navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${_attTab==='calendar'?'var(--blue)':'transparent'};color:${_attTab==='calendar'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Calendar</button>
     </div>
-    ${(window._myAttTab||'today')==='month' ? `<div id="tech-cal-inner" style="padding:20px;text-align:center;color:var(--g400)">Loading...</div>` : ''}
-    ${(window._myAttTab||'today')!=='month' ? `<div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">This week</div>` : ''}
+    <div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">This week</div>
     <div class="tw"><table>
       <thead><tr><th>Day</th><th>Hub</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Hours</th></tr></thead>
       <tbody>${wk.map(r=>{
