@@ -1158,6 +1158,7 @@ const TECH_NAV = [
   {id:'my-attendance',lbl:'My Attendance',ic:'clock'},
   {id:'my-jobs',      lbl:'My Jobs',      ic:'tool'},
   {id:'productivity', lbl:'My Progress',  ic:'bar-chart'},
+  {id:'tech-profile', lbl:'My Profile',   ic:'user'},
 ];
 const IC = {
   calendar: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
@@ -1311,6 +1312,11 @@ function navigate(page) {
   if (page==='productivity') {
     c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading productivity...</div>';
     loadProductivity(role).then(html=>{ if(currentPage===page) c.innerHTML=html; });
+    return;
+  }
+  if (page==='tech-profile') {
+    c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading profile...</div>';
+    loadTechProfile(window._profileTechName||state.user?.name, role).then(html=>{ if(currentPage===page) c.innerHTML=html; });
     return;
   }
   if (page==='attendance' && (role==='area_manager'||role==='head')) {
@@ -3389,6 +3395,181 @@ async function smMarkJobDone(woId) {
     body: JSON.stringify({ status: 'Done', completed_at: new Date().toISOString() })
   });
   navigate('work-assigned');
+}
+
+
+// ── TECHNICIAN PROFILE ──────────────────────────────────────────────────────
+async function loadTechProfile(techName, role) {
+  if (!techName) return '<div class="empty-state">No technician selected.</div>';
+
+  const isSelf     = role === 'technician';
+  const today      = new Date();
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0,10);
+  const monthEnd   = today.toISOString().slice(0,10);
+  const yr         = today.getFullYear();
+  const mo         = today.getMonth() + 1;
+  const moStr      = String(mo).padStart(2,'0');
+
+  // Fetch in parallel
+  const [attRows, woRows, userRow] = await Promise.all([
+    sb(`attendance?technician_name=eq.${encodeURIComponent(techName)}&date=gte.${monthStart}&date=lte.${monthEnd}&select=date,status,hub_name,checkin_time,checkout_time,total_working_hours&order=date.asc`) || [],
+    sb(`work_orders?assigned_tech_name=eq.${encodeURIComponent(techName)}&select=id,vehicle_reg,issue,status,priority,wo_type,assigned_at,started_at,completed_at,time_taken_min,hub_name,job_card_number&order=assigned_at.desc&limit=200`) || [],
+    (async()=>{ const u=ALL_USERS.find(u=>u.name===techName); return u||null; })()
+  ]);
+
+  // Attendance stats this month
+  const presentDays  = attRows.filter(r=>r.status==='present').length;
+  const halfDays     = attRows.filter(r=>r.status==='half_day').length;
+  const absentDays   = attRows.filter(r=>r.status==='absent').length;
+  const woCount      = attRows.filter(r=>r.status==='week_off').length;
+  const workingDays  = presentDays + halfDays + absentDays + woCount || 1;
+  const attPct       = Math.round(((presentDays + halfDays*0.5) / Math.max(workingDays,1)) * 100);
+  const avgHrsDay    = presentDays > 0
+    ? (attRows.filter(r=>r.status==='present'&&r.total_working_hours).reduce((s,r)=>s+r.total_working_hours,0) / presentDays).toFixed(1)
+    : '—';
+
+  // Job stats all time
+  const totalAssigned  = woRows.length;
+  const totalDone      = woRows.filter(j=>j.status==='Done').length;
+  const inProgress     = woRows.filter(j=>j.status==='In Progress').length;
+  const openJobs       = woRows.filter(j=>j.status==='Open').length;
+  const completionRate = totalAssigned ? Math.round((totalDone/totalAssigned)*100) : 0;
+  const timedJobs      = woRows.filter(j=>j.time_taken_min&&j.status==='Done');
+  const avgMins        = timedJobs.length ? Math.round(timedJobs.reduce((s,j)=>s+j.time_taken_min,0)/timedJobs.length) : 0;
+
+  // This month jobs
+  const moJobs     = woRows.filter(j=>(j.assigned_at||'').startsWith(`${yr}-${moStr}`));
+  const moDone     = moJobs.filter(j=>j.status==='Done').length;
+
+  // Hub info
+  const hubName    = userRow?.assigned_hub_name || attRows[attRows.length-1]?.hub_name || '—';
+  const initials   = techName.split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase();
+
+  // Recent 5 jobs
+  const recent = woRows.slice(0,5);
+
+  // Mini calendar — this month
+  const daysInMonth  = new Date(yr, mo, 0).getDate();
+  const days         = Array.from({length:daysInMonth},(_,i)=>i+1);
+  const dayNames     = ['S','M','T','W','T','F','S'];
+  const attMap       = {};
+  attRows.forEach(r=>{ attMap[r.date]=r.status; });
+  const cellColor    = s => s==='present'?'#dcfce7':s==='half_day'?'#fef3c7':s==='absent'?'#fee2e2':s==='week_off'?'#f3e8ff':'var(--g100)';
+  const cellText     = s => s==='present'?'P':s==='half_day'?'H':s==='absent'?'A':s==='week_off'?'W':'';
+  const cellTColor   = s => s==='present'?'#166534':s==='half_day'?'#92400e':s==='absent'?'#991b1b':s==='week_off'?'#6b21a8':'var(--g400)';
+
+  // Productivity score
+  const prodPct = Math.min(100, Math.round((parseFloat(avgHrsDay)||0)/8*100));
+  const prodColor = prodPct>=80?'var(--green)':prodPct>=50?'#f59e0b':'var(--red)';
+
+  const backBtn = isSelf ? '' : `<button class="btn btn-outline btn-sm" onclick="history.go(-1)||navigate('dashboard')" style="display:flex;align-items:center;gap:6px;font-size:12px">
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg> Back
+  </button>`;
+
+  return `
+    <div class="page-hd">
+      <div class="page-hd-text">
+        <div class="page-title">${isSelf?'My Profile':'Technician Profile'}</div>
+        <div class="page-sub">${hubName}</div>
+      </div>
+      ${backBtn}
+    </div>
+
+    <!-- Profile header -->
+    <div class="card" style="display:flex;align-items:center;gap:20px;padding:20px;margin-bottom:16px;flex-wrap:wrap">
+      <div style="width:64px;height:64px;border-radius:50%;background:var(--blue-lt);color:var(--blue);font-size:22px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${initials}</div>
+      <div style="flex:1">
+        <div style="font-size:20px;font-weight:700;color:var(--g900)">${techName}</div>
+        <div style="font-size:13px;color:var(--g500);margin-top:2px">Technician · ${hubName}</div>
+        ${userRow?.phone ? `<div style="font-size:12px;color:var(--g400);margin-top:2px">📞 ${userRow.phone}</div>` : ''}
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:28px;font-weight:700;color:${prodColor}">${prodPct}%</div>
+        <div style="font-size:11px;color:var(--g400)">Productivity</div>
+      </div>
+    </div>
+
+    <!-- Stats grid -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px">
+      <div class="card" style="padding:14px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:var(--blue)">${totalAssigned}</div>
+        <div style="font-size:11px;color:var(--g500)">Jobs Assigned</div>
+      </div>
+      <div class="card" style="padding:14px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:var(--green)">${totalDone}</div>
+        <div style="font-size:11px;color:var(--g500)">Completed</div>
+      </div>
+      <div class="card" style="padding:14px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:var(--g700)">${completionRate}%</div>
+        <div style="font-size:11px;color:var(--g500)">Completion Rate</div>
+      </div>
+      <div class="card" style="padding:14px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:var(--g700)">${avgMins?avgMins+'m':'—'}</div>
+        <div style="font-size:11px;color:var(--g500)">Avg Min/Job</div>
+      </div>
+      <div class="card" style="padding:14px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:var(--blue)">${inProgress}</div>
+        <div style="font-size:11px;color:var(--g500)">In Progress</div>
+      </div>
+      <div class="card" style="padding:14px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#f59e0b">${openJobs}</div>
+        <div style="font-size:11px;color:var(--g500)">Open Jobs</div>
+      </div>
+    </div>
+
+    <!-- This month attendance -->
+    <div class="card" style="padding:16px;margin-bottom:16px">
+      <div style="font-size:14px;font-weight:600;color:var(--g700);margin-bottom:12px">
+        Attendance — ${new Date(yr,mo-1,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'})}
+      </div>
+      <div style="display:flex;gap:16px;margin-bottom:14px;flex-wrap:wrap">
+        <div style="text-align:center"><div style="font-size:20px;font-weight:700;color:#166534">${presentDays}</div><div style="font-size:11px;color:var(--g400)">Present</div></div>
+        <div style="text-align:center"><div style="font-size:20px;font-weight:700;color:#92400e">${halfDays}</div><div style="font-size:11px;color:var(--g400)">Half Day</div></div>
+        <div style="text-align:center"><div style="font-size:20px;font-weight:700;color:#991b1b">${absentDays}</div><div style="font-size:11px;color:var(--g400)">Absent</div></div>
+        <div style="text-align:center"><div style="font-size:20px;font-weight:700;color:#6b21a8">${woCount}</div><div style="font-size:11px;color:var(--g400)">Week Off</div></div>
+        <div style="text-align:center"><div style="font-size:20px;font-weight:700;color:var(--blue)">${attPct}%</div><div style="font-size:11px;color:var(--g400)">Att. Rate</div></div>
+        <div style="text-align:center"><div style="font-size:20px;font-weight:700;color:var(--g700)">${avgHrsDay}h</div><div style="font-size:11px;color:var(--g400)">Avg Hrs/Day</div></div>
+      </div>
+      <!-- Mini calendar -->
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;font-size:10px">
+        ${dayNames.map(d=>`<div style="text-align:center;font-weight:600;color:var(--g400);padding:2px 0">${d}</div>`).join('')}
+        ${(() => {
+          const firstDay = new Date(yr,mo-1,1).getDay();
+          const cells = [];
+          for(let i=0;i<firstDay;i++) cells.push(`<div></div>`);
+          days.forEach(d=>{
+            const dk = `${yr}-${moStr}-${String(d).padStart(2,'0')}`;
+            const s  = attMap[dk];
+            const isToday = dk === today.toISOString().slice(0,10);
+            cells.push(`<div style="text-align:center;padding:3px 1px;border-radius:4px;background:${s?cellColor(s):'transparent'};color:${s?cellTColor(s):'var(--g300)'};font-weight:${s?'600':'400'};border:${isToday?'1.5px solid var(--blue)':'1px solid transparent'}">
+              ${d}${s?'<br><span style="font-size:8px">'+cellText(s)+'</span>':''}
+            </div>`);
+          });
+          return cells.join('');
+        })()}
+      </div>
+    </div>
+
+    <!-- Recent jobs -->
+    <div class="card" style="padding:16px">
+      <div style="font-size:14px;font-weight:600;color:var(--g700);margin-bottom:12px">Recent Jobs (Last 5)</div>
+      ${recent.length===0 ? '<div style="color:var(--g400);font-size:13px">No jobs yet</div>' :
+        `<div class="tw"><table>
+          <thead><tr><th>Vehicle</th><th>Issue</th><th>Type</th><th>Status</th><th>Time</th><th>Assigned</th></tr></thead>
+          <tbody>${recent.map(j=>{
+            const sc = j.status==='Done'?'b-done':j.status==='In Progress'?'b-inprog':'b-open';
+            const mins = j.time_taken_min ? (j.time_taken_min>=60?Math.floor(j.time_taken_min/60)+'h '+Math.round(j.time_taken_min%60)+'m':j.time_taken_min+'m') : '—';
+            return `<tr>
+              <td class="mono" style="font-size:12px;font-weight:600">${j.vehicle_reg||'—'}</td>
+              <td style="font-size:12px;max-width:160px">${j.issue||'—'}</td>
+              <td style="font-size:11px;color:var(--g500)">${j.wo_type==='oos'?'OOS':'Running'}</td>
+              <td><span class="badge ${sc}" style="font-size:10px">${j.status}</span></td>
+              <td style="font-size:11px;color:var(--g500)">${mins}</td>
+              <td style="font-size:11px;color:var(--g500)">${j.assigned_at?new Date(j.assigned_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short'}):'—'}</td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table></div>`}
+    </div>`;
 }
 
 async function loadProductivity(role) {
