@@ -2838,6 +2838,7 @@ async function loadAllDraftJC() {
 // ─ WORK ORDER PAGE (Hub Manager) — with JC Details ─────────────────────
 async function renderWorkOrdersAsync() {
   const myHub = state.hub;
+  const role  = state.user?.role;
   if (!myHub) return '<div class="empty-state">No hub selected. Please log out and log in again.</div>';
   // Always reload attendance fresh — techs may have checked in after SM logged in
   await loadAttendanceForHub(state.hubId);
