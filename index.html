@@ -1711,21 +1711,58 @@ function smAttTabs() {
 
 function renderSmAttendanceWithTabs() {
   const smTab = _smAttTab || 'my-attendance';
+  // Build page header
   const pageHd = `<div class="page-hd">
     <div class="page-hd-text"><div class="page-title">Attendance</div><div class="page-sub">${state.hub} — ${dateShort()}</div></div>
     <button class="btn-refresh" onclick="refreshPage('attendance')" title="Refresh">
       <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
     </button>
+  </div>` + smAttTabs();
+
+  if (smTab === 'my-attendance') return pageHd + renderMyAttendanceBody();
+  if (smTab === 'today')         return pageHd + renderAttendanceBody();
+  return pageHd;
+}
+
+function renderMyAttendanceBody() {
+  const checked    = !!state.myCheckin;
+  const checkedOut = !!state.myCheckout;
+  const now = new Date();
+  const cutoff = !TEST_MOBILES.includes(state.user?.mobile) && (now.getHours() > CHECKIN_CUTOFF_HOUR || (now.getHours()===CHECKIN_CUTOFF_HOUR && now.getMinutes()>=CHECKIN_CUTOFF_MIN));
+
+  return `<div class="att-card">
+    <div class="att-time-lbl">CURRENT TIME</div>
+    <div class="att-time" id="att-clock"></div>
+    <div class="att-date">${new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</div>
+    <div class="att-ci-row">
+      <div class="ci-item"><div class="ci-lbl">Check-in</div><div class="ci-val ${(state.hub1CheckIn||state.myCheckin)?'':'empty'}">${state.hub1CheckIn||state.myCheckin||'--:--'}</div></div>
+      <div class="ci-item"><div class="ci-lbl">Check-out</div><div class="ci-val ${state.myCheckout?'':'empty'}">${state.myCheckout||'--:--'}</div></div>
+    </div>
+    <div id="att-status-msg"></div>
+    ${!state.hub
+      ? `<div class="alert al-error" style="max-width:360px;margin:12px auto;text-align:center"><strong>No hub selected.</strong><br>Please log out and select a hub before checking in.</div>`
+      : checked && checkedOut
+        ? `<div style="margin-bottom:12px"><svg width="56" height="56" viewBox="0 0 56 56" fill="none"><circle cx="28" cy="28" r="28" fill="#e6f7f2"/><circle cx="28" cy="28" r="22" fill="#0f9e6e"/><polyline points="18,28 25,35 38,21" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+           <span class="badge b-done" style="font-size:14px;padding:8px 20px">Attendance complete</span>
+           ${state.hub1?`<div style="font-size:12px;color:var(--g500);margin-top:8px"><div>🏢 <strong>${state.hub1}</strong>: ${state.hub1CheckIn||'—'} → ${state.hub1CheckOut||'—'}</div><div>🏢 <strong>${state.hub2}</strong>: ${state.hub2CheckIn||'—'} → ${state.myCheckout||'—'}</div></div>`:`<div style="font-size:13px;color:var(--g500);margin-top:8px">${state.myCheckin} → ${state.myCheckout}</div>`}`
+        : checked && !checkedOut
+          ? `<div style="margin-bottom:10px"><span class="badge b-present" style="font-size:13px;padding:6px 16px">✓ ${state.hub1||state.hub} — checked in at ${state.hub1CheckIn||state.myCheckin}</span></div>
+             <div style="font-size:13px;color:var(--blue);margin-bottom:12px">Working: <span class="mono" style="font-weight:700" id="duration-timer">00:00:00</span></div>
+             <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:4px">
+               <button class="btn btn-red" id="btn-checkout" style="padding:13px 28px;font-size:15px;border-radius:12px;display:flex;align-items:center;gap:8px" onclick="doGeoCheckin('checkout')">
+                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                 Check Out</button>
+               ${!state.hub2?`<button class="btn btn-outline" style="padding:13px 28px;font-size:15px;border-radius:12px" onclick="showChangeHubModal()">Change Hub</button>`:''}
+             </div>
+             ${state.hub2?`<div style="font-size:12px;color:var(--blue);margin-top:6px">Hub 2: <strong>${state.hub2}</strong> — in at <strong>${state.hub2CheckIn||'—'}</strong></div>`:''}
+             <div style="font-size:12px;color:var(--g400);margin-top:8px">Total: ${calcTotalHours()}</div>`
+          : cutoff
+            ? `<div class="alert al-error" style="max-width:320px;margin:0 auto;text-align:center;line-height:1.6">Check-in is not allowed after 1:30 PM.</div>`
+            : `<button class="btn btn-green" id="btn-checkin" style="padding:14px 40px;font-size:16px;border-radius:12px;min-width:180px;display:flex;align-items:center;gap:10px;margin:0 auto" onclick="doGeoCheckin('checkin')">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+                Check In</button>
+               <div style="font-size:12px;color:var(--g400);margin-top:10px">Tap to check in — location verified automatically</div>`}
   </div>`;
-  if (smTab === 'my-attendance') {
-    // Reuse renderMyAttendance but strip its page-hd and add our tabs
-    const inner = renderMyAttendance().replace(/^[\s\S]*?<\/div>\s*<\/div>\s*<\/div>/, '').trim();
-    return pageHd + smAttTabs() + inner;
-  }
-  if (smTab === 'today') {
-    return pageHd + smAttTabs() + renderAttendanceBody();
-  }
-  return pageHd + smAttTabs();
 }
 
 function renderAttendanceBody() {
