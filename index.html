@@ -1136,7 +1136,6 @@ function doLogout() {
 // ─ NAV ─
 const MGR_NAV = [
   {id:'dashboard',      lbl:'Home',      ic:'grid'},
-  {id:'my-attendance',  lbl:'My Attendance',  ic:'clock'},
   {id:'attendance',     lbl:'Attendance',     ic:'users'},
   {id:'productivity',   lbl:'Productivity',   ic:'bar-chart'},
   {id:'workorders',     lbl:'Work Orders',    ic:'clipboard'},
@@ -1352,12 +1351,22 @@ function navigate(page) {
     return;
   }
   // My Attendance only for tech and SM
+  if (page==='my-attendance' && role==='hub_manager') {
+    _smAttTab='my-attendance'; localStorage.setItem('sm_att_tab','my-attendance');
+    navigate('attendance'); return;
+  }
   if (page==='my-attendance' && role!=='technician' && role!=='hub_manager') {
     navigate('dashboard'); return;
   }
-  // SM attendance — reload fresh before rendering
-  if (page==='attendance' && role==='hub_manager' && state.hubId) {
-    if (_attTab==='calendar') {
+  // SM attendance — 3 sub-tabs
+  if (page==='attendance' && role==='hub_manager') {
+    const _st = _smAttTab || 'my-attendance';
+    if (_st === 'my-attendance') {
+      c.innerHTML = renderMyAttendance();
+      injectSmTabBar('my-attendance');
+      startDurationTimer(); startClock(); return;
+    }
+    if (_st === 'calendar') {
       // Render calendar sub-tab directly
       const subTabsHtml = `<div class="page-hd">
         <div class="page-hd-text"><div class="page-title">Attendance</div><div class="page-sub">${state.hub}</div></div>
@@ -1379,19 +1388,13 @@ function navigate(page) {
           document.getElementById('content').innerHTML = `<div style="padding:40px;color:var(--red);font-size:13px">Calendar error: ${err.message}<br><pre>${err.stack||''}</pre></div>`;
         }
       })();
-    } else {
-      c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading attendance...</div>';
-      (async () => {
-        await loadAttendanceForHub(state.hubId);
-        if (currentPage===page) {
-      c.innerHTML = renderAttendance();
-      if (window._myAttTab==='month') {
-        const el = document.getElementById('tech-cal-inner');
-        if (el) loadAttCalendar(role).then(html=>{ if(currentPage===page) c.innerHTML=html; });
-      }
     }
-      })();
-    }
+    // 'today' tab
+    c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading...</div>';
+    (async () => {
+      if (state.hubId) await loadAttendanceForHub(state.hubId);
+      if (currentPage===page) { c.innerHTML = renderAttendance(); injectSmTabBar('today'); }
+    })();
     return;
   }
   // SM dashboard — reload attendance fresh before rendering
@@ -1471,6 +1474,21 @@ function calcDuration(checkinStr, checkedOut) {
 }
 
 let _durationTimer = null;
+
+function injectSmTabBar(active) {
+  const t = active || _smAttTab || 'my-attendance';
+  const bar = document.createElement('div');
+  bar.style.cssText = 'display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--g100);padding-bottom:0';
+  [['my-attendance','My Attendance'],['today','Today'],['calendar','Calendar']].forEach(([id,lbl])=>{
+    const btn = document.createElement('button');
+    btn.textContent = lbl;
+    btn.style.cssText = `padding:8px 16px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;margin-bottom:-2px;border-bottom:2px solid ${t===id?'var(--blue)':'transparent'};color:${t===id?'var(--blue)':'var(--g500)'}`;
+    btn.onclick = () => { _smAttTab=id; localStorage.setItem('sm_att_tab',id); navigate('attendance'); };
+    bar.appendChild(btn);
+  });
+  const pageHd = document.querySelector('#content .page-hd');
+  if (pageHd) pageHd.insertAdjacentElement('afterend', bar);
+}
 function calcTotalHours() {
   const hub1Mins = calcHub1Mins();
   const p = s => {
@@ -4034,7 +4052,8 @@ async function getHubsForCity(cityName) { return getHubsForCitySync(cityName); }
 // ─ AREA MANAGER ATTENDANCE WITH HUB FILTER ───────────────────────────────
 let _areaAttHub    = '';
 let _calMonth      = new Date().toISOString().slice(0,7); // YYYY-MM
-let _attTab        = localStorage.getItem('att_tab') || 'today'; // 'today' | 'calendar'
+let _attTab    = localStorage.getItem('att_tab') || 'today';
+let _smAttTab  = localStorage.getItem('sm_att_tab') || 'my-attendance'; // 'today' | 'calendar'
 let _prodDateFrom  = new Date(Date.now()-30*86400000).toISOString().slice(0,10);
 let _prodDateTo    = new Date().toISOString().slice(0,10);
 let _prodHub       = '';
