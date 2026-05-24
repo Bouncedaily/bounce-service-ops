@@ -1136,6 +1136,7 @@ function doLogout() {
 // ─ NAV ─
 const MGR_NAV = [
   {id:'dashboard',      lbl:'Home',      ic:'grid'},
+  {id:'my-attendance',  lbl:'My Attendance',  ic:'clock'},
   {id:'attendance',     lbl:'Attendance',     ic:'users'},
   {id:'productivity',   lbl:'Productivity',   ic:'bar-chart'},
   {id:'workorders',     lbl:'Work Orders',    ic:'clipboard'},
@@ -1154,7 +1155,7 @@ const HEAD_NAV = [
   {id:'workorders',lbl:'Work Orders', ic:'clipboard'},
 ];
 const TECH_NAV = [
-  {id:'my-attendance', lbl:'My Attendance', ic:'clock'},
+  {id:'my-attendance',lbl:'My Attendance',ic:'clock'},
   {id:'my-jobs',      lbl:'My Jobs',      ic:'tool'},
   {id:'tech-profile', lbl:'My Profile',   ic:'user'},
 ];
@@ -1351,55 +1352,50 @@ function navigate(page) {
     return;
   }
   // My Attendance only for tech and SM
-  // Tech attendance — merged into Attendance tab with Today/Calendar sub-tabs
-  if (page==='attendance' && role==='technician') {
-    if (_attTab==='calendar') {
-      c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading calendar...</div>';
-      (async()=>{
-        try {
-          const html = await loadAttCalendar(role);
-          document.getElementById('content').innerHTML = html;
-        } catch(e) { document.getElementById('content').innerHTML = `<div style="padding:40px;color:var(--red)">Error: ${e.message}</div>`; }
-      })();
-    } else {
-      c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading...</div>';
-      (async()=>{
-        if (state.hubId) await loadAttendanceForHub(state.hubId);
-        if (currentPage===page) c.innerHTML = renderMyAttendance();
-      })();
-    }
-    return;
-  }
-  if (page==='my-attendance' && role==='hub_manager') { _smAttTab='my-attendance'; navigate('attendance'); return; }
   if (page==='my-attendance' && role!=='technician' && role!=='hub_manager') {
     navigate('dashboard'); return;
   }
   // SM attendance — reload fresh before rendering
-  // SM attendance — 3 sub-tabs: My Attendance | Today | Calendar
-  if (page==='attendance' && role==='hub_manager') {
-    const smTab = _smAttTab || 'my-attendance';
-    if (smTab === 'calendar') {
-      c.innerHTML = '<div style="padding:20px;text-align:center;color:var(--g400)">Loading calendar...</div>';
+  if (page==='attendance' && role==='hub_manager' && state.hubId) {
+    if (_attTab==='calendar') {
+      // Render calendar sub-tab directly
+      const subTabsHtml = `<div class="page-hd">
+        <div class="page-hd-text"><div class="page-title">Attendance</div><div class="page-sub">${state.hub}</div></div>
+        <button class="btn-refresh" onclick="refreshPage('attendance')" title="Refresh">
+          <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+        </button>
+      </div>
+      <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--g100);padding-bottom:0">
+        <button onclick="_attTab='today';localStorage.setItem('att_tab','today');navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid transparent;color:var(--g500);margin-bottom:-2px">Today</button>
+        <button onclick="_attTab='calendar';localStorage.setItem('att_tab','calendar');navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid var(--blue);color:var(--blue);margin-bottom:-2px">Calendar</button>
+      </div>
+      <div id="att-sm-cal" style="padding:20px;text-align:center;color:var(--g400)">Loading calendar...</div>`;
+      c.innerHTML = subTabsHtml;
       (async () => {
         try {
           const html = await loadAttCalendar(role);
-          document.getElementById('content').innerHTML = html;
+          document.getElementById('content').innerHTML = html || '<div style="padding:40px;color:red">Empty result</div>';
         } catch(err) {
-          document.getElementById('content').innerHTML = `<div style="padding:40px;color:var(--red)">Calendar error: ${err.message}</div>`;
+          document.getElementById('content').innerHTML = `<div style="padding:40px;color:var(--red);font-size:13px">Calendar error: ${err.message}<br><pre>${err.stack||''}</pre></div>`;
         }
       })();
-    } else if (smTab === 'today') {
-      c.innerHTML = '<div style="padding:20px;text-align:center;color:var(--g400)">Loading attendance...</div>';
-      (async()=>{
-        if (state.hubId) await loadAttendanceForHub(state.hubId);
-        if (currentPage===page) c.innerHTML = renderSmAttendanceWithTabs();
-      })();
     } else {
-      // My Attendance — SM own check-in
-      c.innerHTML = renderSmAttendanceWithTabs();
+      c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading attendance...</div>';
+      (async () => {
+        await loadAttendanceForHub(state.hubId);
+        if (currentPage===page) {
+      c.innerHTML = renderAttendance();
+      if (window._myAttTab==='month') {
+        const el = document.getElementById('tech-cal-inner');
+        if (el) loadAttCalendar(role).then(html=>{ if(currentPage===page) c.innerHTML=html; });
+      }
+    }
+      })();
     }
     return;
   }
+  // SM dashboard — reload attendance fresh before rendering
+  if (page==='dashboard' && role==='hub_manager' && state.hubId) {
     c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading...</div>';
     (async () => {
       await loadAttendanceForHub(state.hubId);
@@ -1672,7 +1668,7 @@ function renderDashboard() {
       </div>`).join('')}
     </div>` : ''}
     <div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">Technician snapshot</div>
-    ${snapEntries.length===0
+    ${_attTab==='calendar' ? '<div id="att-wide-cal"><div style=\"padding:20px;text-align:center;color:var(--g400)\">Loading calendar...</div></div>' : snapEntries.length===0
       ? `<div class="empty-state" style="padding:32px 20px">
             <div style="font-size:32px;margin-bottom:12px">👋</div>
             <div style="font-weight:600;margin-bottom:6px;color:var(--g700)">No check-ins yet today</div>
@@ -1695,110 +1691,6 @@ function renderDashboard() {
             </tr>`;
           }).join('')}</tbody>
         </table></div>`}`;
-}
-
-function smAttTabs() {
-  const t = _smAttTab || 'my-attendance';
-  const tab = (id, lbl) => `<button
-    onclick="_smAttTab='${id}';localStorage.setItem('sm_att_tab','${id}');navigate('attendance')"
-    style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${t===id?'var(--blue)':'transparent'};color:${t===id?'var(--blue)':'var(--g500)'};margin-bottom:-2px">${lbl}</button>`;
-  return `<div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--g100);padding-bottom:0">
-    ${tab('my-attendance','My Attendance')}
-    ${tab('today','Today')}
-    ${tab('calendar','Calendar')}
-  </div>`;
-}
-
-function renderSmAttendanceWithTabs() {
-  const smTab = _smAttTab || 'my-attendance';
-  // Build page header
-  const pageHd = `<div class="page-hd">
-    <div class="page-hd-text"><div class="page-title">Attendance</div><div class="page-sub">${state.hub} — ${dateShort()}</div></div>
-    <button class="btn-refresh" onclick="refreshPage('attendance')" title="Refresh">
-      <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
-    </button>
-  </div>` + smAttTabs();
-
-  if (smTab === 'my-attendance') return pageHd + renderMyAttendanceBody();
-  if (smTab === 'today')         return pageHd + renderAttendanceBody();
-  return pageHd;
-}
-
-function renderMyAttendanceBody() {
-  const checked    = !!state.myCheckin;
-  const checkedOut = !!state.myCheckout;
-  const now = new Date();
-  const cutoff = !TEST_MOBILES.includes(state.user?.mobile) && (now.getHours() > CHECKIN_CUTOFF_HOUR || (now.getHours()===CHECKIN_CUTOFF_HOUR && now.getMinutes()>=CHECKIN_CUTOFF_MIN));
-
-  return `<div class="att-card">
-    <div class="att-time-lbl">CURRENT TIME</div>
-    <div class="att-time" id="att-clock"></div>
-    <div class="att-date">${new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</div>
-    <div class="att-ci-row">
-      <div class="ci-item"><div class="ci-lbl">Check-in</div><div class="ci-val ${(state.hub1CheckIn||state.myCheckin)?'':'empty'}">${state.hub1CheckIn||state.myCheckin||'--:--'}</div></div>
-      <div class="ci-item"><div class="ci-lbl">Check-out</div><div class="ci-val ${state.myCheckout?'':'empty'}">${state.myCheckout||'--:--'}</div></div>
-    </div>
-    <div id="att-status-msg"></div>
-    ${!state.hub
-      ? `<div class="alert al-error" style="max-width:360px;margin:12px auto;text-align:center"><strong>No hub selected.</strong><br>Please log out and select a hub before checking in.</div>`
-      : checked && checkedOut
-        ? `<div style="margin-bottom:12px"><svg width="56" height="56" viewBox="0 0 56 56" fill="none"><circle cx="28" cy="28" r="28" fill="#e6f7f2"/><circle cx="28" cy="28" r="22" fill="#0f9e6e"/><polyline points="18,28 25,35 38,21" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-           <span class="badge b-done" style="font-size:14px;padding:8px 20px">Attendance complete</span>
-           ${state.hub1?`<div style="font-size:12px;color:var(--g500);margin-top:8px"><div>🏢 <strong>${state.hub1}</strong>: ${state.hub1CheckIn||'—'} → ${state.hub1CheckOut||'—'}</div><div>🏢 <strong>${state.hub2}</strong>: ${state.hub2CheckIn||'—'} → ${state.myCheckout||'—'}</div></div>`:`<div style="font-size:13px;color:var(--g500);margin-top:8px">${state.myCheckin} → ${state.myCheckout}</div>`}`
-        : checked && !checkedOut
-          ? `<div style="margin-bottom:10px"><span class="badge b-present" style="font-size:13px;padding:6px 16px">✓ ${state.hub1||state.hub} — checked in at ${state.hub1CheckIn||state.myCheckin}</span></div>
-             <div style="font-size:13px;color:var(--blue);margin-bottom:12px">Working: <span class="mono" style="font-weight:700" id="duration-timer">00:00:00</span></div>
-             <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:4px">
-               <button class="btn btn-red" id="btn-checkout" style="padding:13px 28px;font-size:15px;border-radius:12px;display:flex;align-items:center;gap:8px" onclick="doGeoCheckin('checkout')">
-                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-                 Check Out</button>
-               ${!state.hub2?`<button class="btn btn-outline" style="padding:13px 28px;font-size:15px;border-radius:12px" onclick="showChangeHubModal()">Change Hub</button>`:''}
-             </div>
-             ${state.hub2?`<div style="font-size:12px;color:var(--blue);margin-top:6px">Hub 2: <strong>${state.hub2}</strong> — in at <strong>${state.hub2CheckIn||'—'}</strong></div>`:''}
-             <div style="font-size:12px;color:var(--g400);margin-top:8px">Total: ${calcTotalHours()}</div>`
-          : cutoff
-            ? `<div class="alert al-error" style="max-width:320px;margin:0 auto;text-align:center;line-height:1.6">Check-in is not allowed after 1:30 PM.</div>`
-            : `<button class="btn btn-green" id="btn-checkin" style="padding:14px 40px;font-size:16px;border-radius:12px;min-width:180px;display:flex;align-items:center;gap:10px;margin:0 auto" onclick="doGeoCheckin('checkin')">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
-                Check In</button>
-               <div style="font-size:12px;color:var(--g400);margin-top:10px">Tap to check in — location verified automatically</div>`}
-  </div>`;
-}
-
-function renderAttendanceBody() {
-  // Just the body of renderAttendance (no page-hd)
-  const myHub = state.hub;
-  const allTechs = Object.entries(state.attendance).map(([name, a]) => ({
-    name, att: a, userId: ALL_USERS.find(u=>u.name===name)?.id || null
-  }));
-  const presentTechs = allTechs.filter(({att}) => att.status==='present');
-  const absentTechs  = allTechs.filter(({att}) => att.status==='absent' || att.status==='week_off');
-  return (allTechs.length===0 ? `<div class="empty-state" style="margin-top:40px">No attendance records for ${myHub} today.</div>` : `
-    ${presentTechs.length ? `
-    <div style="font-size:13px;font-weight:600;color:var(--g500);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Present — ${presentTechs.length}</div>
-    <div class="tw" style="margin-bottom:24px"><table>
-      <thead><tr><th>Technician</th><th>Check-in</th><th>Check-out</th><th>Approval</th></tr></thead>
-      <tbody>${presentTechs.map(({name:t,att:a})=>{
-        const ap=a.approval;
-        return `<tr>
-          <td><strong>${t}</strong></td>
-          <td class="mono" style="font-size:12px">${a.checkin||'—'}</td>
-          <td class="mono" style="font-size:12px">${a.checkout||'—'}</td>
-          <td>${ap==='approved'?`<span class="badge b-present" style="font-size:11px">✓ Approved</span>`:ap==='denied'?`<span class="badge b-absent" style="font-size:11px">✗ Denied</span>`:`<div style="display:flex;gap:6px"><button class="btn btn-green btn-sm" style="padding:4px 10px;font-size:11px" onclick="approveAtt('${t}','approved')">Approve</button><button class="btn btn-red btn-sm" style="padding:4px 10px;font-size:11px" onclick="approveAtt('${t}','denied')">Deny</button></div>`}</td>
-        </tr>`;}).join('')}</tbody>
-    </table></div>` : ''}
-    ${absentTechs.length ? `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-      <div style="font-size:13px;font-weight:600;color:var(--g500);text-transform:uppercase;letter-spacing:.05em">Absent — ${absentTechs.length}</div>
-      <div style="font-size:11px;color:var(--g400)">Week off allowance: <strong>${_woPerWeekLimit}/week</strong></div>
-    </div>
-    <div class="tw"><table>
-      <thead><tr><th>Technician</th><th>Status</th></tr></thead>
-      <tbody>${absentTechs.map(({name:t,att:a})=>{
-        const isWO=a.status==='week_off';
-        return `<tr><td><strong>${t}</strong></td><td><span class="badge ${isWO?'b-leave':'b-absent'}" style="font-size:11px">${isWO?'Week Off':'Absent'}</span></td></tr>`;
-      }).join('')}</tbody>
-    </table></div>` : ''}`);
 }
 
 function renderAttendance() {
@@ -2355,10 +2247,11 @@ function renderMyAttendance() {
            `}
     </div>
     <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:2px solid var(--g100);padding-bottom:0">
-      <button onclick="_attTab='today';localStorage.setItem('att_tab','today');navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${_attTab==='today'?'var(--blue)':'transparent'};color:${_attTab==='today'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Today</button>
-      <button onclick="_attTab='calendar';localStorage.setItem('att_tab','calendar');navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${_attTab==='calendar'?'var(--blue)':'transparent'};color:${_attTab==='calendar'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Calendar</button>
+      <button onclick="window._myAttTab='today';navigate('my-attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${(window._myAttTab||'today')==='today'?'var(--blue)':'transparent'};color:${(window._myAttTab||'today')==='today'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Today</button>
+      <button onclick="window._myAttTab='month';navigate('my-attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${(window._myAttTab||'today')==='month'?'var(--blue)':'transparent'};color:${(window._myAttTab||'today')==='month'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">This Month</button>
     </div>
-    <div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">This week</div>
+    ${(window._myAttTab||'today')==='month' ? `<div id="tech-cal-inner" style="padding:20px;text-align:center;color:var(--g400)">Loading...</div>` : ''}
+    ${(window._myAttTab||'today')!=='month' ? `<div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">This week</div>` : ''}
     <div class="tw"><table>
       <thead><tr><th>Day</th><th>Hub</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Hours</th></tr></thead>
       <tbody>${wk.map(r=>{
@@ -4142,7 +4035,6 @@ async function getHubsForCity(cityName) { return getHubsForCitySync(cityName); }
 let _areaAttHub    = '';
 let _calMonth      = new Date().toISOString().slice(0,7); // YYYY-MM
 let _attTab        = localStorage.getItem('att_tab') || 'today'; // 'today' | 'calendar'
-let _smAttTab      = localStorage.getItem('sm_att_tab') || 'my-attendance'; // 'my-attendance' | 'today' | 'calendar'
 let _prodDateFrom  = new Date(Date.now()-30*86400000).toISOString().slice(0,10);
 let _prodDateTo    = new Date().toISOString().slice(0,10);
 let _prodHub       = '';
