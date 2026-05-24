@@ -1136,7 +1136,6 @@ function doLogout() {
 // ─ NAV ─
 const MGR_NAV = [
   {id:'dashboard',      lbl:'Home',      ic:'grid'},
-  {id:'my-attendance',  lbl:'My Attendance',  ic:'clock'},
   {id:'attendance',     lbl:'Attendance',     ic:'users'},
   {id:'productivity',   lbl:'Productivity',   ic:'bar-chart'},
   {id:'workorders',     lbl:'Work Orders',    ic:'clipboard'},
@@ -1352,44 +1351,34 @@ function navigate(page) {
     return;
   }
   // My Attendance only for tech and SM
+  if (page==='my-attendance' && role==='hub_manager') {
+    _smAttTab='my-attendance'; navigate('attendance'); return;
+  }
   if (page==='my-attendance' && role!=='technician' && role!=='hub_manager') {
     navigate('dashboard'); return;
   }
-  // SM attendance — reload fresh before rendering
-  if (page==='attendance' && role==='hub_manager' && state.hubId) {
-    if (_attTab==='calendar') {
-      // Render calendar sub-tab directly
-      const subTabsHtml = `<div class="page-hd">
-        <div class="page-hd-text"><div class="page-title">Attendance</div><div class="page-sub">${state.hub}</div></div>
-        <button class="btn-refresh" onclick="refreshPage('attendance')" title="Refresh">
-          <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
-        </button>
-      </div>
-      <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--g100);padding-bottom:0">
-        <button onclick="_attTab='today';localStorage.setItem('att_tab','today');navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid transparent;color:var(--g500);margin-bottom:-2px">Today</button>
-        <button onclick="_attTab='calendar';localStorage.setItem('att_tab','calendar');navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid var(--blue);color:var(--blue);margin-bottom:-2px">Calendar</button>
-      </div>
-      <div id="att-sm-cal" style="padding:20px;text-align:center;color:var(--g400)">Loading calendar...</div>`;
-      c.innerHTML = subTabsHtml;
-      (async () => {
-        try {
-          const html = await loadAttCalendar(role);
-          document.getElementById('content').innerHTML = html || '<div style="padding:40px;color:red">Empty result</div>';
-        } catch(err) {
-          document.getElementById('content').innerHTML = `<div style="padding:40px;color:var(--red);font-size:13px">Calendar error: ${err.message}<br><pre>${err.stack||''}</pre></div>`;
-        }
+  // SM attendance — 3 sub-tabs handled here
+  if (page==='attendance' && role==='hub_manager') {
+    const smTab = _smAttTab || 'my-attendance';
+    const smTabBar = `<div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--g100);padding-bottom:0">
+      <button onclick="_smAttTab='my-attendance';localStorage.setItem('sm_att_tab','my-attendance');navigate('attendance')" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${smTab==='my-attendance'?'var(--blue)':'transparent'};color:${smTab==='my-attendance'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">My Attendance</button>
+      <button onclick="_smAttTab='today';localStorage.setItem('sm_att_tab','today');navigate('attendance')" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${smTab==='today'?'var(--blue)':'transparent'};color:${smTab==='today'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Today</button>
+      <button onclick="_smAttTab='calendar';localStorage.setItem('sm_att_tab','calendar');navigate('attendance')" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${smTab==='calendar'?'var(--blue)':'transparent'};color:${smTab==='calendar'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Calendar</button>
+    </div>`;
+    if (smTab === 'my-attendance') {
+      c.innerHTML = renderMyAttendance().replace('</div>', '</div>' + smTabBar, 1);
+      startDurationTimer(); startClock();
+    } else if (smTab === 'calendar') {
+      c.innerHTML = `<div class="page-hd"><div class="page-hd-text"><div class="page-title">Attendance</div><div class="page-sub">${state.hub}</div></div></div>${smTabBar}`;
+      (async()=>{
+        try { const html = await loadAttCalendar(role); document.getElementById('content').innerHTML = html; }
+        catch(e) { document.getElementById('content').innerHTML = `<div style="padding:40px;color:var(--red)">Error: ${e.message}</div>`; }
       })();
     } else {
-      c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading attendance...</div>';
-      (async () => {
-        await loadAttendanceForHub(state.hubId);
-        if (currentPage===page) {
-      c.innerHTML = renderAttendance();
-      if (window._myAttTab==='month') {
-        const el = document.getElementById('tech-cal-inner');
-        if (el) loadAttCalendar(role).then(html=>{ if(currentPage===page) c.innerHTML=html; });
-      }
-    }
+      c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading...</div>';
+      (async()=>{
+        if (state.hubId) await loadAttendanceForHub(state.hubId);
+        if (currentPage===page) c.innerHTML = `<div class="page-hd"><div class="page-hd-text"><div class="page-title">Attendance</div><div class="page-sub">${state.hub} — ${dateShort()}</div></div><button class="btn-refresh" onclick="refreshPage('attendance')" title="Refresh"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg></button></div>` + smTabBar + renderAttendanceBody();
       })();
     }
     return;
@@ -1691,6 +1680,35 @@ function renderDashboard() {
             </tr>`;
           }).join('')}</tbody>
         </table></div>`}`;
+}
+
+function renderAttendanceBody() {
+  const myHub   = state.hub;
+  const allTechs = Object.entries(state.attendance).map(([name, a]) => ({
+    name, att: a, userId: ALL_USERS.find(u=>u.name===name)?.id || null
+  }));
+  const presentTechs = allTechs.filter(({att}) => att.status==='present');
+  const absentTechs  = allTechs.filter(({att}) => att.status==='absent' || att.status==='week_off');
+  if (allTechs.length===0) return `<div class="empty-state" style="margin-top:20px">No attendance records for ${myHub} today.</div>`;
+  return (presentTechs.length ? `
+    <div style="font-size:13px;font-weight:600;color:var(--g500);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Present — ${presentTechs.length}</div>
+    <div class="tw" style="margin-bottom:24px"><table>
+      <thead><tr><th>Technician</th><th>Check-in</th><th>Check-out</th><th>Approval</th></tr></thead>
+      <tbody>${presentTechs.map(({name:t,att:a})=>{
+        const ap=a.approval;
+        return `<tr><td><strong>${t}</strong></td><td class="mono" style="font-size:12px">${a.checkin||'—'}</td><td class="mono" style="font-size:12px">${a.checkout||'—'}</td>
+        <td>${ap==='approved'?'<span class="badge b-present" style="font-size:11px">✓ Approved</span>':ap==='denied'?'<span class="badge b-absent" style="font-size:11px">✗ Denied</span>':`<div style="display:flex;gap:6px"><button class="btn btn-green btn-sm" style="padding:4px 10px;font-size:11px" onclick="approveAtt('${t}','approved')">Approve</button><button class="btn btn-red btn-sm" style="padding:4px 10px;font-size:11px" onclick="approveAtt('${t}','denied')">Deny</button></div>`}</td></tr>`;
+      }).join('')}</tbody>
+    </table></div>` : '') +
+  (absentTechs.length ? `
+    <div style="font-size:13px;font-weight:600;color:var(--g500);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Absent — ${absentTechs.length}</div>
+    <div class="tw"><table>
+      <thead><tr><th>Technician</th><th>Status</th></tr></thead>
+      <tbody>${absentTechs.map(({name:t,att:a})=>{
+        const isWO=a.status==='week_off';
+        return `<tr><td><strong>${t}</strong></td><td><span class="badge ${isWO?'b-leave':'b-absent'}" style="font-size:11px">${isWO?'Week Off':'Absent'}</span></td></tr>`;
+      }).join('')}</tbody>
+    </table></div>` : '');
 }
 
 function renderAttendance() {
@@ -4034,7 +4052,8 @@ async function getHubsForCity(cityName) { return getHubsForCitySync(cityName); }
 // ─ AREA MANAGER ATTENDANCE WITH HUB FILTER ───────────────────────────────
 let _areaAttHub    = '';
 let _calMonth      = new Date().toISOString().slice(0,7); // YYYY-MM
-let _attTab        = localStorage.getItem('att_tab') || 'today'; // 'today' | 'calendar'
+let _attTab    = localStorage.getItem('att_tab') || 'today';
+let _smAttTab  = localStorage.getItem('sm_att_tab') || 'my-attendance'; // 'today' | 'calendar'
 let _prodDateFrom  = new Date(Date.now()-30*86400000).toISOString().slice(0,10);
 let _prodDateTo    = new Date().toISOString().slice(0,10);
 let _prodHub       = '';
