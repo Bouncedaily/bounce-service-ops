@@ -3532,7 +3532,7 @@ async function loadTechProfile(techName, role) {
   const prodAvgMins  = prodTimed.length ? Math.round(prodTimed.reduce((s,j)=>s+j.time_taken_min,0)/prodTimed.length) : 0;
   const prodRate     = prodAssigned ? Math.round((prodDone/prodAssigned)*100) : 0;
 
-  const backBtn = isSelf ? '' : `<button class="btn btn-outline btn-sm" onclick="history.go(-1)||navigate('dashboard')" style="display:flex;align-items:center;gap:6px;font-size:12px">
+  const backBtn = isSelf ? '' : `<button class="btn btn-outline btn-sm" onclick="navigate('dashboard')" style="display:flex;align-items:center;gap:6px;font-size:12px">
     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg> Back
   </button>`;
 
