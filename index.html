@@ -337,6 +337,10 @@ tr:hover td{background:var(--g50)}
     <button class="btn-retake" id="pm-retake-btn" onclick="retakePhoto()">Retake</button>
   </div>
   <div id="pm-upload-status"></div>
+  <div id="pm-notes-wrap" style="display:none;margin:8px 0">
+    <textarea id="pm-notes" placeholder="Add completion notes (optional)... e.g. parts replaced, issues found" 
+      style="width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.1);color:white;font-size:13px;resize:none;height:70px;font-family:inherit"></textarea>
+  </div>
   <button class="btn-photo-done" id="pm-done-btn" onclick="finishPhotoSession()">✓ Upload &amp; Complete</button>
   <button style="margin-top:12px;background:none;border:none;color:rgba(255,255,255,.5);font-size:13px;cursor:pointer;font-family:inherit" onclick="cancelPhotoSession()">Cancel</button>
 </div>
@@ -1189,9 +1193,16 @@ function renderNav() {
   document.getElementById('sidebar').innerHTML = nav.map(n=>
     `<div class="si" id="si-${n.id}" onclick="navigate('${n.id}')">${ico(n.ic)} ${n.lbl}</div>`
   ).join('');
-  document.getElementById('bottom-nav').innerHTML = nav.map(n=>
-    `<button class="bnt" id="bt-${n.id}" onclick="navigate('${n.id}')">${ico(n.ic,22)}<span>${n.lbl}</span></button>`
-  ).join('');
+  const role = state.user?.role;
+  const newJobs = role==='technician'
+    ? (state.jobs||[]).filter(j=>j.status==='Open'&&!j._seen).length : 0;
+  document.getElementById('bottom-nav').innerHTML = nav.map(n=>{
+    const badge = (n.id==='my-jobs' && newJobs>0)
+      ? `<span style="position:absolute;top:2px;right:calc(50% - 18px);background:var(--red);color:white;font-size:9px;font-weight:700;border-radius:10px;padding:1px 4px;min-width:14px;text-align:center">${newJobs}</span>`
+      : '';
+    return `<button class="bnt" id="bt-${n.id}" style="position:relative" onclick="navigate('${n.id}');${n.id==='my-jobs'?'(state.jobs||[]).forEach(j=>j._seen=true);':''}">
+      ${ico(n.ic,22)}${badge}<span>${n.lbl}</span></button>`;
+  }).join('');
 }
 
 let _clockT = null;
@@ -1366,7 +1377,13 @@ function navigate(page) {
       c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading attendance...</div>';
       (async () => {
         await loadAttendanceForHub(state.hubId);
-        if (currentPage===page) c.innerHTML = renderAttendance();
+        if (currentPage===page) {
+      c.innerHTML = renderAttendance();
+      if (window._myAttTab==='month') {
+        const el = document.getElementById('tech-cal-inner');
+        if (el) loadAttCalendar(role).then(html=>{ if(currentPage===page) c.innerHTML=html; });
+      }
+    }
       })();
     }
     return;
@@ -2220,7 +2237,12 @@ function renderMyAttendance() {
            <div style="font-size:13px;color:var(--g500);margin-top:8px">${state.myCheckin} → ${state.myCheckout}</div>`}
            `}
     </div>
-    <div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">This week</div>
+    <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:2px solid var(--g100);padding-bottom:0">
+      <button onclick="window._myAttTab='today';navigate('my-attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${(window._myAttTab||'today')==='today'?'var(--blue)':'transparent'};color:${(window._myAttTab||'today')==='today'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Today</button>
+      <button onclick="window._myAttTab='month';navigate('my-attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${(window._myAttTab||'today')==='month'?'var(--blue)':'transparent'};color:${(window._myAttTab||'today')==='month'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">This Month</button>
+    </div>
+    ${(window._myAttTab||'today')==='month' ? `<div id="tech-cal-inner" style="padding:20px;text-align:center;color:var(--g400)">Loading...</div>` : ''}
+    ${(window._myAttTab||'today')!=='month' ? `<div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">This week</div>` : ''}
     <div class="tw"><table>
       <thead><tr><th>Day</th><th>Hub</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Hours</th></tr></thead>
       <tbody>${wk.map(r=>{
@@ -2651,6 +2673,8 @@ function checkAllCaptured() {
   const btn = document.getElementById('pm-done-btn');
   btn.style.display = allDone ? 'block' : 'none';
   btn.textContent = _photoSession.phase==='start' ? '✓ Upload & Start' : '✓ Upload & Complete';
+  const notesWrap = document.getElementById('pm-notes-wrap');
+  if (notesWrap) notesWrap.style.display = (allDone && _photoSession.phase==='end') ? 'block' : 'none';
 }
 
 async function finishPhotoSession() {
@@ -3777,6 +3801,14 @@ function renderAttendanceWide(role) {
 
   const hubOptions = cityHubs.map(h=>`<option value="${h.name}" ${h.name===selHub?'selected':''}>${h.name}</option>`).join('');
   const formatTime = t => t||'—';
+  // SM users for this city (for AM approval)
+  const citySMs = ALL_USERS.filter(u=>u.role==='hub_manager'&&u.city_id===state.user?.city_id);
+  const smAttMap = {}; // name → att record from state.attendance
+  Object.entries(state.attendance).forEach(([name,a])=>{
+    const sm = citySMs.find(u=>u.name===name);
+    if (sm) smAttMap[name] = {...a, userId: sm.id};
+  });
+
   const formatApproval = (a) => {
     const ap = a.approval;
     if (a.status!=='present') return '<span style="color:var(--g300);font-size:12px">—</span>';
@@ -3801,6 +3833,38 @@ function renderAttendanceWide(role) {
         <option value="">All Hubs</option>${hubOptions}
       </select>
     </div>
+    ${role==='area_manager' && Object.keys(smAttMap).length>0 ? `
+    <div style="font-size:13px;font-weight:600;color:var(--g500);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;margin-top:4px">
+      Service Manager Attendance
+    </div>
+    <div class="tw" style="margin-bottom:24px"><table>
+      <thead><tr><th>SM Name</th><th>Hub</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Approval</th></tr></thead>
+      <tbody>${Object.entries(smAttMap).map(([name,a])=>{
+        const ap = a.approval;
+        const bc = a.status==='present'?'b-present':a.status==='absent'?'b-absent':'b-leave';
+        return `<tr>
+          <td><strong>${name}</strong></td>
+          <td style="font-size:12px;color:var(--g500)">${a.hub||'—'}</td>
+          <td><span class="badge ${bc}" style="font-size:11px">${a.status||'—'}</span></td>
+          <td class="mono" style="font-size:12px">${a.checkin||'—'}</td>
+          <td class="mono" style="font-size:12px">${a.checkout||'—'}</td>
+          <td>${a.status==='present'
+            ? ap==='approved'
+              ? `<span class="badge b-present" style="font-size:11px">✓ Approved</span>`
+              : ap==='denied'
+              ? `<span class="badge b-absent" style="font-size:11px">✗ Denied</span>`
+              : `<div style="display:flex;gap:6px">
+                  <button class="btn btn-green btn-sm" style="padding:4px 10px;font-size:11px" onclick="approveAtt('${name}','approved')">Approve</button>
+                  <button class="btn btn-red btn-sm"   style="padding:4px 10px;font-size:11px" onclick="approveAtt('${name}','denied')">Deny</button>
+                </div>`
+            : '<span style="color:var(--g300);font-size:12px">—</span>'}
+          </td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>
+    <div style="font-size:13px;font-weight:600;color:var(--g500);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">
+      Technician Attendance
+    </div>` : ''}
     ${entries.length===0 ? `<div class="empty-state">No attendance data yet.</div>` :
     `<div class="tw"><table>
       <thead><tr><th>Technician</th><th>Hub</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Approval</th></tr></thead>
