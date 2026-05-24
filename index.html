@@ -1157,7 +1157,6 @@ const HEAD_NAV = [
 const TECH_NAV = [
   {id:'my-attendance',lbl:'My Attendance',ic:'clock'},
   {id:'my-jobs',      lbl:'My Jobs',      ic:'tool'},
-  {id:'productivity', lbl:'My Progress',  ic:'bar-chart'},
   {id:'tech-profile', lbl:'My Profile',   ic:'user'},
 ];
 const IC = {
@@ -3402,19 +3401,29 @@ async function smMarkJobDone(woId) {
 async function loadTechProfile(techName, role) {
   if (!techName) return '<div class="empty-state">No technician selected.</div>';
 
-  const isSelf     = role === 'technician';
-  const today      = new Date();
-  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0,10);
-  const monthEnd   = today.toISOString().slice(0,10);
-  const yr         = today.getFullYear();
-  const mo         = today.getMonth() + 1;
-  const moStr      = String(mo).padStart(2,'0');
+  const isSelf  = role === 'technician';
+  const today   = new Date();
+  const todayISO = today.toISOString().slice(0,10);
+
+  // Date range — default to current month, configurable
+  if (!window._profDateFrom) window._profDateFrom = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0,10);
+  if (!window._profDateTo)   window._profDateTo   = todayISO;
+  const from = window._profDateFrom;
+  const to   = window._profDateTo;
+
+  // Calendar always shows current month
+  const yr    = today.getFullYear();
+  const mo    = today.getMonth() + 1;
+  const moStr = String(mo).padStart(2,'0');
+  const monthStart = `${yr}-${moStr}-01`;
+  const monthEnd   = todayISO;
 
   // Fetch in parallel
-  const [attRows, woRows, userRow] = await Promise.all([
+  const [attRows, woRows, userRow, allAttRows] = await Promise.all([
     sb(`attendance?technician_name=eq.${encodeURIComponent(techName)}&date=gte.${monthStart}&date=lte.${monthEnd}&select=date,status,hub_name,checkin_time,checkout_time,total_working_hours&order=date.asc`) || [],
-    sb(`work_orders?assigned_tech_name=eq.${encodeURIComponent(techName)}&select=id,vehicle_reg,issue,status,priority,wo_type,assigned_at,started_at,completed_at,time_taken_min,hub_name,job_card_number&order=assigned_at.desc&limit=200`) || [],
-    (async()=>{ const u=ALL_USERS.find(u=>u.name===techName); return u||null; })()
+    sb(`work_orders?assigned_tech_name=eq.${encodeURIComponent(techName)}&assigned_at=gte.${from}T00:00:00&assigned_at=lte.${to}T23:59:59&select=id,vehicle_reg,issue,status,priority,wo_type,assigned_at,started_at,completed_at,time_taken_min,hub_name,job_card_number&order=assigned_at.desc&limit=500`) || [],
+    (async()=>{ return ALL_USERS.find(u=>u.name===techName)||null; })(),
+    sb(`work_orders?assigned_tech_name=eq.${encodeURIComponent(techName)}&select=id,vehicle_reg,issue,status,priority,wo_type,assigned_at,started_at,completed_at,time_taken_min&order=assigned_at.desc&limit=5`) || []
   ]);
 
   // Attendance stats this month
@@ -3446,7 +3455,7 @@ async function loadTechProfile(techName, role) {
   const initials   = techName.split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase();
 
   // Recent 5 jobs
-  const recent = woRows.slice(0,5);
+  const recent = allAttRows.slice(0,5);
 
   // Mini calendar — this month
   const daysInMonth  = new Date(yr, mo, 0).getDate();
@@ -3461,6 +3470,13 @@ async function loadTechProfile(techName, role) {
   // Productivity score
   const prodPct = Math.min(100, Math.round((parseFloat(avgHrsDay)||0)/8*100));
   const prodColor = prodPct>=80?'var(--green)':prodPct>=50?'#f59e0b':'var(--red)';
+
+  // Productivity for date range
+  const prodAssigned = woRows.length;
+  const prodDone     = woRows.filter(j=>j.status==='Done').length;
+  const prodTimed    = woRows.filter(j=>j.time_taken_min&&j.status==='Done');
+  const prodAvgMins  = prodTimed.length ? Math.round(prodTimed.reduce((s,j)=>s+j.time_taken_min,0)/prodTimed.length) : 0;
+  const prodRate     = prodAssigned ? Math.round((prodDone/prodAssigned)*100) : 0;
 
   const backBtn = isSelf ? '' : `<button class="btn btn-outline btn-sm" onclick="history.go(-1)||navigate('dashboard')" style="display:flex;align-items:center;gap:6px;font-size:12px">
     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg> Back
@@ -3489,22 +3505,38 @@ async function loadTechProfile(techName, role) {
       </div>
     </div>
 
-    <!-- Stats grid -->
+    <!-- Date filter -->
+    <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:16px;flex-wrap:wrap">
+      <div>
+        <label class="form-label" style="font-size:11px">From</label>
+        <input type="date" class="form-input" style="width:140px;padding:6px 10px;font-size:12px" value="${from}"
+          onchange="window._profDateFrom=this.value;navigate('tech-profile')"/>
+      </div>
+      <div>
+        <label class="form-label" style="font-size:11px">To</label>
+        <input type="date" class="form-input" style="width:140px;padding:6px 10px;font-size:12px" value="${to}"
+          onchange="window._profDateTo=this.value;navigate('tech-profile')"/>
+      </div>
+      <button class="btn btn-outline btn-sm" style="font-size:12px" onclick="window._profDateFrom=null;window._profDateTo=null;navigate('tech-profile')">Reset</button>
+    </div>
+
+    <!-- Stats grid for date range -->
+    <div style="font-size:12px;font-weight:600;color:var(--g400);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">${from} → ${to}</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px">
       <div class="card" style="padding:14px;text-align:center">
-        <div style="font-size:22px;font-weight:700;color:var(--blue)">${totalAssigned}</div>
+        <div style="font-size:22px;font-weight:700;color:var(--blue)">${prodAssigned}</div>
         <div style="font-size:11px;color:var(--g500)">Jobs Assigned</div>
       </div>
       <div class="card" style="padding:14px;text-align:center">
-        <div style="font-size:22px;font-weight:700;color:var(--green)">${totalDone}</div>
+        <div style="font-size:22px;font-weight:700;color:var(--green)">${prodDone}</div>
         <div style="font-size:11px;color:var(--g500)">Completed</div>
       </div>
       <div class="card" style="padding:14px;text-align:center">
-        <div style="font-size:22px;font-weight:700;color:var(--g700)">${completionRate}%</div>
+        <div style="font-size:22px;font-weight:700;color:var(--g700)">${prodRate}%</div>
         <div style="font-size:11px;color:var(--g500)">Completion Rate</div>
       </div>
       <div class="card" style="padding:14px;text-align:center">
-        <div style="font-size:22px;font-weight:700;color:var(--g700)">${avgMins?avgMins+'m':'—'}</div>
+        <div style="font-size:22px;font-weight:700;color:var(--g700)">${prodAvgMins?prodAvgMins+'m':'—'}</div>
         <div style="font-size:11px;color:var(--g500)">Avg Min/Job</div>
       </div>
       <div class="card" style="padding:14px;text-align:center">
