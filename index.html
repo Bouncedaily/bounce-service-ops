@@ -46,11 +46,11 @@ html,body{height:100%;overflow:hidden;margin:0}body{font-family:'DM Sans',sans-s
 .si.active{background:var(--blue-lt);color:var(--blue);border-left-color:var(--blue);font-weight:500}
 .si svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
 .si-section{font-size:10px;font-weight:600;color:var(--g400);text-transform:uppercase;letter-spacing:.08em;padding:16px 20px 4px}
-.content{flex:1;padding:28px 24px;overflow-y:auto;height:100%;-webkit-overflow-scrolling:touch;box-sizing:border-box}
+.content{flex:1;padding:28px 24px;overflow-y:auto;height:100%;-webkit-overflow-scrolling:touch;box-sizing:border-box;scroll-behavior:auto}
 @media(max-width:700px){
   .sidebar{display:none}
   .bottom-nav{display:flex !important}
-  .content{padding:16px 14px 100px}
+  .content{padding:16px 14px 140px}
   /* Mobile table horizontal scroll */
   .tw{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -14px;padding:0 14px}
   /* Mobile cards full width */
@@ -1456,7 +1456,12 @@ function navigate(page) {
       if (currentPage !== page) { clearInterval(window._refreshT); return; }
       await loadAttendanceForHub(state.hubId);
       const c = document.getElementById('content');
-      if (c) c.innerHTML = renderAttendance();
+      if (c) {
+        const scrollTop = c.scrollTop;
+        c.innerHTML = renderAttendance();
+        c.scrollTop = scrollTop;
+        injectSmTabBar(_smAttTab||'today');
+      }
     }, 30000);
   }
   if (state.user && page==='dashboard') {
@@ -1469,7 +1474,11 @@ function navigate(page) {
         await loadAllHubsData();
       }
       const c = document.getElementById('content');
-      if (c) c.innerHTML = renderDashboard();
+      if (c) {
+        const scrollTop = c.scrollTop;
+        c.innerHTML = renderDashboard();
+        c.scrollTop = scrollTop;
+      }
       refreshOosCount();
     }, 5 * 60 * 1000);
   }
@@ -2221,7 +2230,7 @@ function renderMyAttendance() {
   ];
   return `
     <div class="page-hd"><div class="page-hd-text"><div class="page-title">My Attendance</div><div class="page-sub">${state.hub||''}</div></div>
-      <button class="btn-refresh" onclick="navigate('my-attendance')" title="Refresh">
+      <button class="btn-refresh" onclick="navigate('attendance')" title="Refresh">
         <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
       </button>
     </div>
