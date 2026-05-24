@@ -1366,7 +1366,23 @@ function navigate(page) {
       <button onclick="_smAttTab='calendar';localStorage.setItem('sm_att_tab','calendar');navigate('attendance')" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${smTab==='calendar'?'var(--blue)':'transparent'};color:${smTab==='calendar'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Calendar</button>
     </div>`;
     if (smTab === 'my-attendance') {
-      c.innerHTML = renderMyAttendance().replace('</div>', '</div>' + smTabBar, 1);
+      // Build page with header + tab bar + my-attendance content
+      const myAttHtml = renderMyAttendance();
+      // Insert smTabBar after the closing </div> of page-hd (first </div></div></div> sequence)
+      const insertAfter = '</div>
+    </div>
+  </div>';
+      const insertAfter2 = myAttHtml.indexOf('</button>
+    </div>');
+      let combined;
+      if (insertAfter2 > -1) {
+        combined = myAttHtml.slice(0, insertAfter2 + '</button>
+    </div>'.length) + smTabBar + myAttHtml.slice(insertAfter2 + '</button>
+    </div>'.length);
+      } else {
+        combined = myAttHtml.replace('</div>', '</div>' + smTabBar);
+      }
+      c.innerHTML = combined;
       startDurationTimer(); startClock();
     } else if (smTab === 'calendar') {
       c.innerHTML = `<div class="page-hd"><div class="page-hd-text"><div class="page-title">Attendance</div><div class="page-sub">${state.hub}</div></div></div>${smTabBar}`;
@@ -1378,7 +1394,7 @@ function navigate(page) {
       c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading...</div>';
       (async()=>{
         if (state.hubId) await loadAttendanceForHub(state.hubId);
-        if (currentPage===page) c.innerHTML = `<div class="page-hd"><div class="page-hd-text"><div class="page-title">Attendance</div><div class="page-sub">${state.hub} — ${dateShort()}</div></div><button class="btn-refresh" onclick="refreshPage('attendance')" title="Refresh"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg></button></div>` + smTabBar + renderAttendanceBody();
+        if (currentPage===page) c.innerHTML = renderAttendance();
       })();
     }
     return;
@@ -1731,10 +1747,10 @@ function renderAttendance() {
         <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
       </button>
     </div>
-    <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--g100);padding-bottom:0">
+    ${state.user?.role==='hub_manager' ? smTabBar('today') : `<div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--g100);padding-bottom:0">
       <button onclick="_attTab='today';localStorage.setItem('att_tab','today');navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${_attTab==='today'?'var(--blue)':'transparent'};color:${_attTab==='today'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Today</button>
       <button onclick="_attTab='calendar';localStorage.setItem('att_tab','calendar');navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${_attTab==='calendar'?'var(--blue)':'transparent'};color:${_attTab==='calendar'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Calendar</button>
-    </div>
+    </div>`}
 
     ${_attTab==='calendar' ? '<div id="att-cal-inner"><div style=\"padding:20px;text-align:center;color:var(--g400)\">Loading...</div></div>' : allTechs.length===0 ? `<div class="empty-state" style="margin-top:40px">No attendance records for ${myHub} today.</div>` : `
 
@@ -2183,6 +2199,18 @@ function generateManagerQR() {
 }
 
 // ─ TECHNICIAN PAGES ─
+function smTabBar(active) {
+  const t = active || _smAttTab || 'my-attendance';
+  const btn = (id, lbl) => `<button
+    onclick="_smAttTab='${id}';localStorage.setItem('sm_att_tab','${id}');navigate('attendance')"
+    style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;
+    border-bottom:2px solid ${t===id?'var(--blue)':'transparent'};
+    color:${t===id?'var(--blue)':'var(--g500)'};margin-bottom:-2px">${lbl}</button>`;
+  return `<div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--g100);padding-bottom:0">
+    ${btn('my-attendance','My Attendance')}${btn('today','Today')}${btn('calendar','Calendar')}
+  </div>`;
+}
+
 function renderMyAttendance() {
   const checked    = !!state.myCheckin;
   const checkedOut = !!state.myCheckout;
@@ -2194,11 +2222,12 @@ function renderMyAttendance() {
     {d:'Today',hub:state.hub1||state.hub||'—', s:state.myCheckin?'present':'open',ci:state.hub1CheckIn||state.myCheckin||'—',co:state.myCheckout||'—',hrs:'—'},
   ];
   return `
-    <div class="page-hd"><div class="page-hd-text"><div class="page-title">My Attendance</div><div class="page-sub">${state.hub||''}</div></div>
-      <button class="btn-refresh" onclick="navigate('my-attendance')" title="Refresh">
+    <div class="page-hd"><div class="page-hd-text"><div class="page-title">Attendance</div><div class="page-sub">${state.hub||''}</div></div>
+      <button class="btn-refresh" onclick="navigate('attendance')" title="Refresh">
         <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
       </button>
     </div>
+    ${state.user?.role==='hub_manager' ? smTabBar('my-attendance') : ''}
     <div class="checkin-hero">
       <div style="font-size:12px;color:var(--g400);font-weight:500;text-transform:uppercase;letter-spacing:.05em">Current time</div>
       <div class="clock-big" id="live-clock">${nowFmt()}</div>
@@ -3953,10 +3982,7 @@ async function loadAttCalendar(role) {
         Export CSV
       </button>
     </div>
-    <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:2px solid var(--g100);padding-bottom:0">
-      <button onclick="_attTab='today';localStorage.setItem('att_tab','today');navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid transparent;color:var(--g500);margin-bottom:-2px">Today</button>
-      <button style="padding:8px 18px;border:none;background:none;cursor:default;font-size:13px;font-weight:600;border-bottom:2px solid var(--blue);color:var(--blue);margin-bottom:-2px">Calendar</button>
-    </div>
+    ${typeof smTabBar === 'function' ? smTabBar('calendar') : ''}
 
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:flex-end">
       <div>
@@ -4093,10 +4119,10 @@ function renderAttendanceWide(role) {
         <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
       </button>
     </div>
-    <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--g100);padding-bottom:0">
+    ${state.user?.role==='hub_manager' ? smTabBar('today') : `<div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--g100);padding-bottom:0">
       <button onclick="_attTab='today';localStorage.setItem('att_tab','today');navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${_attTab==='today'?'var(--blue)':'transparent'};color:${_attTab==='today'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Today</button>
       <button onclick="_attTab='calendar';localStorage.setItem('att_tab','calendar');navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${_attTab==='calendar'?'var(--blue)':'transparent'};color:${_attTab==='calendar'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Calendar</button>
-    </div>
+    </div>`}
     <div style="margin-bottom:14px">
       <select class="form-select" style="width:200px" onchange="_areaAttHub=this.value;navigate('attendance')">
         <option value="">All Hubs</option>${hubOptions}
