@@ -592,6 +592,7 @@ async function loadJobsForHub(hubId) {
     state.jobs.push({
       db_id:   r.id, id: r.wo_number, vehicle: r.vehicle_reg,
       issue:   r.issue, tech: r.users?.name || 'Unassigned',
+      notes:   r.reason_for_ending || null,
       hub:     hubName, priority: r.priority, status: r.status,
       wo_type: r.wo_type || 'running_repair',
       time:    new Date(r.assigned_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false})
@@ -1614,9 +1615,12 @@ function renderDashboard() {
   return `
     <div class="page-hd">
       <div class="page-hd-text"><div class="page-title">Home</div><div class="page-sub">${todayStr()} &nbsp;·&nbsp; ${subTitle}</div></div>
-      <button class="btn-refresh" onclick="refreshPage('dashboard')" title="Refresh">
-        <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> Refresh
-      </button>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span id="dash-last-updated" style="font-size:11px;color:var(--g400)"></span>
+        <button class="btn-refresh" onclick="window._dashLastUpdated=Date.now();document.getElementById('dash-last-updated').textContent='Just now';refreshPage('dashboard')" title="Refresh">
+          <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> Refresh
+        </button>
+      </div>
     </div>
     ${isWide ? `<div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
       ${role==='head'?`<select class="form-select" style="width:150px" onchange="_dashFilterCity=this.value;_dashFilterHub='';navigate('dashboard');setTimeout(refreshOosCount,200)">
@@ -2332,6 +2336,7 @@ function renderMyJobs() {
               ${j.jc_number ? `<span class="mono" style="font-size:12px;color:var(--g400);margin-left:8px">${j.jc_number}</span>` : ''}
             </div>
             <div style="font-size:14px;font-weight:500;color:var(--g700);margin-bottom:6px">${j.issue}</div>
+            ${j.notes?`<div style="font-size:12px;color:var(--g500);padding:5px 10px;background:var(--g50);border-radius:6px;border-left:3px solid var(--g200);margin-bottom:6px">📝 ${j.notes}</div>`:''}
             <div style="font-size:12px;color:var(--g500);margin-bottom:6px">
               ${j.submission_type ? `<span style="background:var(--g100);padding:2px 8px;border-radius:20px;font-size:11px">${j.submission_type}</span>` : ''}
               <span style="color:var(--g300);margin:0 4px">·</span>
@@ -3370,6 +3375,22 @@ async function renderWorkOrdersWideAsync(role) {
 
 
 // ── TECHNICIAN PRODUCTIVITY DASHBOARD ──────────────────────────────────────
+function debounceWaSearch(val) {
+  window._waSearch = val;
+  clearTimeout(window._waSearchTimer);
+  window._waSearchTimer = setTimeout(()=>navigate('work-assigned'), 300);
+}
+
+async function smMarkJobDone(woId) {
+  if (!woId || _demoMode) return;
+  if (!confirm('Mark this job as Done?')) return;
+  await sb(`work_orders?id=eq.${woId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: 'Done', completed_at: new Date().toISOString() })
+  });
+  navigate('work-assigned');
+}
+
 async function loadProductivity(role) {
   const STANDARD_HRS = 8;
   const userCityId   = state.user?.city_id;
@@ -3454,6 +3475,15 @@ async function loadProductivity(role) {
   const cityNames = ['Bangalore','Hyderabad','NCR','Indore'];
   const cityOpts  = cityNames.map(c=>`<option value="${c}" ${c===_prodCity?'selected':''}>${c}</option>`).join('');
 
+  // CSV export
+  window._exportProdCSV = () => {
+    const header = ['Technician','Assigned','Completed','Avg Min/Job','Avg Hrs/Day','Days Present','Productivity %'];
+    const rows2  = techs.map(t=>[t.name,t.assigned,t.completed,t.avgMins.toFixed(1),t.avgHrs.toFixed(1),t.days,t.prodPct+'%']);
+    const csv    = [header,...rows2].map(r=>r.join(',')).join('\n');
+    const blob   = new Blob([csv],{type:'text/csv'});
+    const url    = URL.createObjectURL(blob);
+    const a      = document.createElement('a'); a.href=url; a.download=`Productivity_${from}_${to}.csv`; a.click();
+  };
   const fmt = n => isNaN(n)||n===0 ? '—' : n.toFixed(1);
   const prodBar = pct => `<div style="display:flex;align-items:center;gap:8px">
     <div style="flex:1;background:var(--g100);border-radius:20px;height:6px;overflow:hidden">
@@ -3468,9 +3498,15 @@ async function loadProductivity(role) {
         <div class="page-title">${isTech?'My Progress':'Technician Productivity'}</div>
         <div class="page-sub">${from} → ${to}</div>
       </div>
-      <button class="btn-refresh" onclick="navigate('productivity')" title="Refresh">
-        <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
-      </button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-outline btn-sm" onclick="window._exportProdCSV&&window._exportProdCSV()" style="font-size:12px;display:flex;align-items:center;gap:6px">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export CSV
+        </button>
+        <button class="btn-refresh" onclick="navigate('productivity')" title="Refresh">
+          <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+        </button>
+      </div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:flex-end">
       <div>
@@ -3938,6 +3974,7 @@ async function renderWorkAssignedAsync() {
       <td><span class="badge ${sc}">${j.status}</span></td>
       <td style="font-size:11px;color:var(--g500)">${fmtDate(j.assigned_at)}</td>
       <td style="font-size:11px;color:var(--g500)">${j.completed_at ? fmtDate(j.completed_at) : '—'}</td>
+      <td>${j.status!=='Done'?'<button onclick="smMarkJobDone(\''+j.id+'\')" style="font-size:11px;padding:3px 8px;border:1px solid #ccc;border-radius:4px;background:white;cursor:pointer">Mark Done</button>':'—'}</td>
     </tr>`;
   }).join('');
 
@@ -3953,6 +3990,11 @@ async function renderWorkAssignedAsync() {
     </div>
 
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <div>
+        <input class="form-input" style="width:180px;font-size:13px" placeholder="Search reg no. or tech..." id="wa-search-input"
+          value="${window._waSearch||''}"
+          oninput="debounceWaSearch(this.value)"/>
+      </div>
       <div>
         <label class="form-label" style="margin-bottom:4px">Date</label>
         <input type="date" class="form-input" style="width:160px;padding:7px 10px"
