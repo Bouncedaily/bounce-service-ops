@@ -766,15 +766,18 @@ async function saveAttOverride(techName, status, hubId) {
 
 // ─ SAVE WORK ORDER ─
 // ── Duplicate vehicle assignment check ──────────────────────────────────────
-async function checkVehicleDuplicate(regNum, newTechName) {
+async function checkVehicleDuplicate(regNum, newTechName, jcNumber) {
   if (_demoMode || !regNum) return null;
   const todayISO = new Date().toISOString().slice(0,10);
-  const rows = await sb(`work_orders?vehicle_reg=eq.${encodeURIComponent(regNum)}&status=in.(Open,In Progress,Done)&assigned_at=gte.${todayISO}T00:00:00&select=id,wo_number,status,assigned_tech_id,assigned_tech_name,users!work_orders_assigned_tech_id_fkey(name)&order=assigned_at.desc&limit=5`);
+  const rows = await sb(`work_orders?vehicle_reg=eq.${encodeURIComponent(regNum)}&status=in.(Open,In Progress,Done)&assigned_at=gte.${todayISO}T00:00:00&select=id,wo_number,job_card_number,status,assigned_tech_id,assigned_tech_name,users!work_orders_assigned_tech_id_fkey(name)&order=assigned_at.desc&limit=5`);
   if (!rows || !rows.length) return null;
   const inProg = rows.find(r=>r.status==='In Progress');
   if (inProg) return { status:'in_progress', tech: inProg.assigned_tech_name||inProg.users?.name||'another technician', woId: inProg.wo_number, woDbId: inProg.id };
-  const done = rows.find(r=>r.status==='Done');
-  if (done) return { status:'done', tech: done.assigned_tech_name||done.users?.name||'a technician', woId: done.wo_number, woDbId: done.id };
+  // Done check — only block if same JC number (same job card)
+  const done = jcNumber
+    ? rows.find(r=>r.status==='Done' && r.job_card_number===jcNumber)
+    : rows.find(r=>r.status==='Done');
+  if (done) return { status:'done', tech: done.assigned_tech_name||done.users?.name||'a technician', woId: done.wo_number, woDbId: done.id, jcNumber: done.job_card_number };
   const open = rows.find(r=>r.status==='Open');
   if (open) {
     const existingTech = open.assigned_tech_name || open.users?.name || '';
@@ -797,7 +800,7 @@ function showDupPopup(dup, onReplace) {
       <button class="modal-close" onclick="closeModal()">✕</button>
       <div class="modal-title" style="color:var(--red)">⚠️ Already Completed Today</div>
       <div class="alert al-error" style="margin-bottom:16px;line-height:1.6">
-        This vehicle was already serviced today by "${dup.tech}". It cannot be assigned again.
+        This vehicle (JC: ${dup.jcNumber||'—'}) was already completed today by "${dup.tech}". The same job card cannot be re-assigned.
       </div>
       <button class="btn btn-outline" style="width:100%" onclick="closeModal()">Close</button>`;
     document.getElementById('modal').style.display='flex'; return;
@@ -2000,7 +2003,7 @@ async function addWO() {
   const btn = document.querySelector('.wo-form-wrap .btn-blue');
 
   // Duplicate vehicle check
-  const dup = await checkVehicleDuplicate(v, techName);
+  const dup = await checkVehicleDuplicate(v, techName, j?.job_card_number||j?.jcNumber||null);
   if (dup) {
     showDupPopup(dup, async () => {
       await cancelPreviousWO(dup.woDbId);
@@ -2089,7 +2092,7 @@ async function addWOWide() {
   const hubObj  = HUBS.find(h=>h.name===hubName);
   const btn     = document.querySelector('#wo-form-wide .btn-blue');
 
-  const dup = await checkVehicleDuplicate(v, techName);
+  const dup = await checkVehicleDuplicate(v, techName, j?.job_card_number||j?.jcNumber||null);
   if (dup) {
     showDupPopup(dup, async () => {
       await cancelPreviousWO(dup.woDbId);
