@@ -1721,7 +1721,7 @@ function renderDashboard() {
       </div>`).join('')}
     </div>` : ''}
     <div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">Technician snapshot</div>
-    ${_attTab==='calendar' ? '<div id="att-wide-cal"><div style=\"padding:20px;text-align:center;color:var(--g400)\">Loading calendar...</div></div>' : snapEntries.length===0
+    ${snapEntries.length===0
       ? `<div class="empty-state" style="padding:32px 20px">
             <div style="font-size:32px;margin-bottom:12px">👋</div>
             <div style="font-weight:600;margin-bottom:6px;color:var(--g700)">No check-ins yet today</div>
