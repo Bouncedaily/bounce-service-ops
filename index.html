@@ -1236,7 +1236,7 @@ function renderNav() {
     ? (state.jobs||[]).filter(j=>j.status==='Open'&&!j._seen).length : 0;
   document.getElementById('bottom-nav').innerHTML = nav.map(n=>{
     const badge = (n.id==='my-jobs' && newJobs>0)
-      ? `<span style="position:absolute;top:2px;right:calc(50% - 18px);background:var(--red);color:white;font-size:9px;font-weight:700;border-radius:10px;padding:1px 4px;min-width:14px;text-align:center">${newJobs}</span>`
+      ? `<span style="position:absolute;top:0px;right:calc(50% - 20px);background:#ef4444;color:white;font-size:10px;font-weight:800;border-radius:999px;min-width:18px;height:18px;display:flex;align-items:center;justify-content:center;padding:0 4px;box-shadow:0 1px 4px rgba(0,0,0,.25);border:2px solid white;letter-spacing:0;line-height:1">${newJobs}</span>`
       : '';
     return `<button class="bnt" id="bt-${n.id}" style="position:relative" onclick="navigate('${n.id}');${n.id==='my-jobs'?'(state.jobs||[]).forEach(j=>j._seen=true);':''}">
       ${ico(n.ic,22)}${badge}<span>${n.lbl}</span></button>`;
