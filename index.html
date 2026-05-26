@@ -685,7 +685,9 @@ async function loadMyAttendance(userId) {
   if (rows && rows.length) {
     const r = rows[0];
     state.myCheckin  = r.checkin_time  ? new Date(r.checkin_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true})  : null;
-    state.myCheckout = r.checkout_time ? new Date(r.checkout_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}) : null;
+    // Use DB checkout if available, else keep session checkout (in case PATCH was delayed)
+    const dbCheckout = r.checkout_time ? new Date(r.checkout_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}) : null;
+    state.myCheckout = dbCheckout || state.myCheckout || null;
     state.hub = r.hubs?.name || null; state.hubId = r.hub_id || null; state.myAttId = r.id;
     if (state.hub) state.attendance[state.user.name] = { status:r.status, checkin:state.myCheckin, checkout:state.myCheckout, hub:state.hub, hub_id:state.hubId, att_id:r.id };
   } else {
@@ -4488,6 +4490,11 @@ async function processCheckin(mode,lat,lng,accuracy,distanceM,withinFence){
     state.attendance[state.user.name]={status:'present',checkin:t24,checkout:null,hub:state.hub,att_id:attId};
     try{const s=JSON.parse(localStorage.getItem('bounce_session')||'{}');s.myCheckin=t12;s.myAttId=state.myAttId;s.myCheckinDate=TODAY;localStorage.setItem('bounce_session',JSON.stringify(s));}catch(e){}
   }else{
+    // If myAttId is missing, try to find today's attendance record
+    if (!_demoMode && !state.myAttId && state.user?.id) {
+      const found = await sb(`attendance?user_id=eq.${state.user.id}&date=eq.${TODAY}&select=id&limit=1`);
+      if (found && found.length) state.myAttId = found[0].id;
+    }
     if(!_demoMode&&state.myAttId&&!state.myAttId.startsWith('demo')){
       // Calculate working hours and determine final status
       const checkoutTime = new Date();
