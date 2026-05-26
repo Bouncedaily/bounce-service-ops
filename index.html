@@ -4512,7 +4512,7 @@ async function processCheckin(mode,lat,lng,accuracy,distanceM,withinFence){
       })});
     }
     state.myCheckout=t12;
-    try{const s=JSON.parse(localStorage.getItem('bounce_session')||'{}');s.myCheckout=t12;localStorage.setItem('bounce_session',JSON.stringify(s));}catch(e){}
+    try{const s=JSON.parse(localStorage.getItem('bounce_session')||'{}');s.myCheckout=t12;s.myCheckinDate=TODAY;localStorage.setItem('bounce_session',JSON.stringify(s));}catch(e){}
   }
   setTimeout(()=>{closeModal&&closeModal();navigate('my-attendance');},1200);
 }
