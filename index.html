@@ -1130,7 +1130,8 @@ async function finishLogin() {
   try {
     localStorage.setItem('bounce_session', JSON.stringify({
       user: state.user, hub: state.hub, hubId: state.hubId,
-      myCheckin: state.myCheckin, myCheckout: state.myCheckout, myAttId: state.myAttId || null
+      myCheckin: state.myCheckin, myCheckout: state.myCheckout, myAttId: state.myAttId || null,
+      myCheckinDate: TODAY
     }));
   } catch(e) {}
 
