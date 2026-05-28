@@ -758,7 +758,7 @@ async function loadMyJobs() {
 async function saveCheckin(hubId, userId) {
   if (_demoMode) return 'demo-att-'+Date.now();
   const now = new Date().toISOString();
-  const payload = { user_id: userId, hub_id: hubId, date: TODAY, status: 'present', checkin_time: now };
+  const payload = { user_id: userId, hub_id: hubId, date: TODAY, status: 'checked_in', checkin_time: now };
   const result = await sb('attendance?on_conflict=user_id,date', {
     method: 'POST', prefer: 'resolution=merge-duplicates,return=representation',
     body: JSON.stringify(payload)
@@ -781,7 +781,7 @@ async function saveAttOverride(techName, status, hubId) {
   await sb('attendance?on_conflict=user_id,date', {
     method: 'POST', prefer: 'resolution=merge-duplicates',
     body: JSON.stringify({ user_id: user.id, hub_id: hubId, date: TODAY, status,
-      checkin_time: status==='present' ? now : null, checkout_time: null })
+      checkin_time: status==='present' || status==='checked_in' ? now : null, checkout_time: null })
   });
 }
 
@@ -1938,7 +1938,7 @@ function renderAttendance() {
     userId: ALL_USERS.find(u=>u.name===name)?.id || null
   }));
 
-  const presentTechs = allTechs.filter(({att}) => att.status==='present');
+  const presentTechs = allTechs.filter(({att}) => att.status==='present' || att.status==='checked_in');
   const absentTechs  = allTechs.filter(({att}) => att.status==='absent' || att.status==='week_off');
 
   return `
@@ -2778,7 +2778,7 @@ async function markAtt(scannedHub) {
     state.myAttId= attId;
     state.myCheckin = t12;
     renderTopbar();
-    state.attendance[state.user.name]={status:'present',checkin:t12,checkout:null,hub:scannedHub,hub_id:hubId,att_id:attId};
+    state.attendance[state.user.name]={status:'checked_in',checkin:t12,checkout:null,hub:scannedHub,hub_id:hubId,att_id:attId};
   } else {
     await saveCheckout(state.myAttId);
     state.myCheckout=t12;
@@ -4652,7 +4652,7 @@ async function processCheckin(mode,lat,lng,accuracy,distanceM,withinFence){
     }
     state.myCheckin=t12; state.myAttId=attId||'demo-att';
     if (state.hub2 && !state.hub2CheckIn) state.hub2CheckIn = t12;
-    state.attendance[state.user.name]={status:'present',checkin:t24,checkout:null,hub:state.hub,att_id:attId};
+    state.attendance[state.user.name]={status:'checked_in',checkin:t24,checkout:null,hub:state.hub,att_id:attId};
     try{const s=JSON.parse(localStorage.getItem('bounce_session')||'{}');s.myCheckin=t12;s.myAttId=state.myAttId;s.myCheckinDate=TODAY;localStorage.setItem('bounce_session',JSON.stringify(s));}catch(e){}
   }else{
     // If myAttId is missing, try to find today's attendance record
