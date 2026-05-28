@@ -399,8 +399,9 @@ tr:hover td{background:var(--g50)}
   </div>
   <div class="photo-sides" id="pm-thumbs"></div>
   <div class="photo-actions">
-    <button class="btn-capture" id="pm-capture-btn" onclick="capturePhoto()">📷 Capture</button>
-    <button class="btn-retake" id="pm-retake-btn" onclick="retakePhoto()">Retake</button>
+    <button class="btn-capture" id="pm-capture-btn" onclick="capturePhoto()" 
+      style="font-size:17px;padding:16px 32px;border-radius:12px;min-width:200px;font-weight:600">📷 Capture</button>
+    <button class="btn-retake" id="pm-retake-btn" onclick="retakePhoto()" style="font-size:14px;padding:10px 20px">↩ Retake</button>
   </div>
   <div id="pm-upload-status"></div>
   <div id="pm-notes-wrap" style="display:none;margin:8px 0">
@@ -3069,7 +3070,11 @@ function capturePhoto() {
   video.style.display='none';
   canvas.style.display='block';
   document.getElementById('pm-retake-btn').style.display='block';
-  document.getElementById('pm-capture-btn').textContent = side === _photoSession.sides[_photoSession.sides.length-1] ? '✓ Save' : '→ Next Side';
+  const isLast = side === _photoSession.sides[_photoSession.sides.length-1];
+  const captBtn = document.getElementById('pm-capture-btn');
+  captBtn.textContent = isLast ? '✓ All Done' : '→ Next Photo';
+  captBtn.style.background = isLast ? '#16a34a' : '#1e40af';
+  captBtn.style.fontSize = '17px';
   document.getElementById('pm-capture-btn').onclick = confirmPhoto;
   renderPhotoThumbs();
   checkAllCaptured();
@@ -3083,8 +3088,10 @@ function retakePhoto() {
   video.style.display='block';
   canvas.style.display='none';
   document.getElementById('pm-retake-btn').style.display='none';
-  document.getElementById('pm-capture-btn').textContent='📷 Capture';
-  document.getElementById('pm-capture-btn').onclick=capturePhoto;
+  const captBtnR = document.getElementById('pm-capture-btn');
+  captBtnR.textContent='📷 Capture';
+  captBtnR.style.background='';
+  captBtnR.onclick=capturePhoto;
 }
 
 function confirmPhoto() {
