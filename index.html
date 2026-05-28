@@ -786,33 +786,43 @@ async function initPartsForJob(jobIdx) {
   if (!j) return;
   const woId = j.db_id;
 
-  // Already loaded
+  // Already loaded — return immediately
   if (_partsSession[woId]) return _partsSession[woId];
 
-  // Load existing parts from DB
-  const existing = await loadJobParts(woId);
-
-  // Parse recommended parts from JC
+  // Parse recommended parts from JC immediately (no async needed)
   const recommended = (j.parts_to_be_changed || '')
     .split(',')
     .map(p => p.trim())
     .filter(Boolean);
 
-  // Merge: recommended parts + any already saved
-  const parts = [];
-  recommended.forEach(pName => {
-    const found = existing.find(e => e.part_name === pName && e.is_recommended);
-    parts.push(found || {
-      id: null, work_order_id: woId, part_name: pName,
-      is_recommended: true, status: 'pending',
-      quantity: 1, photo_before: null, photo_after: null
-    });
-  });
-
-  // Add any extra parts from DB
-  existing.filter(e => !e.is_recommended).forEach(e => parts.push(e));
+  // Init with defaults first so UI shows immediately
+  const parts = recommended.map(pName => ({
+    id: null, work_order_id: woId, part_name: pName,
+    is_recommended: true, status: 'pending',
+    quantity: 1, photo_before: null, photo_after: null
+  }));
 
   _partsSession[woId] = { parts, jobIdx };
+  renderPartsSection(woId); // show immediately
+
+  // Then load saved state from DB and merge
+  try {
+    const existing = await loadJobParts(woId);
+    if (existing.length > 0) {
+      // Update recommended parts with saved state
+      parts.forEach((p, i) => {
+        const saved = existing.find(e => e.part_name === p.part_name && e.is_recommended);
+        if (saved) parts[i] = saved;
+      });
+      // Add extra parts
+      existing.filter(e => !e.is_recommended).forEach(e => {
+        if (!parts.find(p => p.id === e.id)) parts.push(e);
+      });
+      _partsSession[woId].parts = parts;
+      renderPartsSection(woId); // re-render with saved state
+    }
+  } catch(e) { console.warn('Parts load error:', e.message); }
+
   return _partsSession[woId];
 }
 
