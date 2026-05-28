@@ -1693,7 +1693,7 @@ function renderDashboard() {
       <div class="page-hd-text"><div class="page-title">Home</div><div class="page-sub">${todayStr()} &nbsp;·&nbsp; ${subTitle}</div></div>
       <div style="display:flex;align-items:center;gap:10px">
         <span id="dash-last-updated" style="font-size:11px;color:var(--g400)"></span>
-        <button class="btn-refresh" onclick="window._dashLastUpdated=Date.now();document.getElementById('dash-last-updated').textContent='Just now';refreshPage('dashboard')" title="Refresh">
+        <button class="btn-refresh" onclick="window._dashLastUpdated=Date.now();document.getElementById('dash-last-updated').textContent='Just now';loadVehiclesForHub(state.hub).then(()=>refreshPage('dashboard'))" title="Refresh">
           <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> Refresh
         </button>
       </div>
@@ -2248,7 +2248,7 @@ function renderMyAttendance() {
   ];
   return `
     <div class="page-hd"><div class="page-hd-text"><div class="page-title">My Attendance</div><div class="page-sub">${state.hub||''}</div></div>
-      <button class="btn-refresh" onclick="navigate('attendance')" title="Refresh">
+      <button class="btn-refresh" onclick="navigate('my-attendance')" title="Refresh">
         <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
       </button>
     </div>
@@ -3810,12 +3810,12 @@ async function loadProductivity(role) {
           <option value="">All Cities</option>${cityOpts}
         </select>
       </div>`:''}
-      ${!isTech && role!=='technician'?`<div>
+      ${!isTech && role!=='technician' && role!=='hub_manager'?`<div>
         <label class="form-label">Hub</label>
         <select class="form-select" style="width:180px" onchange="_prodHub=this.value;navigate('productivity')">
           <option value="">All Hubs</option>${hubOpts}
         </select>
-      </div>`:''}
+      </div>`:role==='hub_manager'?`<div style="font-size:12px;color:var(--g500);align-self:flex-end;padding-bottom:8px">Hub: <strong>${state.hub}</strong></div>`:''}
     </div>
 
     <!-- Summary widgets -->
@@ -3944,6 +3944,7 @@ async function loadAttCalendar(role) {
     if (!status) return `<td style="color:var(--g300);text-align:center;padding:4px 2px;font-size:11px">—</td>`;
     const s = status.toLowerCase();
     if (s==='present') return `<td style="background:#dcfce7;color:#166534;font-weight:600;text-align:center;padding:4px 2px;font-size:11px">P</td>`;
+    if (s==='checked_in') return `<td style="background:#dbeafe;color:#1e40af;font-weight:600;text-align:center;padding:4px 2px;font-size:11px;cursor:default" title="Checked in but not checked out">CI</td>`;
     if (s==='absent') return canMarkWO
       ? `<td style="background:#fee2e2;color:#991b1b;font-weight:600;text-align:center;padding:4px 2px;font-size:11px;cursor:pointer;border-radius:3px" 
           title="Click to mark as Week Off"
