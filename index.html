@@ -1462,48 +1462,49 @@ function navigate(page) {
   }
   // My Attendance only for tech and SM
   if (page==='my-attendance' && role==='hub_manager') {
-    _smAttTab='my-attendance'; localStorage.setItem('sm_att_tab','my-attendance');
+    if (_smAttTab !== 'my-attendance') {
+      _smAttTab='my-attendance';
+      localStorage.setItem('sm_att_tab','my-attendance');
+    }
     navigate('attendance'); return;
   }
   if (page==='my-attendance' && role!=='technician' && role!=='hub_manager') {
     navigate('dashboard'); return;
   }
-  // SM attendance — 3 sub-tabs
+  // SM attendance — 3 sub-tabs: My Attendance | Today | Calendar
   if (page==='attendance' && role==='hub_manager') {
     const _st = _smAttTab || 'my-attendance';
+
     if (_st === 'my-attendance') {
       c.innerHTML = renderMyAttendance();
       injectSmTabBar('my-attendance');
-      startDurationTimer(); startClock(); return;
+      startDurationTimer(); startClock();
+      return;
     }
+
     if (_st === 'calendar') {
-      // Render calendar sub-tab directly
-      const subTabsHtml = `<div class="page-hd">
-        <div class="page-hd-text"><div class="page-title">Attendance</div><div class="page-sub">${state.hub}</div></div>
-        <button class="btn-refresh" onclick="refreshPage('attendance')" title="Refresh">
-          <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
-        </button>
-      </div>
-      <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--g100);padding-bottom:0">
-        <button onclick="_attTab='today';localStorage.setItem('att_tab','today');navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid transparent;color:var(--g500);margin-bottom:-2px">Today</button>
-        <button onclick="_attTab='calendar';localStorage.setItem('att_tab','calendar');navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid var(--blue);color:var(--blue);margin-bottom:-2px">Calendar</button>
-      </div>
-      <div id="att-sm-cal" style="padding:20px;text-align:center;color:var(--g400)">Loading calendar...</div>`;
-      c.innerHTML = subTabsHtml;
+      c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading calendar...</div>';
       (async () => {
         try {
           const html = await loadAttCalendar(role);
-          document.getElementById('content').innerHTML = html || '<div style="padding:40px;color:red">Empty result</div>';
+          if (currentPage !== page) return;
+          c.innerHTML = html || '<div style="padding:40px;color:var(--red)">Calendar returned empty</div>';
+          injectSmTabBar('calendar');
         } catch(err) {
-          document.getElementById('content').innerHTML = `<div style="padding:40px;color:var(--red);font-size:13px">Calendar error: ${err.message}<br><pre>${err.stack||''}</pre></div>`;
+          c.innerHTML = `<div style="padding:40px;color:var(--red)">Calendar error: ${err.message}</div>`;
+          injectSmTabBar('calendar');
         }
       })();
+      return;
     }
-    // 'today' tab
+
+    // 'today' tab — load fresh attendance then render
     c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading...</div>';
     (async () => {
       if (state.hubId) await loadAttendanceForHub(state.hubId);
-      if (currentPage===page) { c.innerHTML = renderAttendance(); injectSmTabBar('today'); }
+      if (currentPage !== page) return;
+      c.innerHTML = renderAttendance();
+      injectSmTabBar('today');
     })();
     return;
   }
@@ -1595,8 +1596,13 @@ function calcDuration(checkinStr, checkedOut) {
 let _durationTimer = null;
 
 function injectSmTabBar(active) {
+  // Only inject for SM role
+  if (state.user?.role !== 'hub_manager') return;
   const t = active || _smAttTab || 'my-attendance';
+  // Remove any existing tab bar first to avoid duplicates
+  document.querySelectorAll('#content .sm-tab-bar').forEach(el => el.remove());
   const bar = document.createElement('div');
+  bar.className = 'sm-tab-bar';
   bar.style.cssText = 'display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--g100);padding-bottom:0';
   [['my-attendance','My Attendance'],['today','Today'],['calendar','Calendar']].forEach(([id,lbl])=>{
     const btn = document.createElement('button');
@@ -1606,7 +1612,13 @@ function injectSmTabBar(active) {
     bar.appendChild(btn);
   });
   const pageHd = document.querySelector('#content .page-hd');
-  if (pageHd) pageHd.insertAdjacentElement('afterend', bar);
+  if (pageHd) {
+    pageHd.insertAdjacentElement('afterend', bar);
+  } else {
+    // Fallback — prepend to content
+    const content_el = document.getElementById('content');
+    if (content_el) content_el.insertBefore(bar, content_el.firstChild);
+  }
 }
 function calcTotalHours() {
   const hub1Mins = calcHub1Mins();
