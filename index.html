@@ -369,18 +369,24 @@ tr:hover td{background:var(--g50)}
 
 <!-- ══ PHOTO CAPTURE MODAL ══ -->
 <!-- Video capture modal -->
-  <div id="video-modal" style="display:none;position:fixed;inset:0;background:#000;z-index:3000;flex-direction:column;align-items:center;justify-content:space-around;padding:20px">
-    <div style="position:relative;width:100%;max-width:480px">
-      <canvas id="video-canvas" style="width:100%;border-radius:8px;display:block;background:#111"></canvas>
-      <div id="video-overlay-label" style="position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,.65);color:white;font-size:10px;padding:3px 8px;border-radius:3px;line-height:1.6;text-align:right"></div>
-      <div id="video-rec-dot" style="display:none;position:absolute;top:10px;left:10px;background:var(--red);color:white;font-size:11px;font-weight:700;padding:3px 8px;border-radius:4px">● REC</div>
-      <div id="video-timer" style="display:none;position:absolute;top:10px;right:10px;color:white;font-size:14px;font-weight:700;font-family:monospace;text-shadow:0 1px 4px rgba(0,0,0,.9)">00:00</div>
+  <div id="video-modal" style="display:none;position:fixed;inset:0;background:#000;z-index:3000;flex-direction:column;align-items:center;justify-content:flex-end;padding:0">
+    <!-- Full screen canvas -->
+    <div style="position:absolute;inset:0">
+      <canvas id="video-canvas" style="width:100%;height:100%;object-fit:cover;display:block;background:#111"></canvas>
+      <div id="video-overlay-label" style="position:absolute;bottom:120px;right:12px;background:rgba(0,0,0,.65);color:white;font-size:11px;padding:4px 10px;border-radius:4px;line-height:1.8;text-align:right"></div>
+      <div id="video-rec-dot" style="display:none;position:absolute;top:16px;left:16px;background:#ef4444;color:white;font-size:12px;font-weight:700;padding:4px 10px;border-radius:4px">● REC</div>
+      <div id="video-timer" style="display:none;position:absolute;top:16px;right:16px;color:white;font-size:16px;font-weight:700;font-family:monospace;text-shadow:0 1px 4px rgba(0,0,0,.9)">00:00</div>
     </div>
-    <div style="display:flex;gap:12px;align-items:center;margin-top:16px">
-      <button id="video-rec-btn" onclick="toggleVideoRecording()" style="padding:14px 36px;font-size:15px;border-radius:24px;background:var(--red);color:white;border:none;cursor:pointer;font-weight:600">⏺ Start Recording</button>
-      <button onclick="closeVideoModal()" style="padding:14px 24px;font-size:14px;border-radius:24px;background:transparent;color:white;border:2px solid rgba(255,255,255,.4);cursor:pointer">Cancel</button>
+    <!-- Controls fixed at bottom -->
+    <div style="position:relative;z-index:1;width:100%;padding:20px 24px;padding-bottom:max(20px,env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(0,0,0,.8));display:flex;flex-direction:column;align-items:center;gap:12px">
+      <div id="video-status" style="color:rgba(255,255,255,.7);font-size:13px;text-align:center"></div>
+      <div style="display:flex;gap:16px;align-items:center;justify-content:center;width:100%">
+        <button onclick="closeVideoModal()" style="width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,.2);color:white;border:2px solid rgba(255,255,255,.5);font-size:20px;cursor:pointer">✕</button>
+        <button id="video-rec-btn" onclick="toggleVideoRecording()" style="width:80px;height:80px;border-radius:50%;background:#ef4444;color:white;border:4px solid white;font-size:28px;cursor:pointer;box-shadow:0 4px 16px rgba(239,68,68,.5)">⏺</button>
+        <div style="width:56px"></div>
+      </div>
+      <div style="color:rgba(255,255,255,.5);font-size:12px">Tap ⏺ to start recording</div>
     </div>
-    <div id="video-status" style="color:rgba(255,255,255,.6);font-size:13px;text-align:center;min-height:20px"></div>
   </div>
 
   <div id="photo-modal" class="photo-modal" style="display:none">
