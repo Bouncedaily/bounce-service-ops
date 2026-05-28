@@ -870,6 +870,80 @@ async function cancelPreviousWO(woDbId) {
 }
 
 // ── WEEK OFF MARKING ────────────────────────────────────────────────────────
+// ── ATTENDANCE REGULARIZATION ───────────────────────────────────────────────
+async function showRegularizeModal(techName, date, currentStatus, attId) {
+  const inner = document.getElementById('modal-inner');
+  const statusOptions = ['present','half_day','absent','leave','week_off'].map(s => {
+    const labels = {present:'Present',half_day:'Half Day',absent:'Absent',leave:'Leave',week_off:'Week Off'};
+    return `<button onclick="selectRegStatus(this,'${s}')" class="btn ${s===currentStatus?'btn-blue':'btn-outline'} btn-sm"
+      data-status="${s}" style="flex:1;font-size:12px;padding:8px 4px">${labels[s]}</button>`;
+  }).join('');
+
+  inner.innerHTML = `
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div class="modal-title">Regularize Attendance</div>
+    <div class="modal-sub">${techName} — ${date}</div>
+    <div style="margin:12px 0 8px;font-size:12px;color:var(--g500)">Current status: <strong>${currentStatus||'—'}</strong></div>
+    <div style="font-size:13px;font-weight:600;color:var(--g700);margin-bottom:8px">Change to:</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px" id="reg-status-btns">
+      ${statusOptions}
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label" style="font-size:12px">Reason <span style="color:var(--red)">*</span></label>
+      <input class="form-input" id="reg-reason" placeholder="e.g. System error, Manual correction..." style="font-size:13px"/>
+    </div>
+    <div id="reg-alert"></div>
+    <div style="display:flex;gap:10px;margin-top:4px">
+      <button class="btn btn-outline" style="flex:1" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-blue" style="flex:1" onclick="submitRegularization('${attId}','${techName}','${date}','${currentStatus}')">Save</button>
+    </div>`;
+  window._regSelectedStatus = currentStatus;
+  document.getElementById('modal').style.display = 'flex';
+}
+
+function selectRegStatus(btn, status) {
+  document.querySelectorAll('#reg-status-btns button').forEach(b => {
+    b.className = 'btn btn-outline btn-sm';
+    b.style.cssText = 'flex:1;font-size:12px;padding:8px 4px';
+  });
+  btn.className = 'btn btn-blue btn-sm';
+  btn.style.cssText = 'flex:1;font-size:12px;padding:8px 4px';
+  window._regSelectedStatus = status;
+}
+
+async function submitRegularization(attId, techName, date, prevStatus) {
+  const newStatus = window._regSelectedStatus;
+  const reason    = document.getElementById('reg-reason')?.value?.trim();
+  const alertEl   = document.getElementById('reg-alert');
+
+  if (!newStatus) { alertEl.innerHTML = '<div class="alert al-error">Select a status.</div>'; return; }
+  if (!reason)    { alertEl.innerHTML = '<div class="alert al-error">Reason is required.</div>'; return; }
+  if (newStatus === prevStatus) { alertEl.innerHTML = '<div class="alert al-warn">Status is same as current.</div>'; return; }
+
+  const patch = {
+    status: newStatus,
+    regularized_by: state.user?.name,
+    regularized_at: new Date().toISOString(),
+    previous_status: prevStatus,
+    regularization_reason: reason,
+    updated_at: new Date().toISOString()
+  };
+
+  await sb(`attendance?id=eq.${attId}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  closeModal();
+
+  // Show success toast
+  const t = document.createElement('div');
+  t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#166534;color:white;padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.2)';
+  t.textContent = `✓ ${techName}'s attendance updated to ${newStatus.replace('_',' ')}`;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+
+  // Refresh current tab
+  _smAttTab = _smAttTab || 'today';
+  navigate('attendance');
+}
+
 async function markWeekOff(techName, date, userId) {
   // Get week boundaries (Mon-Sun)
   const d       = new Date(date);
@@ -3975,7 +4049,7 @@ async function loadAttCalendar(role) {
     : _calHub || null;
 
   // Fetch attendance for month
-  let query = `attendance?date=gte.${startISO}&date=lte.${endISO}&select=technician_name,user_id,date,status,hub_name&limit=5000`;
+  let query = `attendance?date=gte.${startISO}&date=lte.${endISO}&select=id,technician_name,user_id,date,status,hub_name&limit=5000`;
   if (hubFilter) query += `&hub_name=eq.${encodeURIComponent(hubFilter)}`;
 
   const rows = await sb(query) || [];
@@ -3994,12 +4068,14 @@ async function loadAttCalendar(role) {
   }
 
   // Build matrix: { techName: { 'YYYY-MM-DD': status } }
-  const matrix = {};
+  const matrix    = {};
+  const attIds    = {}; // name+date → att id
   const techUserIds = {}; // name → user_id
   filtered.forEach(r => {
     if (!r.technician_name) return;
     if (!matrix[r.technician_name]) matrix[r.technician_name] = {};
     matrix[r.technician_name][r.date] = r.status;
+    attIds[r.technician_name + '|' + r.date] = r.id;
     if (r.user_id && !techUserIds[r.technician_name]) techUserIds[r.technician_name] = r.user_id;
   });
 
@@ -4017,23 +4093,24 @@ async function loadAttCalendar(role) {
   const dateKey = d => `${yr}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 
   // Status cell
-  const canMarkWO = role==='hub_manager'; // only SM can mark WO
-  const cell = (status, isWknd, techName, dateStr, userId) => {
+  const canEdit = role==='hub_manager' || role==='area_manager';
+  const cell = (status, isWknd, techName, dateStr, userId, attId) => {
     if (!status) return `<td style="color:var(--g300);text-align:center;padding:4px 2px;font-size:11px">—</td>`;
-    const s = status.toLowerCase();
-    if (s==='present') return `<td style="background:#dcfce7;color:#166534;font-weight:600;text-align:center;padding:4px 2px;font-size:11px">P</td>`;
-    if (s==='checked_in') return `<td style="background:#dbeafe;color:#1e40af;font-weight:600;text-align:center;padding:4px 2px;font-size:11px;cursor:default" title="Checked in but not checked out">CI</td>`;
-    if (s==='absent') return canMarkWO
-      ? `<td style="background:#fee2e2;color:#991b1b;font-weight:600;text-align:center;padding:4px 2px;font-size:11px;cursor:pointer;border-radius:3px" 
-          title="Click to mark as Week Off"
-          onclick="showWOPopup('${techName}','${dateStr}','${userId||''}')" >A</td>`
-      : `<td style="background:#fee2e2;color:#991b1b;font-weight:600;text-align:center;padding:4px 2px;font-size:11px">A</td>`;
-    if (s==='leave')    return `<td style="background:#fef9c3;color:#854d0e;font-weight:600;text-align:center;padding:4px 2px;font-size:11px">L</td>`;
-    if (s==='week_off')  return `<td style="background:#f3e8ff;color:#6b21a8;font-weight:600;text-align:center;padding:4px 2px;font-size:11px">WO</td>`;
-    if (s==='half_day')  return `<td style="background:#fef3c7;color:#92400e;font-weight:600;text-align:center;padding:4px 2px;font-size:11px">HD</td>`;
+    const s  = status.toLowerCase();
+    const oc = canEdit && attId ? `onclick="showRegularizeModal('${techName}','${dateStr}','${s}','${attId}')"` : '';
+    const cur= canEdit ? 'cursor:pointer' : '';
+    // A cell: SM shows WO popup, AM shows regularize
+    const aOc = role==='hub_manager' && attId
+      ? `onclick="showWOPopup('${techName}','${dateStr}','${userId||''}')"`
+      : oc;
+    if (s==='present')   return `<td style="background:#dcfce7;color:#166534;font-weight:600;text-align:center;padding:4px 2px;font-size:11px;${cur}" ${oc}>P</td>`;
+    if (s==='absent')    return `<td style="background:#fee2e2;color:#991b1b;font-weight:600;text-align:center;padding:4px 2px;font-size:11px;cursor:pointer" ${aOc}>A</td>`;
+    if (s==='leave')     return `<td style="background:#fef9c3;color:#854d0e;font-weight:600;text-align:center;padding:4px 2px;font-size:11px;${cur}" ${oc}>L</td>`;
+    if (s==='week_off')  return `<td style="background:#f3e8ff;color:#6b21a8;font-weight:600;text-align:center;padding:4px 2px;font-size:11px;${cur}" ${oc}>WO</td>`;
+    if (s==='half_day')  return `<td style="background:#fef3c7;color:#92400e;font-weight:600;text-align:center;padding:4px 2px;font-size:11px;${cur}" ${oc}>HD</td>`;
+    if (s==='checked_in') return `<td style="background:#dbeafe;color:#1e40af;font-weight:600;text-align:center;padding:4px 2px;font-size:11px;${cur}" ${oc}>CI</td>`;
     return `<td style="text-align:center;padding:4px 2px;font-size:11px">${status.slice(0,1).toUpperCase()}</td>`;
   };
-
   // Summary per tech
   const summary = tech => {
     const data = matrix[tech]||{};
@@ -4109,10 +4186,11 @@ async function loadAttCalendar(role) {
     <!-- Legend -->
     <div style="display:flex;gap:12px;margin-bottom:12px;font-size:12px;flex-wrap:wrap;align-items:center">
       <span><span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:4px;font-weight:600">P</span> Present</span>
-      <span><span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:4px;font-weight:600;cursor:${role==='hub_manager'?'pointer':'default'}">${role==='hub_manager'?'A ↗':'A'}</span> Absent${role==='hub_manager'?' <span style="color:var(--g400)">(tap to mark WO)</span>':''}</span>
+      <span><span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:4px;font-weight:600">A</span> Absent</span>
       <span><span style="background:#fef9c3;color:#854d0e;padding:2px 8px;border-radius:4px;font-weight:600">L</span> Leave</span>
-      <span><span style="background:var(--g100);color:var(--g500);padding:2px 8px;border-radius:4px;font-weight:600">WO</span> Week Off</span>
-      <span><span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-weight:600">HD</span> Half Day (5–9hrs)</span>
+      <span><span style="background:#f3e8ff;color:#6b21a8;padding:2px 8px;border-radius:4px;font-weight:600">WO</span> Week Off</span>
+      <span><span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-weight:600">HD</span> Half Day</span>
+      ${canEdit ? '<span style="color:var(--g400);font-size:11px">↗ Tap any cell to regularize</span>' : ''}
     </div>
 
     ${techs.length===0
@@ -4147,7 +4225,8 @@ async function loadAttCalendar(role) {
                   const dk     = dateKey(d);
                   const status = matrix[t]?.[dk];
                   const uid    = techUserIds[t] || '';
-                  return cell(status, wknd, t, dk, uid);
+                  const aId    = attIds[t + '|' + dk] || '';
+                  return cell(status, wknd, t, dk, uid, aId);
                 }).join('')}
                 <td style="text-align:center;font-weight:600;color:#166534;padding:6px 4px">${s.P}</td>
                 <td style="text-align:center;font-weight:600;color:#92400e;padding:6px 4px">${s.HD}</td>
