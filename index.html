@@ -1275,20 +1275,31 @@ async function loadMyJobs() {
   if (_demoMode) {
     rows = DEMO_JOBS.filter(j=>j.users?.name===state.user.name);
   } else {
-    rows = await sb(`work_orders?assigned_tech_id=eq.${state.user.id}&select=id,wo_number,vehicle_reg,issue,priority,status,wo_type,assigned_at,video_url,hubs(name)&order=assigned_at.desc`) || [];
+    rows = await sb(`work_orders?assigned_tech_id=eq.${state.user.id}&select=id,wo_number,vehicle_reg,issue,priority,status,wo_type,assigned_at,video_url,job_card_number,hubs(name)&order=assigned_at.desc`) || [];
   }
   state.jobs = [];
-  // Collect all reg numbers to fetch JC details in one query
+  // Collect JC numbers from work orders (most accurate)
+  const jcNums = [...new Set(rows.map(r=>r.job_card_number).filter(Boolean))];
   const regNums = [...new Set(rows.map(r=>r.vehicle_reg).filter(Boolean))];
-  let jcMap = {};
-  if (!_demoMode && regNums.length) {
-    const regFilter = regNums.map(r=>`"${r}"`).join(',');
-    const jcRows = await sb(`draft_jc?reg_number=in.(${regFilter})&select=reg_number,job_card_number,parts_to_be_changed,submission_type,current_jc_status&order=job_card_opened_date.desc`) || [];
-    // Map by reg_number — take most recent JC per vehicle
-    jcRows.forEach(j=>{ if (!jcMap[j.reg_number]) jcMap[j.reg_number] = j; });
+  let jcMap = {}; // keyed by job_card_number
+  let jcMapReg = {}; // fallback keyed by reg_number
+  if (!_demoMode && (jcNums.length || regNums.length)) {
+    let jcRows = [];
+    if (jcNums.length) {
+      const jcFilter = jcNums.map(j=>`"${j}"`).join(',');
+      jcRows = await sb(`draft_jc?job_card_number=in.(${jcFilter})&select=reg_number,job_card_number,parts_to_be_changed,submission_type,current_jc_status`) || [];
+    }
+    if (jcRows.length === 0 && regNums.length) {
+      const regFilter = regNums.map(r=>`"${r}"`).join(',');
+      jcRows = await sb(`draft_jc?reg_number=in.(${regFilter})&select=reg_number,job_card_number,parts_to_be_changed,submission_type,current_jc_status&order=job_card_opened_date.desc`) || [];
+    }
+    jcRows.forEach(j=>{
+      if (j.job_card_number) jcMap[j.job_card_number] = j;
+      if (j.reg_number && !jcMapReg[j.reg_number]) jcMapReg[j.reg_number] = j;
+    });
   }
   rows.forEach(r => {
-    const jc = jcMap[r.vehicle_reg] || {};
+    const jc = jcMap[r.job_card_number] || jcMapReg[r.vehicle_reg] || {};
     state.jobs.push({
       db_id:              r.id,
       id:                 r.wo_number,
