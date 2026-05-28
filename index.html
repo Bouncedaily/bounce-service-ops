@@ -2815,12 +2815,17 @@ function renderMyJobs() {
             </button>` : ''}
             ${isBlocked ? `<div style="text-align:right"><span style="font-size:12px;color:var(--g400)">🔒</span><br><span style="font-size:10px;color:var(--g400)">Complete previous<br>job to start this</span></div>` : ''}
             ${isActive ? `
-              ${!j.video_url ? `<button class="btn btn-outline btn-sm" style="border-color:var(--blue);color:var(--blue);margin-bottom:6px;width:100%" onclick="startVideoCapture(${gi})">
-                🎥 Record Video
-              </button>` : `<div style="font-size:11px;color:var(--green);margin-bottom:6px;text-align:center">✓ Video recorded</div>`}
-              <button class="btn btn-green btn-sm" onclick="endJobWithPhotos(${gi})">
-                📷 Complete
-              </button>` : ''}
+              ${!j.video_url ? `
+                <button class="btn btn-blue btn-sm" style="margin-bottom:6px;width:100%;font-weight:600" onclick="startVideoCapture(${gi})">
+                  🎥 Record Video <span style="font-size:10px;opacity:.8">(required)</span>
+                </button>
+                <button class="btn btn-green btn-sm" style="width:100%;opacity:0.4;cursor:not-allowed" onclick="endJobWithPhotos(${gi})">
+                  📷 Complete (record video first)
+                </button>` :
+              `<div style="font-size:11px;color:var(--green);margin-bottom:6px;text-align:center;display:flex;align-items:center;gap:4px;justify-content:center">✅ Video recorded</div>
+                <button class="btn btn-green btn-sm" style="width:100%;font-weight:600" onclick="endJobWithPhotos(${gi})">
+                  📷 Complete Job
+                </button>`}` : ''}
             ${j.status==='Done'?`<span style="font-size:12px;color:var(--green);font-weight:500">✓ Done</span>`:''}
           </div>
         </div>
@@ -2839,6 +2844,23 @@ function startJobWithPhotos(i) {
 }
 
 function endJobWithPhotos(i) {
+  const j = state.jobs[i];
+  if (!j.video_url) {
+    // Show error — video required before completion
+    const gi = state.jobs.indexOf(j);
+    const card = document.querySelector(`[data-job-idx="${gi}"]`) || document.getElementById('content');
+    const msg = document.createElement('div');
+    msg.className = 'alert al-error';
+    msg.style.cssText = 'margin:8px 0;font-size:13px';
+    msg.textContent = '🎥 Please record a video before completing this job.';
+    // Show alert near the complete button
+    const existing = card.querySelector('.video-required-msg');
+    if (existing) existing.remove();
+    msg.className += ' video-required-msg';
+    card.appendChild(msg);
+    setTimeout(() => msg.remove(), 3000);
+    return;
+  }
   openPhotoCapture('end', i);
 }
 
