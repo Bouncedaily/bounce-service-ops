@@ -781,71 +781,6 @@ async function loadJobParts(woId) {
   return rows;
 }
 
-
-function renderPartsHTML(woId, partsCsv, jobIdx) {
-  // Init session if not exists
-  if (!_partsSession[woId]) {
-    const pts = (partsCsv||'').split(',').map(p=>p.trim()).filter(Boolean);
-    _partsSession[woId] = {
-      parts: pts.map(pName=>({
-        id:null, work_order_id:woId, part_name:pName,
-        is_recommended:true, status:'pending',
-        quantity:1, photo_before:null, photo_after:null
-      })),
-      jobIdx
-    };
-    // Load saved state from DB in background
-    loadJobParts(woId).then(existing=>{
-      if (!existing.length) return;
-      existing.forEach(e=>{
-        const i = _partsSession[woId]?.parts.findIndex(p=>p.part_name===e.part_name&&p.is_recommended===e.is_recommended);
-        if (i>=0) _partsSession[woId].parts[i] = e;
-        else if (!e.is_recommended) _partsSession[woId].parts.push(e);
-      });
-      renderPartsSection(woId);
-    }).catch(()=>{});
-  }
-
-  const parts = _partsSession[woId].parts;
-  const safeId = woId.replace(/-/g,'');
-
-  if (!parts.length) return '<div style="font-size:12px;color:#9ca3af">No parts listed for this job</div>';
-
-  let html = '';
-  parts.forEach((p, i) => {
-    const borderColor = p.status==='used' ? '#16a34a' : p.status==='not_used' ? '#ef4444' : '#e2e8f0';
-    html += '<div style="background:#fff;border-radius:8px;padding:10px;margin-bottom:8px;border:1px solid ' + borderColor + '">';
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:' + (p.status==='used'?'8':'0') + 'px">';
-    html += '<div style="font-size:13px;font-weight:600;color:#111;flex:1">' + p.part_name + (p.is_recommended ? '' : ' <span style="font-size:10px;color:#9ca3af">(extra)</span>') + '</div>';
-    html += '<div style="display:flex;gap:6px">';
-    html += '<button onclick="setPartStatus('' + woId + '',' + i + ','used')" style="padding:4px 10px;font-size:11px;border-radius:6px;border:none;cursor:pointer;font-weight:600;background:' + (p.status==='used'?'#16a34a':'#f1f5f9') + ';color:' + (p.status==='used'?'#fff':'#374151') + '">Used</button>';
-    html += '<button onclick="setPartStatus('' + woId + '',' + i + ','not_used')" style="padding:4px 10px;font-size:11px;border-radius:6px;border:none;cursor:pointer;font-weight:600;background:' + (p.status==='not_used'?'#ef4444':'#f1f5f9') + ';color:' + (p.status==='not_used'?'#fff':'#374151') + '">Not Used</button>';
-    html += '</div></div>';
-    if (p.status === 'used') {
-      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">';
-      html += '<span style="font-size:11px;color:#6b7280">Qty:</span>';
-      html += '<select onchange="setPartQty('' + woId + '',' + i + ',this.value)" style="background:#f8fafc;color:#111;border:1px solid #e2e8f0;border-radius:6px;padding:3px 8px;font-size:12px">';
-      html += '<option value="1"' + ((p.quantity||1)===1?' selected':'') + '>1</option>';
-      html += '<option value="2"' + ((p.quantity||1)===2?' selected':'') + '>2</option>';
-      html += '</select></div>';
-      html += '<div style="display:flex;gap:8px">';
-      html += '<button onclick="capturePartPhoto('' + woId + '',' + i + ','before')" style="flex:1;padding:8px;font-size:12px;border-radius:8px;border:1px solid ' + (p.photo_before?'#16a34a':'#e2e8f0') + ';cursor:pointer;font-weight:600;background:' + (p.photo_before?'#dcfce7':'#f8fafc') + ';color:' + (p.photo_before?'#15803d':'#374151') + '">' + (p.photo_before?'✓ Before':'📷 Before') + '</button>';
-      html += '<button onclick="capturePartPhoto('' + woId + '',' + i + ','after')" style="flex:1;padding:8px;font-size:12px;border-radius:8px;border:1px solid ' + (p.photo_after?'#16a34a':'#e2e8f0') + ';cursor:pointer;font-weight:600;background:' + (p.photo_after?'#dcfce7':'#f8fafc') + ';color:' + (p.photo_after?'#15803d':'#374151') + '">' + (p.photo_after?'✓ After':'📷 After') + '</button>';
-      html += '</div>';
-      if (!p.photo_before || !p.photo_after) html += '<div style="font-size:10px;color:#dc2626;margin-top:4px">⚠ Both photos required</div>';
-    }
-    html += '</div>';
-  });
-
-  // Add extra part input
-  html += '<div style="display:flex;gap:8px;margin-top:4px">';
-  html += '<input id="epi_' + safeId + '" placeholder="Add part name..." style="flex:1;padding:9px 12px;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;color:#111;font-size:13px;font-family:inherit" onkeydown="if(event.key==='Enter')addExtraPart('' + woId + '')">';
-  html += '<button onclick="addExtraPart('' + woId + '')" style="padding:9px 14px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-size:13px;font-weight:600;cursor:pointer">+ Add</button>';
-  html += '</div>';
-
-  return html;
-}
-
 async function initPartsForJob(jobIdx) {
   const j = state.jobs[jobIdx];
   if (!j) return;
@@ -3243,10 +3178,64 @@ function renderMyJobs() {
               <div style="background:#f8fafc;border-radius:10px;padding:12px;margin-bottom:10px;border:1px solid #e2e8f0">
                 <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">Parts</div>
                 <div id="ps_${j.db_id.replace(/-/g,'')}">
-                  ${renderPartsHTML(j.db_id, j.parts_to_be_changed, gi)}
+                  ${(()=>{
+                    const pts = (j.parts_to_be_changed||'').split(',').map(p=>p.trim()).filter(Boolean);
+                    const woId = j.db_id;
+                    const sess = _partsSession[woId];
+                    if (!sess) {
+                      // Init session immediately inline
+                      _partsSession[woId] = {
+                        parts: pts.map(pName=>({id:null,work_order_id:woId,part_name:pName,is_recommended:true,status:'pending',quantity:1,photo_before:null,photo_after:null})),
+                        jobIdx: gi
+                      };
+                      // Load saved state async in background
+                      loadJobParts(woId).then(existing=>{
+                        if(existing.length>0){
+                          existing.forEach(e=>{
+                            const i=_partsSession[woId].parts.findIndex(p=>p.part_name===e.part_name&&p.is_recommended===e.is_recommended);
+                            if(i>=0) _partsSession[woId].parts[i]=e;
+                            else if(!e.is_recommended) _partsSession[woId].parts.push(e);
+                          });
+                          renderPartsSection(woId);
+                        }
+                      }).catch(()=>{});
+                    }
+                    const parts = _partsSession[woId].parts;
+                    if(parts.length===0) return '<div style="font-size:12px;color:#9ca3af">No parts listed</div>';
+                    return parts.map((p,i)=>`
+                      <div style="background:#fff;border-radius:8px;padding:10px;margin-bottom:8px;border:1px solid ${p.status==='used'?'#16a34a':p.status==='not_used'?'#ef4444':'#e2e8f0'}">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:${p.status==='used'?'8':'0'}px">
+                          <div style="font-size:13px;font-weight:600;color:#111;flex:1">${p.part_name}${p.is_recommended?'':' <span style="font-size:10px;color:#9ca3af">(extra)</span>'}</div>
+                          <div style="display:flex;gap:6px">
+                            <button onclick="setPartStatus('${woId}',${i},'used')" style="padding:4px 10px;font-size:11px;border-radius:6px;border:none;cursor:pointer;font-weight:600;background:${p.status==='used'?'#16a34a':'#f1f5f9'};color:${p.status==='used'?'#fff':'#374151'}">Used</button>
+                            <button onclick="setPartStatus('${woId}',${i},'not_used')" style="padding:4px 10px;font-size:11px;border-radius:6px;border:none;cursor:pointer;font-weight:600;background:${p.status==='not_used'?'#ef4444':'#f1f5f9'};color:${p.status==='not_used'?'#fff':'#374151'}">Not Used</button>
+                          </div>
+                        </div>
+                        ${p.status==='used'?`
+                          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                            <span style="font-size:11px;color:#6b7280">Qty:</span>
+                            <select onchange="setPartQty('${woId}',${i},this.value)" style="background:#f8fafc;color:#111;border:1px solid #e2e8f0;border-radius:6px;padding:3px 8px;font-size:12px">
+                              <option value="1" ${(p.quantity||1)===1?'selected':''}>1</option>
+                              <option value="2" ${(p.quantity||1)===2?'selected':''}>2</option>
+                            </select>
+                          </div>
+                          <div style="display:flex;gap:8px">
+                            <button onclick="capturePartPhoto('${woId}',${i},'before')" style="flex:1;padding:8px;font-size:12px;border-radius:8px;border:1px solid ${p.photo_before?'#16a34a':'#e2e8f0'};cursor:pointer;font-weight:600;background:${p.photo_before?'#dcfce7':'#f8fafc'};color:${p.photo_before?'#15803d':'#374151'}">${p.photo_before?'✓ Before':'📷 Before'}</button>
+                            <button onclick="capturePartPhoto('${woId}',${i},'after')" style="flex:1;padding:8px;font-size:12px;border-radius:8px;border:1px solid ${p.photo_after?'#16a34a':'#e2e8f0'};cursor:pointer;font-weight:600;background:${p.photo_after?'#dcfce7':'#f8fafc'};color:${p.photo_after?'#15803d':'#374151'}">${p.photo_after?'✓ After':'📷 After'}</button>
+                          </div>
+                          ${(!p.photo_before||!p.photo_after)?'<div style="font-size:10px;color:#dc2626;margin-top:4px">⚠ Both photos required</div>':''}
+                        `:''}
+                      </div>`).join('') +
+                    \`<div style="display:flex;gap:8px;margin-top:4px">
+                      <input id="epi_\${woId.replace(/-/g,'')}" placeholder="Add part name..."
+                        style="flex:1;padding:9px 12px;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;color:#111;font-size:13px;font-family:inherit"
+                        onkeydown="if(event.key==='Enter')addExtraPart('\${woId}')"/>
+                      <button onclick="addExtraPart('\${woId}')" style="padding:9px 14px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-size:13px;font-weight:600;cursor:pointer">+ Add</button>
+                    </div>\`;
+                  })()}
                 </div>
               </div>
-                            ${!j.video_url ? `
+              ${!j.video_url ? `
                 <button class="btn btn-blue btn-sm" style="margin-bottom:6px;width:100%;font-weight:600" onclick="startVideoCapture(${gi})">
                   🎥 Record Video <span style="font-size:10px;opacity:.8">(required)</span>
                 </button>
