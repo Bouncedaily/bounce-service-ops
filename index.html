@@ -939,8 +939,15 @@ async function submitRegularization(attId, techName, date, prevStatus) {
   document.body.appendChild(t);
   setTimeout(() => t.remove(), 3000);
 
-  // Refresh current tab
-  _smAttTab = _smAttTab || 'today';
+  // Stay on calendar, force fresh fetch
+  _smAttTab = 'calendar';
+  localStorage.setItem('sm_att_tab', 'calendar');
+  window._calCacheKey = null;
+  // For AM/Head, ensure calendar tab stays active
+  if (state.user?.role !== 'hub_manager') {
+    _attTab = 'calendar';
+    localStorage.setItem('att_tab', 'calendar');
+  }
   navigate('attendance');
 }
 
