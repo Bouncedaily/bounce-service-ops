@@ -369,68 +369,73 @@ tr:hover td{background:var(--g50)}
 
 <!-- ══ PHOTO CAPTURE MODAL ══ -->
 <!-- Video capture modal -->
-  <div id="video-modal" style="display:none;position:fixed;inset:0;background:#000;z-index:3000;flex-direction:column;align-items:center;justify-content:flex-end;padding:0">
-    <!-- Full screen canvas -->
+  <div id="video-modal" style="display:none;position:fixed;inset:0;background:#000;z-index:3000;flex-direction:column">
+    <!-- Fullscreen canvas -->
     <div style="position:absolute;inset:0">
-      <canvas id="video-canvas" style="width:100%;height:100%;object-fit:cover;display:block;background:#111"></canvas>
-      <div id="video-overlay-label" style="position:absolute;bottom:120px;right:12px;background:rgba(0,0,0,.65);color:white;font-size:11px;padding:4px 10px;border-radius:4px;line-height:1.8;text-align:right"></div>
-      <div id="video-rec-dot" style="display:none;position:absolute;top:16px;left:16px;background:#ef4444;color:white;font-size:12px;font-weight:700;padding:4px 10px;border-radius:4px">● REC</div>
-      <div id="video-timer" style="display:none;position:absolute;top:16px;right:16px;color:white;font-size:16px;font-weight:700;font-family:monospace;text-shadow:0 1px 4px rgba(0,0,0,.9)">00:00</div>
-    </div>
-    <!-- Controls fixed at bottom -->
-    <div style="position:relative;z-index:1;width:100%;padding:20px 24px;padding-bottom:max(20px,env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(0,0,0,.8));display:flex;flex-direction:column;align-items:center;gap:12px">
-      <div id="video-status" style="color:rgba(255,255,255,.7);font-size:13px;text-align:center"></div>
-      <div style="display:flex;gap:16px;align-items:center;justify-content:center;width:100%">
-        <button onclick="closeVideoModal()" style="width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,.2);color:white;border:2px solid rgba(255,255,255,.5);font-size:20px;cursor:pointer">✕</button>
-        <button id="video-rec-btn" onclick="toggleVideoRecording()" style="width:80px;height:80px;border-radius:50%;background:#ef4444;color:white;border:4px solid white;font-size:28px;cursor:pointer;box-shadow:0 4px 16px rgba(239,68,68,.5)">⏺</button>
-        <div style="width:56px"></div>
+      <canvas id="video-canvas" style="width:100%;height:100%;object-fit:cover;display:block"></canvas>
+      <!-- REC badge -->
+      <div id="video-rec-dot" style="display:none;position:absolute;top:20px;left:16px;display:none;align-items:center;gap:6px;background:rgba(0,0,0,.5);padding:5px 12px;border-radius:20px">
+        <div style="width:8px;height:8px;border-radius:50%;background:#ef4444;animation:blink 1s infinite"></div>
+        <span style="color:white;font-size:12px;font-weight:700;letter-spacing:.05em">REC</span>
       </div>
-      <div id="video-hint" style="color:rgba(255,255,255,.5);font-size:12px">Tap ⏺ to start recording</div>
-      <div style="display:flex;gap:10px;width:100%;margin-top:4px">
-        <button id="video-retake-btn" onclick="retakeVideo()" style="display:none;flex:1;padding:13px;font-size:15px;font-weight:600;border-radius:10px;background:#374151;color:white;border:none;cursor:pointer">↩ Retake</button>
-        <button id="video-upload-btn" onclick="uploadVideo()" style="display:none;flex:1;padding:13px;font-size:15px;font-weight:700;border-radius:10px;background:#16a34a;color:white;border:none;cursor:pointer">⬆ Upload Video</button>
+      <!-- Timer -->
+      <div id="video-timer" style="display:none;position:absolute;top:20px;right:16px;color:white;font-size:14px;font-weight:700;font-family:monospace;background:rgba(0,0,0,.45);padding:4px 10px;border-radius:16px">00:00</div>
+      <!-- Overlay bottom-right -->
+      <div id="video-overlay-label" style="position:absolute;bottom:160px;right:12px;background:rgba(0,0,0,.55);color:white;font-size:10px;padding:4px 8px;border-radius:4px;line-height:1.8;text-align:right"></div>
+    </div>
+    <!-- Bottom controls -->
+    <div style="position:absolute;bottom:0;left:0;right:0;padding:16px 24px;padding-bottom:max(24px,env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(0,0,0,.85))">
+      <!-- Status text -->
+      <div id="video-status" style="text-align:center;color:rgba(255,255,255,.7);font-size:13px;margin-bottom:16px;min-height:18px"></div>
+      <!-- Pre-record: Cancel + Record -->
+      <div id="video-pre-controls" style="display:flex;align-items:center;justify-content:space-between">
+        <button onclick="closeVideoModal()" style="width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.3);color:white;font-size:16px;cursor:pointer">✕</button>
+        <button id="video-rec-btn" onclick="toggleVideoRecording()" style="width:72px;height:72px;border-radius:50%;background:#ef4444;border:4px solid white;cursor:pointer;box-shadow:0 2px 20px rgba(239,68,68,.6);display:flex;align-items:center;justify-content:center">
+          <div style="width:26px;height:26px;border-radius:50%;background:white"></div>
+        </button>
+        <div style="width:48px"></div>
+      </div>
+      <!-- Post-record: Retake + Upload -->
+      <div id="video-post-controls" style="display:none;flex-direction:column;gap:10px">
+        <button onclick="uploadVideo()" style="width:100%;padding:15px;font-size:16px;font-weight:700;border-radius:12px;background:#16a34a;color:white;border:none;cursor:pointer">Upload Video</button>
+        <button onclick="retakeVideo()" style="width:100%;padding:12px;font-size:14px;font-weight:600;border-radius:12px;background:rgba(255,255,255,.1);color:rgba(255,255,255,.8);border:1px solid rgba(255,255,255,.2);cursor:pointer">↩ Record Again</button>
       </div>
     </div>
   </div>
 
-  <div id="photo-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:#000;flex-direction:column;overflow:hidden">
-    <!-- Top bar -->
-    <div style="padding:12px 16px 8px;flex-shrink:0">
-      <div style="font-size:14px;font-weight:700;color:#fff;text-align:center" id="pm-title">Take Photo</div>
-      <div style="font-size:11px;color:rgba(255,255,255,.5);text-align:center;margin-top:2px" id="pm-sub">Front, Left, Back, Right</div>
+  <div id="photo-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:#000;flex-direction:column">
+    <!-- Top: title + progress dots -->
+    <div style="position:absolute;top:0;left:0;right:0;z-index:2;padding:16px;background:linear-gradient(rgba(0,0,0,.6),transparent)">
+      <div style="font-size:15px;font-weight:700;color:white;text-align:center" id="pm-title">Start Photos</div>
+      <div style="font-size:12px;color:rgba(255,255,255,.6);text-align:center;margin-top:2px" id="pm-sub">Front · Left · Back · Right</div>
+      <!-- Progress dots -->
+      <div id="pm-thumbs" style="display:flex;gap:8px;justify-content:center;margin-top:10px"></div>
     </div>
-    <!-- Camera -->
-    <div style="flex:1;position:relative;min-height:0">
-      <video id="pm-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;display:block"></video>
-      <canvas id="pm-canvas" style="width:100%;height:100%;object-fit:cover;display:none;position:absolute;inset:0"></canvas>
-      <div id="pm-side-label" style="position:absolute;top:10px;left:10px;background:rgba(0,0,0,.6);color:#fff;font-size:12px;font-weight:700;padding:4px 12px;border-radius:16px;letter-spacing:.05em">FRONT</div>
-    </div>
-    <!-- Thumbnails -->
-    <div id="pm-thumbs" style="display:flex;gap:6px;padding:8px 12px;background:#111;justify-content:center;flex-shrink:0"></div>
-    <!-- Bottom actions -->
-    <div style="padding:10px 16px 20px;background:#111;flex-shrink:0;display:flex;flex-direction:column;gap:8px">
-      <div id="pm-upload-status" style="text-align:center;font-size:12px;color:rgba(255,255,255,.6);min-height:16px"></div>
-      <div id="pm-notes-wrap" style="display:none">
+    <!-- Fullscreen camera -->
+    <video id="pm-video" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></video>
+    <canvas id="pm-canvas" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none"></canvas>
+    <!-- Side label -->
+    <div id="pm-side-label" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.45);color:white;font-size:22px;font-weight:800;padding:10px 24px;border-radius:12px;letter-spacing:.1em;pointer-events:none">FRONT</div>
+    <!-- Bottom controls -->
+    <div style="position:absolute;bottom:0;left:0;right:0;padding:16px 20px;padding-bottom:max(20px,env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(0,0,0,.85));z-index:2">
+      <div id="pm-upload-status" style="text-align:center;font-size:13px;color:rgba(255,255,255,.7);margin-bottom:10px;min-height:18px"></div>
+      <div id="pm-notes-wrap" style="display:none;margin-bottom:10px">
         <textarea id="pm-notes" placeholder="Completion notes (optional)..."
-          style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#fff;font-size:13px;resize:none;height:56px;font-family:inherit;box-sizing:border-box"></textarea>
+          style="width:100%;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:rgba(0,0,0,.5);color:white;font-size:13px;resize:none;height:60px;font-family:inherit;box-sizing:border-box"></textarea>
       </div>
-      <div style="display:flex;gap:8px">
-        <button id="pm-capture-btn" onclick="capturePhoto()"
-          style="flex:1;padding:13px;font-size:15px;font-weight:600;border-radius:10px;border:none;background:#2563eb;color:#fff;cursor:pointer;font-family:inherit">
-          📷 Capture
+      <!-- Shutter row -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <button onclick="cancelPhotoSession()" style="width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.3);color:white;font-size:16px;cursor:pointer">✕</button>
+        <!-- Shutter button -->
+        <button id="pm-capture-btn" onclick="capturePhoto()" style="width:72px;height:72px;border-radius:50%;background:white;border:4px solid rgba(255,255,255,.4);cursor:pointer;box-shadow:0 2px 20px rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center">
+          <div style="width:58px;height:58px;border-radius:50%;background:white;border:3px solid #ddd"></div>
         </button>
-        <button id="pm-retake-btn" onclick="retakePhoto()"
-          style="display:none;flex:1;padding:13px;font-size:15px;font-weight:600;border-radius:10px;border:none;background:#374151;color:#fff;cursor:pointer;font-family:inherit">
-          ↩ Retake
-        </button>
+        <button id="pm-retake-btn" onclick="retakePhoto()" style="display:none;width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.3);color:white;font-size:18px;cursor:pointer">↩</button>
+        <div id="pm-retake-placeholder" style="width:48px"></div>
       </div>
-      <button id="pm-done-btn" onclick="finishPhotoSession()"
-        style="display:none;width:100%;padding:13px;font-size:15px;font-weight:700;border-radius:10px;border:none;background:#16a34a;color:#fff;cursor:pointer;font-family:inherit">
+      <!-- Upload done button — appears only when all 4 done -->
+      <button id="pm-done-btn" onclick="finishPhotoSession()" style="display:none;width:100%;padding:15px;font-size:16px;font-weight:700;border-radius:12px;background:#16a34a;color:white;border:none;cursor:pointer;font-family:inherit">
         ✓ Upload &amp; Start
-      </button>
-      <button onclick="cancelPhotoSession()"
-        style="width:100%;padding:10px;font-size:14px;border:none;background:transparent;color:rgba(255,255,255,.4);cursor:pointer;font-family:inherit">
-        Cancel
       </button>
     </div>
   </div>
@@ -863,14 +868,11 @@ function toggleVideoRecording() {
     clearInterval(_videoSession.timerInt);
     _videoSession.recorder.stop();
     _videoSession.recorder = null;
-    btn.innerHTML = '⏺';
-    btn.style.background = '#ef4444';
-    btn.style.display = 'none'; // hide record btn after stop
     document.getElementById('video-rec-dot').style.display = 'none';
-    document.getElementById('video-status').textContent = '✓ Video captured — tap Upload to save';
-    // Show upload button
-    document.getElementById('video-upload-btn').style.display = 'block';
-    document.getElementById('video-retake-btn').style.display = 'block';
+    document.getElementById('video-timer').style.display = 'none';
+    document.getElementById('video-status').textContent = 'Video captured';
+    document.getElementById('video-pre-controls').style.display = 'none';
+    document.getElementById('video-post-controls').style.display = 'flex';
   }
 }
 
@@ -878,16 +880,12 @@ function retakeVideo() {
   // Reset for re-recording
   _videoSession.chunks = [];
   _videoSession.elapsed = 0;
-  document.getElementById('video-upload-btn').style.display = 'none';
-  document.getElementById('video-retake-btn').style.display = 'none';
-  document.getElementById('video-rec-btn').style.display = 'flex';
-  document.getElementById('video-rec-btn').innerHTML = '⏺';
-  document.getElementById('video-rec-btn').style.background = '#ef4444';
+  document.getElementById('video-pre-controls').style.display = 'flex';
+  document.getElementById('video-post-controls').style.display = 'none';
+  document.getElementById('video-rec-btn').innerHTML = '<div style="width:26px;height:26px;border-radius:50%;background:white"></div>';
   document.getElementById('video-timer').textContent = '00:00';
   document.getElementById('video-timer').style.display = 'none';
-  document.getElementById('video-status').textContent = 'Ready — tap Record to start (max 1 min)';
-  const hint = document.getElementById('video-hint');
-  if (hint) hint.style.display = 'block';
+  document.getElementById('video-status').textContent = '';
 }
 
 async function uploadVideo() {
@@ -933,13 +931,13 @@ function closeVideoModal() {
   if (_videoSession.recorder) { try { _videoSession.recorder.stop(); } catch(e){} _videoSession.recorder = null; }
   if (_videoSession.stream)   { _videoSession.stream.getTracks().forEach(t=>t.stop()); _videoSession.stream = null; }
   document.getElementById('video-modal').style.display = 'none';
-  document.getElementById('video-rec-btn').innerHTML = '⏺';
+  document.getElementById('video-rec-btn').innerHTML = '<div style="width:26px;height:26px;border-radius:50%;background:white"></div>';
   document.getElementById('video-rec-btn').disabled = false;
-  document.getElementById('video-rec-btn').style.display = 'flex';
-  const ub = document.getElementById('video-upload-btn');
-  const rb = document.getElementById('video-retake-btn');
-  if (ub) ub.style.display = 'none';
-  if (rb) rb.style.display = 'none';
+  document.getElementById('video-pre-controls').style.display = 'flex';
+  document.getElementById('video-post-controls').style.display = 'none';
+  document.getElementById('video-timer').textContent = '00:00';
+  document.getElementById('video-timer').style.display = 'none';
+  document.getElementById('video-rec-dot').style.display = 'none';
   document.getElementById('video-rec-dot').style.display = 'none';
   document.getElementById('video-timer').style.display = 'none';
   document.getElementById('video-timer').textContent = '00:00';
@@ -3085,9 +3083,9 @@ function openPhotoCapture(phase, jobIdx) {
   updatePhotoSideLabel();
   document.getElementById('photo-modal').style.display='flex';
   document.getElementById('pm-retake-btn').style.display = 'none';
+  document.getElementById('pm-retake-placeholder').style.display = 'block';
   document.getElementById('pm-done-btn').style.display = 'none';
-  document.getElementById('pm-capture-btn').textContent = '📷 Capture';
-  document.getElementById('pm-capture-btn').style.cssText = '';
+  document.getElementById('pm-capture-btn').querySelector('div').style.background = 'white';
   document.getElementById('pm-capture-btn').onclick = capturePhoto;
   startCamera();
 }
@@ -3148,10 +3146,14 @@ function capturePhoto() {
   document.getElementById('pm-retake-btn').style.display='block';
   const isLast = side === _photoSession.sides[_photoSession.sides.length-1];
   const captBtn = document.getElementById('pm-capture-btn');
-  captBtn.textContent = isLast ? '✓ All Done' : '→ Next Photo';
-  captBtn.style.cssText = '';
+  // Keep shutter style — change inner circle color to indicate captured
   captBtn.onclick = confirmPhoto;
-  document.getElementById('pm-retake-btn').style.display = 'block';
+  captBtn.querySelector('div').style.background = isLast ? '#16a34a' : '#2563eb';
+  document.getElementById('pm-retake-btn').style.display = 'flex';
+  document.getElementById('pm-retake-placeholder').style.display = 'none';
+  // Move side label to corner after capture
+  const lbl = document.getElementById('pm-side-label');
+  lbl.style.cssText = 'position:absolute;top:auto;left:50%;bottom:180px;transform:translateX(-50%);background:rgba(0,0,0,.45);color:white;font-size:22px;font-weight:800;padding:10px 24px;border-radius:12px;letter-spacing:.1em;pointer-events:none';
   renderPhotoThumbs();
   checkAllCaptured();
 }
@@ -3165,10 +3167,10 @@ function retakePhoto() {
   canvas.style.display='none';
   document.getElementById('pm-retake-btn').style.display='none';
   const captBtnR = document.getElementById('pm-capture-btn');
-  captBtnR.textContent = '📷 Capture';
-  captBtnR.style.cssText = '';
+  captBtnR.querySelector('div').style.background = 'white';
   captBtnR.onclick = capturePhoto;
   document.getElementById('pm-retake-btn').style.display = 'none';
+  document.getElementById('pm-retake-placeholder').style.display = 'block';
 }
 
 function confirmPhoto() {
@@ -3190,13 +3192,16 @@ function confirmPhoto() {
 
 function updatePhotoSideLabel() {
   const side = _photoSession.sides[_photoSession.currentSide];
-  document.getElementById('pm-side-label').textContent = side.charAt(0).toUpperCase()+side.slice(1);
+  const lbl = document.getElementById('pm-side-label');
+  lbl.textContent = side.toUpperCase();
+  lbl.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.45);color:white;font-size:22px;font-weight:800;padding:10px 24px;border-radius:12px;letter-spacing:.1em;pointer-events:none';
 }
 
 function renderPhotoThumbs() {
   const sides = _photoSession.sides;
   document.getElementById('pm-thumbs').innerHTML = sides.map((s,i)=>{
     const img = _photoSession.captured[s];
+    const isCurrent = i === _photoSession.currentSide;
     const isActive = i===_photoSession.currentSide;
     return `<div class="photo-thumb ${img?'done':''} ${isActive?'active':''}" onclick="jumpToSide(${i})">
       ${img ? `<img src="${img}"/><div class="tick">✓</div>` : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.4);font-size:18px">📷</div>`}
