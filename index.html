@@ -1003,6 +1003,7 @@ async function loadMyJobs() {
       jc_number:          jc.job_card_number || null,
       parts_to_be_changed:jc.parts_to_be_changed || null,
       submission_type:    jc.submission_type || r.wo_type==='oos' ? 'OOS' : 'Running Repair',
+      video_url:          r.video_url || null,
     });
   });
 }
