@@ -368,7 +368,22 @@ tr:hover td{background:var(--g50)}
 </div>
 
 <!-- ══ PHOTO CAPTURE MODAL ══ -->
-<div id="photo-modal" class="photo-modal" style="display:none">
+<!-- Video capture modal -->
+  <div id="video-modal" style="display:none;position:fixed;inset:0;background:#000;z-index:3000;flex-direction:column;align-items:center;justify-content:space-around;padding:20px">
+    <div style="position:relative;width:100%;max-width:480px">
+      <canvas id="video-canvas" style="width:100%;border-radius:8px;display:block;background:#111"></canvas>
+      <div id="video-overlay-label" style="position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,.65);color:white;font-size:10px;padding:3px 8px;border-radius:3px;line-height:1.6;text-align:right"></div>
+      <div id="video-rec-dot" style="display:none;position:absolute;top:10px;left:10px;background:var(--red);color:white;font-size:11px;font-weight:700;padding:3px 8px;border-radius:4px">● REC</div>
+      <div id="video-timer" style="display:none;position:absolute;top:10px;right:10px;color:white;font-size:14px;font-weight:700;font-family:monospace;text-shadow:0 1px 4px rgba(0,0,0,.9)">00:00</div>
+    </div>
+    <div style="display:flex;gap:12px;align-items:center;margin-top:16px">
+      <button id="video-rec-btn" onclick="toggleVideoRecording()" style="padding:14px 36px;font-size:15px;border-radius:24px;background:var(--red);color:white;border:none;cursor:pointer;font-weight:600">⏺ Start Recording</button>
+      <button onclick="closeVideoModal()" style="padding:14px 24px;font-size:14px;border-radius:24px;background:transparent;color:white;border:2px solid rgba(255,255,255,.4);cursor:pointer">Cancel</button>
+    </div>
+    <div id="video-status" style="color:rgba(255,255,255,.6);font-size:13px;text-align:center;min-height:20px"></div>
+  </div>
+
+  <div id="photo-modal" class="photo-modal" style="display:none">
   <div class="photo-modal-title" id="pm-title">Take Photo</div>
   <div class="photo-modal-sub" id="pm-sub">Position vehicle and tap capture</div>
   <div class="photo-preview">
@@ -556,6 +571,8 @@ const DEMO_JOBS = [
   {id:'j5', wo_number:'WO-005', vehicle_reg:'KA05IJ7890', issue:'Tyre puncture repair', priority:'Medium', status:'Open',        wo_type:'oos',            assigned_at: new Date().toISOString(), hub_id:'hub-4', users:{name:'Selvam V'},  hubs:{name:'Electronic City Hub'}},
 ];
 let _demoMode = false;
+const CLOUDINARY_CLOUD = 'dmaldc00k';
+const CLOUDINARY_PRESET = 'job_videos';
 const CHECKIN_CUTOFF_HOUR = 13;   // 1 PM
 const CHECKIN_CUTOFF_MIN  = 30;   // 1:30 PM
 const HALF_DAY_MIN_HRS    = 5;    // < 5hrs = absent
@@ -609,9 +626,11 @@ async function loadAttendanceForHub(hubId) {
     if (!matchById && !matchByCol && !matchByJoin) return false;
     seen.add(r.user_id); return true;
   });
-  console.log('[loadAttendanceForHub]', hubName, '→ total today:', (allRows||[]).length, '→ this hub:', rows.length, '→ names:', Object.keys(state.attendance));
+
   rows.forEach(r => {
-    const name = r.users?.name || r.technician_name; if (!name) return;
+    const name = r.users?.name || r.technician_name;
+
+    if (!name) return;
     state.attendance[name] = {
       status:   r.status,
       checkin:  r.checkin_time  ? new Date(r.checkin_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false}) : null,
@@ -620,7 +639,8 @@ async function loadAttendanceForHub(hubId) {
       approval: r.approval_status, approved_by: r.approved_by_name, remarks: r.remarks
     };
   });
-  console.log('[loadAttendanceForHub]', hubName, '→', Object.keys(state.attendance).length, 'records');
+
+  return {...state.attendance}; // return snapshot so callers aren't affected by later resets
 }
 
 // ─ LOAD TODAY'S WORK ORDERS FOR A HUB ─
@@ -638,6 +658,7 @@ async function loadJobsForHub(hubId) {
       db_id:   r.id, id: r.wo_number, vehicle: r.vehicle_reg,
       issue:   r.issue, tech: r.users?.name || 'Unassigned',
       notes:   r.reason_for_ending || null,
+      video_url: r.video_url || null,
       hub:     hubName, priority: r.priority, status: r.status,
       wo_type: r.wo_type || 'running_repair',
       time:    new Date(r.assigned_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false})
@@ -694,6 +715,173 @@ async function loadVehiclesForHub(hubName) {
 }
 
 // ─ LOAD MY ATTENDANCE (technician) ─
+
+// ── VIDEO CAPTURE ────────────────────────────────────────────────────────────
+let _videoSession = { stream:null, recorder:null, chunks:[], jobIdx:null, timerInt:null, canvasInt:null, elapsed:0 };
+
+async function startVideoCapture(jobIdx) {
+  const j = state.jobs[jobIdx];
+  if (!j) return;
+  _videoSession.jobIdx = jobIdx;
+  _videoSession.chunks = [];
+  _videoSession.elapsed = 0;
+
+  // Set overlay label
+  const now = new Date();
+  const ts = now.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) + ' ' +
+             now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
+  document.getElementById('video-overlay-label').innerHTML =
+    `${j.vehicle||j.reg||'—'}<br>${j.jc_number||'—'}<br>${ts}`;
+
+  // Get camera stream
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width:{ideal:1280}, height:{ideal:720} },
+      audio: true
+    });
+    _videoSession.stream = stream;
+
+    // Draw stream to canvas with overlay
+    const canvas = document.getElementById('video-canvas');
+    const ctx = canvas.getContext('2d');
+    const video = document.createElement('video');
+    video.srcObject = stream;
+    video.play();
+    video.onloadedmetadata = () => {
+      canvas.width  = video.videoWidth  || 1280;
+      canvas.height = video.videoHeight || 720;
+    };
+
+    _videoSession.canvasInt = setInterval(() => {
+      if (!video.videoWidth) return;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      // Draw overlay bottom-right
+      const pad = 10, lh = 16, fs = 13;
+      const lines = [
+        j.vehicle || j.reg || '—',
+        j.jc_number || '—',
+        new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true})
+      ];
+      const maxW = Math.max(...lines.map(l => l.length)) * (fs * 0.6) + pad*2;
+      const boxH  = lines.length * lh + pad;
+      const boxX  = canvas.width  - maxW - pad;
+      const boxY  = canvas.height - boxH - pad;
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.beginPath();
+      ctx.roundRect(boxX, boxY, maxW, boxH, 4);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = `${fs}px monospace`;
+      ctx.textAlign = 'right';
+      lines.forEach((line, i) => {
+        ctx.fillText(line, canvas.width - pad*2, boxY + pad + (i+1)*lh - 3);
+      });
+      ctx.textAlign = 'left';
+    }, 33); // ~30fps
+
+    document.getElementById('video-modal').style.display = 'flex';
+    document.getElementById('video-status').textContent = 'Ready — tap Record to start (max 1 min)';
+  } catch(e) {
+    alert('Camera access denied. Please allow camera permissions.');
+  }
+}
+
+function toggleVideoRecording() {
+  const btn = document.getElementById('video-rec-btn');
+  if (!_videoSession.recorder) {
+    // Start recording from canvas stream
+    const canvas = document.getElementById('video-canvas');
+    const canvasStream = canvas.captureStream(30);
+    // Add audio from camera
+    const audioTrack = _videoSession.stream?.getAudioTracks()[0];
+    if (audioTrack) canvasStream.addTrack(audioTrack);
+
+    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+      ? 'video/webm;codecs=vp9' : 'video/webm';
+    _videoSession.recorder = new MediaRecorder(canvasStream, { mimeType });
+    _videoSession.chunks = [];
+    _videoSession.recorder.ondataavailable = e => { if(e.data.size>0) _videoSession.chunks.push(e.data); };
+    _videoSession.recorder.onstop = () => uploadVideo();
+    _videoSession.recorder.start(100);
+
+    // UI
+    btn.textContent = '⏹ Stop Recording';
+    btn.style.background = '#374151';
+    document.getElementById('video-rec-dot').style.display = 'block';
+    document.getElementById('video-timer').style.display = 'block';
+    document.getElementById('video-status').textContent = 'Recording...';
+
+    // Timer + auto stop at 60s
+    _videoSession.elapsed = 0;
+    _videoSession.timerInt = setInterval(() => {
+      _videoSession.elapsed++;
+      const m = String(Math.floor(_videoSession.elapsed/60)).padStart(2,'0');
+      const s = String(_videoSession.elapsed%60).padStart(2,'0');
+      document.getElementById('video-timer').textContent = `${m}:${s}`;
+      if (_videoSession.elapsed >= 60) toggleVideoRecording(); // auto stop
+    }, 1000);
+  } else {
+    // Stop recording
+    clearInterval(_videoSession.timerInt);
+    _videoSession.recorder.stop();
+    _videoSession.recorder = null;
+    btn.textContent = '⏺ Start Recording';
+    document.getElementById('video-rec-dot').style.display = 'none';
+    document.getElementById('video-status').textContent = 'Processing...';
+  }
+}
+
+async function uploadVideo() {
+  const j = state.jobs[_videoSession.jobIdx];
+  if (!j) return;
+  document.getElementById('video-status').textContent = 'Uploading video...';
+  document.getElementById('video-rec-btn').disabled = true;
+
+  const blob = new Blob(_videoSession.chunks, { type: 'video/webm' });
+  const formData = new FormData();
+  formData.append('file', blob, `${j.jc_number||'job'}_${Date.now()}.webm`);
+  formData.append('upload_preset', CLOUDINARY_PRESET);
+  formData.append('folder', 'job_videos');
+  formData.append('context', `jc=${j.jc_number||''}|vehicle=${j.vehicle||j.reg||''}|tech=${state.user?.name||''}`);
+
+  try {
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/video/upload`, {
+      method: 'POST', body: formData
+    });
+    const data = await res.json();
+    if (data.secure_url) {
+      // Save URL to work order
+      await sb(`work_orders?id=eq.${j.db_id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ video_url: data.secure_url, updated_at: new Date().toISOString() })
+      });
+      // Update local state
+      state.jobs[_videoSession.jobIdx].video_url = data.secure_url;
+      document.getElementById('video-status').textContent = '✓ Video uploaded!';
+      setTimeout(() => closeVideoModal(), 1500);
+    } else {
+      document.getElementById('video-status').textContent = 'Upload failed: ' + (data.error?.message||'Unknown error');
+    }
+  } catch(e) {
+    document.getElementById('video-status').textContent = 'Upload error: ' + e.message;
+  }
+  document.getElementById('video-rec-btn').disabled = false;
+}
+
+function closeVideoModal() {
+  clearInterval(_videoSession.timerInt);
+  clearInterval(_videoSession.canvasInt);
+  if (_videoSession.recorder) { try { _videoSession.recorder.stop(); } catch(e){} _videoSession.recorder = null; }
+  if (_videoSession.stream)   { _videoSession.stream.getTracks().forEach(t=>t.stop()); _videoSession.stream = null; }
+  document.getElementById('video-modal').style.display = 'none';
+  document.getElementById('video-rec-btn').textContent = '⏺ Start Recording';
+  document.getElementById('video-rec-btn').disabled = false;
+  document.getElementById('video-rec-dot').style.display = 'none';
+  document.getElementById('video-timer').style.display = 'none';
+  document.getElementById('video-timer').textContent = '00:00';
+  navigate('my-jobs');
+}
+
 async function loadMyAttendance(userId) {
   let rows;
   if (_demoMode) {
@@ -721,7 +909,7 @@ async function loadMyJobs() {
   if (_demoMode) {
     rows = DEMO_JOBS.filter(j=>j.users?.name===state.user.name);
   } else {
-    rows = await sb(`work_orders?assigned_tech_id=eq.${state.user.id}&select=id,wo_number,vehicle_reg,issue,priority,status,wo_type,assigned_at,hubs(name)&order=assigned_at.desc`) || [];
+    rows = await sb(`work_orders?assigned_tech_id=eq.${state.user.id}&select=id,wo_number,vehicle_reg,issue,priority,status,wo_type,assigned_at,video_url,hubs(name)&order=assigned_at.desc`) || [];
   }
   state.jobs = [];
   // Collect all reg numbers to fetch JC details in one query
@@ -1484,7 +1672,7 @@ function navigate(page) {
         const html = await renderWorkOrdersAsync();
         if (currentPage===page) c.innerHTML = html;
       } catch(e) {
-        console.error('renderWorkOrdersAsync error:', e);
+        console.error('renderWorkOrdersAsync error:', e.message, e.stack);
         if (currentPage===page) c.innerHTML = `<div class="empty-state"><div style="font-size:32px;margin-bottom:12px">⚠️</div><div style="font-weight:600;margin-bottom:6px">Failed to load work orders</div><div style="font-size:13px;color:var(--g400);margin-bottom:16px">${e.message}</div><button class="btn btn-blue" onclick="window._jcCache={};navigate('workorders')">Retry</button></div>`;
       }
     })();
@@ -1885,7 +2073,7 @@ function renderDashboard() {
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px">
       <div class="card" style="margin:0;border-left:4px solid var(--amber)">
         <div class="metric-lbl">Idle Technicians</div>
-        <div class="metric-val mv-amber" style="font-size:28px">${snapEntries.filter(([t,a])=>a.status==='present'&&!visibleJobs.find(j=>j.tech===t&&j.status==='In Progress')).length}</div>
+        <div class="metric-val mv-amber" style="font-size:28px">${snapEntries.filter(([t,a])=>(a.status==='present'||a.status==='checked_in')&&!visibleJobs.find(j=>j.tech===t&&j.status==='In Progress')).length}</div>
         <div style="font-size:12px;color:var(--g400);margin-top:4px">Present but no active job</div>
       </div>
       <div class="card" style="margin:0;border-left:4px solid var(--red)">
@@ -1915,11 +2103,12 @@ function renderDashboard() {
           <tbody>${snapEntries.map(([t,a])=>{
             const activeJob = visibleJobs.find(j=>j.tech===t&&j.status==='In Progress');
             const nextJob   = visibleJobs.find(j=>j.tech===t&&j.status==='Open');
-            const bc=a.status==='present'?'b-present':a.status==='absent'?'b-absent':'b-leave';
+            const bc=a.status==='present'?'b-present':a.status==='checked_in'?'b-inprog':a.status==='absent'?'b-absent':'b-leave';
+            const attLabel={'present':'Present','checked_in':'Working','absent':'Absent','half_day':'Half Day','leave':'On Leave','week_off':'Week Off'};
             return `<tr>
               <td style="cursor:pointer" onclick="window._profileTechName='${t}';window._profDateFrom=null;window._profDateTo=null;navigate('tech-profile')"><strong style="color:var(--blue)">${t}</strong></td>
               ${isWide?`<td style="font-size:12px;color:var(--g500)">${a.hub||'—'}</td>`:''}
-              <td><span class="badge ${bc}">${a.status[0].toUpperCase()+a.status.slice(1)}</span></td>
+              <td><span class="badge ${bc}">${attLabel[a.status]||a.status}</span></td>
               <td class="mono" style="font-size:12px">${a.checkin||'—'}</td>
               <td class="mono" style="font-size:12px">${a.checkout||'—'}</td>
               <td style="font-size:12px">${activeJob?`<span class="badge b-inprog">${activeJob.vehicle||'—'}</span> ${activeJob.issue}`:'<span style="color:var(--g300)">—</span>'}</td>
@@ -2065,9 +2254,11 @@ async function approveAtt(tech, decision) {
 function renderWorkOrders() {
   const myHub = state.hub;
   // Get present technicians from attendance state (set by QR scan or manager override)
+
   const avail = Object.entries(state.attendance)
-    .filter(([name, a]) => a.status==='present' && a.hub===myHub)
+    .filter(([name, a]) => a.status==='present'||a.status==='checked_in')
     .map(([name]) => name);
+
   const hubJobs = state.jobs.filter(j=>j.hub===myHub);
   return `
     <div class="page-hd"><div class="page-title">Work Orders</div><div class="page-sub">${myHub} — assign and track jobs</div></div>
@@ -2084,7 +2275,7 @@ function renderWorkOrders() {
           </div>
           <div id="veh-dropdown" style="display:none;position:absolute;z-index:50;background:var(--white);border:1px solid var(--g200);border-radius:var(--r);box-shadow:var(--sh-md);max-height:220px;overflow-y:auto;width:calc(50% - 28px);min-width:260px">
           </div>
-          <input type="hidden" id="wov"/>
+          <input type="hidden" id="sm_wov"/>
           <div id="veh-selected" style="display:none;margin-top:6px;padding:8px 10px;background:var(--blue-lt);border-radius:6px;font-size:12px;color:var(--blue)"></div>
         </div>
         <div class="form-group" style="margin:0">
@@ -2099,17 +2290,17 @@ function renderWorkOrders() {
       <div class="form-row" style="margin-top:12px">
         <div class="form-group" style="margin:0">
           <label class="form-label">Issue / Service</label>
-          <input class="form-input" id="woi" placeholder="Describe the problem"/>
+          <input class="form-input" id="sm_woi" placeholder="Describe the problem"/>
         </div>
         <div class="form-group" style="margin:0">
           <label class="form-label">Priority</label>
-          <select class="form-select" id="wop"><option>High</option><option selected>Medium</option><option>Low</option></select>
+          <select class="form-select" id="sm_wop"><option>High</option><option selected>Medium</option><option>Low</option></select>
         </div>
       </div>
 
       <div class="form-group" style="margin-top:12px">
         <label class="form-label">Assign to (present at ${myHub})</label>
-        <select class="form-select" id="wot">
+        <select class="form-select" id="sm_wot">
           <option value="">Select technician...</option>
           ${avail.length===0
             ? `<option disabled>No technicians present at this hub</option>`
@@ -2122,7 +2313,7 @@ function renderWorkOrders() {
       </div>
       <button class="btn btn-blue" style="margin-top:4px" onclick="addWO()">Assign Work Order</button>
     </div>
-    <div id="wo-msg"></div>
+    <div id="sm_wo_msg"></div>
     ${hubJobs.length===0
       ? `<div class="empty-state">No work orders for ${myHub} yet.</div>`
       : `<div class="tw"><table>
@@ -2157,21 +2348,21 @@ function onWOTypeChange() {
 }
 
 async function addWO() {
-  const vEl = document.getElementById('wov');
-  const v = vEl.value;
-  const iss = document.getElementById('woi').value.trim();
-  const techName = document.getElementById('wot').value;
-  const p = document.getElementById('wop').value;
-  // Get work type from JC data (submission_type), fallback to hidden field or 'running_repair'
+  const vEl = document.getElementById('sm_wov');
+  const v = vEl?.value || '';
+  const iss = document.getElementById('sm_woi')?.value.trim() || '';
+  const techName = document.getElementById('sm_wot')?.value || '';
+  const p = document.getElementById('sm_wop')?.value || 'Medium';
   const jcData = window._jcLookup?.[v] || {};
   const submType = jcData.submission_type || '';
   const woType = submType.toLowerCase().includes('oos') ? 'oos' : 'running_repair';
-  if(!v||!iss||!techName){document.getElementById('wo-msg').innerHTML='<div class="alert al-error">Fill all fields and select a technician.</div>';return;}
+  if(!v||!iss||!techName){document.getElementById('sm_wo_msg').innerHTML='<div class="alert al-error">Fill all fields and select a technician.</div>';return;}
   const techUser = ALL_USERS.find(u=>u.name===techName);
   const btn = document.querySelector('.wo-form-wrap .btn-blue');
 
   // Duplicate vehicle check
-  const dup = await checkVehicleDuplicate(v, techName, j?.job_card_number||j?.jcNumber||null);
+  const jcNum = window._jcLookup?.[v]?.job_card_number || null;
+  const dup = await checkVehicleDuplicate(v, techName, jcNum);
   if (dup) {
     showDupPopup(dup, async () => {
       await cancelPreviousWO(dup.woDbId);
@@ -2607,9 +2798,13 @@ function renderMyJobs() {
               📷 Start
             </button>` : ''}
             ${isBlocked ? `<div style="text-align:right"><span style="font-size:12px;color:var(--g400)">🔒</span><br><span style="font-size:10px;color:var(--g400)">Complete previous<br>job to start this</span></div>` : ''}
-            ${isActive ? `<button class="btn btn-green btn-sm" onclick="endJobWithPhotos(${gi})">
-              📷 Complete
-            </button>` : ''}
+            ${isActive ? `
+              ${!j.video_url ? `<button class="btn btn-outline btn-sm" style="border-color:var(--blue);color:var(--blue);margin-bottom:6px;width:100%" onclick="startVideoCapture(${gi})">
+                🎥 Record Video
+              </button>` : `<div style="font-size:11px;color:var(--green);margin-bottom:6px;text-align:center">✓ Video recorded</div>`}
+              <button class="btn btn-green btn-sm" onclick="endJobWithPhotos(${gi})">
+                📷 Complete
+              </button>` : ''}
             ${j.status==='Done'?`<span style="font-size:12px;color:var(--green);font-weight:500">✓ Done</span>`:''}
           </div>
         </div>
@@ -2690,7 +2885,7 @@ function showVehDropdown() {
 
 function selectVehicle(idx) {
   const v = _vehResults[idx];
-  document.getElementById('wov').value = v.reg_number;
+  document.getElementById('sm_wov').value = v.reg_number;
   document.getElementById('veh-search').value = v.reg_number;
   document.getElementById('veh-dropdown').style.display='none';
   const model = v.model_name || v.model || '';
@@ -3073,15 +3268,24 @@ async function loadAllDraftJC() {
 
 // ─ WORK ORDER PAGE (Hub Manager) — with JC Details ─────────────────────
 async function renderWorkOrdersAsync() {
-  const myHub = state.hub;
+  const myHub = state.hub || state.user?.assigned_hub_name || ALL_USERS.find(u=>u.id===state.user?.id)?.assigned_hub_name || '';
   const role  = state.user?.role;
   if (!myHub) return '<div class="empty-state">No hub selected. Please log out and log in again.</div>';
   // Always reload attendance fresh — techs may have checked in after SM logged in
-  await loadAttendanceForHub(state.hubId);
-  // Filter present techs — hub match is already guaranteed by loadAttendanceForHub scope
-  const avail = Object.entries(state.attendance)
-    .filter(([,a]) => a.status==='present')
-    .map(([name]) => name);
+  // Fetch techs DIRECTLY from Supabase — bypasses state race conditions
+  // Fetch technicians directly - try hub_id first, fallback to hub_name
+  const _hubId = state.hubId || HUBS.find(h=>h.name===myHub)?.id;
+  let _attRows = [];
+  if (!_demoMode) {
+    if (_hubId) {
+      _attRows = await sb(`attendance?date=eq.${TODAY}&hub_id=eq.${_hubId}&status=in.(present,checked_in)&select=technician_name,status`) || [];
+    }
+    if (_attRows.length === 0 && myHub) {
+      _attRows = await sb(`attendance?date=eq.${TODAY}&hub_name=eq.${encodeURIComponent(myHub)}&status=in.(present,checked_in)&select=technician_name,status`) || [];
+    }
+  }
+  const avail = _attRows.map(r=>r.technician_name).filter(Boolean);
+
   const hubJobs = state.jobs.filter(j=>j.hub===myHub);
   // Use cached JC data if already loaded for this hub
   if (!window._jcCache) window._jcCache = {};
@@ -3181,9 +3385,12 @@ async function renderWorkOrdersAsync() {
   return `
     <div class="page-hd">
       <div class="page-hd-text"><div class="page-title">Work Orders</div><div class="page-sub">${myHub}</div></div>
-      <button class="btn-refresh" onclick="window._jcCache={};window._woPg={ua:0,as:0};navigate('workorders')" title="Refresh">
-        <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> Refresh
-      </button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button id="auto-assign-btn" class="btn btn-blue btn-sm" onclick="runAutoAssignment()" style="display:flex;align-items:center;gap:6px;font-size:13px;padding:8px 14px">⚡ Auto Assign</button>
+        <button class="btn-refresh" onclick="window._jcCache={};window._woPg={ua:0,as:0};navigate('workorders')" title="Refresh">
+          <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> Refresh
+        </button>
+      </div>
     </div>
     <div class="wo-form-wrap">
       <div class="wo-form-title">Assign new work order</div>
@@ -3354,10 +3561,10 @@ function assignTechFromJC(jcNum, regNum, techName) {
   if (!techName) return;
   // Pre-fill the assign form with this vehicle and tech
   document.getElementById('veh-search').value = regNum;
-  document.getElementById('wov').value = regNum;
+  document.getElementById('sm_wov').value = regNum;
   document.getElementById('veh-selected').style.display = 'block';
   document.getElementById('veh-selected').innerHTML = `✓ <strong>${regNum}</strong> — from JC ${jcNum}`;
-  const techSel = document.getElementById('wot');
+  const techSel = document.getElementById('sm_wot');
   if (techSel) {
     for (const opt of techSel.options) {
       if (opt.value === techName) { opt.selected = true; break; }
@@ -3839,6 +4046,176 @@ async function loadTechProfile(techName, role) {
           }).join('')}</tbody>
         </table></div>`}
     </div>`;
+}
+
+
+// ── AUTO ASSIGNMENT ENGINE ────────────────────────────────────────────────────
+const RUNWAY_URL = 'http://metabaselatest-dy7gqwqrma-el.a.run.app/api/public/card/c228d48b-34d8-4289-8856-71f65f373038/query/json';
+const RECOVERY_THRESHOLD = 2; // runway days < 2 = recovery mode
+
+async function runAutoAssignment() {
+  const myHub = state.hub || state.user?.assigned_hub_name || '';
+  if (!myHub) { alert('Hub not set. Please check in first.'); return; }
+
+  const btn = document.getElementById('auto-assign-btn');
+  if (btn) { btn.textContent = '⏳ Running...'; btn.disabled = true; }
+
+  console.log('[AutoAssign] Starting for hub:', myHub, 'hubId:', state.hubId);
+
+  try {
+    // Step 1: Fetch runway data from Supabase (synced every 15 mins from Metabase)
+    const runwayRows = await sb(`runway?hub_name=eq.${encodeURIComponent(myHub)}&select=bike_model_name,runway_days,current_rfd,diff_rfd_vs_recommended`) || [];
+    const hubRunway  = runwayRows;
+
+    // Step 2: Determine hub mode
+    const criticalModels = hubRunway.filter(r=>(r.runway_days||0) < RECOVERY_THRESHOLD).map(r=>r.bike_model_name);
+    const mode = criticalModels.length > 0 ? 'RECOVERY' : 'STABLE';
+
+    // Step 3: Fetch available techs (checked in today at this hub)
+    const _hubId = state.hubId || HUBS.find(h=>h.name===myHub)?.id;
+    const attRows = _hubId
+      ? (await sb(`attendance?date=eq.${TODAY}&hub_id=eq.${_hubId}&status=in.(present,checked_in)&select=technician_name,status,user_id`) || [])
+      : [];
+    const techs = attRows.map(r=>({ name: r.technician_name, userId: r.user_id, labourHrs: 0, wip: 0 }));
+
+    if (techs.length === 0) {
+      showAutoAssignResult({ mode, assigned: [], skipped: [], reason: 'No technicians checked in at ' + myHub });
+      return;
+    }
+
+    // Step 4: Get current WIP per tech (already assigned today, not done)
+    const wipRows = await sb(`work_orders?hub_id=eq.${_hubId}&status=in.(Open,In Progress)&select=assigned_tech_name,job_card_number`) || [];
+    const jcLabour = {};
+    // Get labour hours from draft_jc
+    const jcRows = window._jcCache?.[myHub] || await loadDraftJCForHub(myHub);
+    jcRows.forEach(j=>{ if(j.job_card_number) jcLabour[j.job_card_number] = parseFloat(j.labour_time_hours)||0; });
+
+    wipRows.forEach(w=>{
+      const t = techs.find(t=>t.name===w.assigned_tech_name);
+      if (t) { t.labourHrs += jcLabour[w.job_card_number]||0; t.wip++; }
+    });
+
+    // Step 5: Get unassigned JCs for this hub (all open, not just OOS)
+    const assignedJCNums = new Set(wipRows.map(w=>w.job_card_number));
+    const unassigned = jcRows.filter(j=>{
+      const status = (j.current_jc_status||'').toLowerCase();
+      const isOpen = status.includes('job open') || status.includes('jc not opened in dms') || status.includes('wip');
+      return isOpen && !assignedJCNums.has(j.job_card_number) && j.reg_number;
+    });
+
+    // Step 6: Score and sort vehicles based on mode
+    const scoreVehicle = (j) => {
+      let score = 0;
+      const model = (j.bike_model||j.bike_model_name||'').toLowerCase();
+      const labour = parseFloat(j.labour_time_hours)||0;
+      const aging  = parseFloat(j.overall_tat_days)||0;
+      const hasParts = !j.parts_to_be_changed || j.parts_to_be_changed.toLowerCase().includes('available');
+
+      if (mode === 'RECOVERY') {
+        // Priority: critical model → low labour → has parts
+        const isCritical = criticalModels.some(m=>model.includes(m.toLowerCase())||m.toLowerCase().includes(model));
+        if (isCritical)  score += 1000;
+        if (hasParts)    score += 500;
+        score += (10 - Math.min(labour, 10)) * 50; // lower labour = higher score
+        score -= aging * 0.1; // slight depriority for aging in recovery
+      } else {
+        // STABLE: Priority: high aging → escalation → backlog
+        score += aging * 100;
+        if (j.submission_type?.toLowerCase().includes('recovery')) score += 200;
+        score += Math.min(labour, 10) * 10;
+      }
+      return score;
+    };
+
+    console.log('[AutoAssign] Mode:', mode, 'Techs:', techs.map(t=>t.name), 'Unassigned JCs:', unassigned.length);
+    const sorted = [...unassigned].sort((a,b) => scoreVehicle(b) - scoreVehicle(a));
+
+    // Step 7: Assign vehicles to techs
+    const assignments = [];
+    const skipped    = [];
+    const MAX_HRS    = 9;
+
+    for (const jc of sorted) {
+      const labour = parseFloat(jc.labour_time_hours)||0;
+      // Find best available tech
+      const eligibleTechs = techs
+        .filter(t => labour===0 || (t.labourHrs + labour) <= MAX_HRS)
+        .sort((a,b) => a.labourHrs - b.labourHrs); // least loaded first
+
+      if (eligibleTechs.length === 0) {
+        skipped.push({ jc: jc.job_card_number, reg: jc.reg_number, reason: 'All techs at 9hr cap' });
+        continue;
+      }
+
+      const tech = eligibleTechs[0];
+      tech.labourHrs += labour;
+      tech.wip++;
+
+      // Save work order
+      const woNum = 'WO-' + String(Date.now()).slice(-6) + '-' + Math.floor(Math.random()*100);
+      const techUser = ALL_USERS.find(u=>u.name===tech.name);
+      const techId = tech.userId || ALL_USERS.find(u=>u.name===tech.name)?.id || null;
+      const res = await sb('work_orders', {
+        method: 'POST',
+        prefer: 'return=minimal',
+        body: JSON.stringify({
+          wo_number: woNum,
+          vehicle_reg: jc.reg_number,
+          issue: jc.reason_for_ending || jc.parts_to_be_changed || 'Auto-assigned',
+          job_card_number: jc.job_card_number,
+          assigned_tech_id: techId,
+          assigned_tech_name: tech.name,
+          hub_id: _hubId,
+          hub_name: myHub,
+          priority: mode==='RECOVERY' ? 'High' : 'Medium',
+          status: 'Open',
+          wo_type: (jc.bike_status||'').toLowerCase()==='oos' ? 'oos' : 'running_repair',
+          assigned_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+      });
+      console.log('[AutoAssign] Saved WO for', jc.reg_number, '→', tech.name, 'techId:', techId);
+
+      assignments.push({ jc: jc.job_card_number, reg: jc.reg_number, tech: tech.name, labour: labour });
+    }
+
+    showAutoAssignResult({ mode, criticalModels, assigned: assignments, skipped, hubRunway });
+
+  } catch(e) {
+    if (btn) { btn.textContent = '⚡ Auto Assign'; btn.disabled = false; }
+    alert('Auto assign error: ' + e.message);
+  }
+
+  if (btn) { btn.textContent = '⚡ Auto Assign'; btn.disabled = false; }
+}
+
+function showAutoAssignResult({ mode, criticalModels, assigned, skipped, hubRunway, reason }) {
+  const inner = document.getElementById('modal-inner');
+  const modeColor = mode==='RECOVERY' ? '#dc2626' : '#16a34a';
+  const modeIcon  = mode==='RECOVERY' ? '🚨' : '✅';
+
+  inner.innerHTML = `
+    <button class="modal-close" onclick="closeModal();navigate('workorders')">✕</button>
+    <div class="modal-title">${modeIcon} Auto Assignment Complete</div>
+    <div style="margin:8px 0 16px;padding:8px 14px;background:${modeColor}15;border-left:3px solid ${modeColor};border-radius:4px;font-size:13px;font-weight:600;color:${modeColor}">
+      Hub Mode: ${mode}${criticalModels?.length ? ' — Critical: '+criticalModels.join(', ') : ''}
+    </div>
+    ${reason ? `<div class="alert al-warn" style="margin-bottom:12px">${reason}</div>` : ''}
+    ${assigned.length ? `
+    <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--g700)">✓ ${assigned.length} vehicles assigned</div>
+    <div class="tw" style="margin-bottom:16px"><table>
+      <thead><tr><th>JC</th><th>Vehicle</th><th>Technician</th><th>Labour</th></tr></thead>
+      <tbody>${assigned.map(a=>`<tr>
+        <td class="mono" style="font-size:11px">${a.jc}</td>
+        <td class="mono" style="font-size:11px">${a.reg||'—'}</td>
+        <td style="font-size:12px;font-weight:500">${a.tech}</td>
+        <td style="font-size:12px">${a.labour?a.labour+'h':'—'}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>` : '<div style="color:var(--g400);font-size:13px;margin-bottom:12px">No vehicles assigned.</div>'}
+    ${skipped.length ? `
+    <div style="font-size:12px;color:var(--g500);margin-bottom:12px">${skipped.length} vehicles skipped (techs at capacity)</div>` : ''}
+    <button class="btn btn-blue" style="width:100%" onclick="closeModal();navigate('workorders')">View Work Orders</button>`;
+  document.getElementById('modal').style.display = 'flex';
 }
 
 async function loadProductivity(role) {
@@ -4361,7 +4738,7 @@ function renderAttendanceWide(role) {
         return `<tr>
           <td><strong>${t}</strong></td>
           <td style="font-size:12px;color:var(--g500)">${a.hub||'—'}</td>
-          <td><span class="badge ${bc}">${a.status[0].toUpperCase()+a.status.slice(1)}</span></td>
+          <td><span class="badge ${bc}">${({'present':'Present','checked_in':'Working','absent':'Absent','half_day':'Half Day','leave':'On Leave','week_off':'Week Off'}[a.status]||a.status)}</span></td>
           <td class="mono" style="font-size:12px">${formatTime(a.checkin)}</td>
           <td class="mono" style="font-size:12px">${formatTime(a.checkout)}</td>
           <td>${formatApproval(a)}</td>
@@ -4700,8 +5077,8 @@ async function initApp() {
       const sess = JSON.parse(saved);
       if (sess && sess.user) {
         state.user       = sess.user;
-        state.hub        = sess.hub        || null;
-        state.hubId      = sess.hubId      || null;
+        state.hub        = sess.hub || (sess.user?.role==='hub_manager' ? sess.user?.assigned_hub_name : null) || null;
+        state.hubId      = sess.hubId      || null; // hubId resolved later after HUBS loads
         // Only restore checkin state if it's from today
         const isToday = sess.myCheckinDate === TODAY;
         state.myCheckin  = (isToday && sess.myCheckin)  ? sess.myCheckin  : null;
