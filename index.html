@@ -1862,12 +1862,12 @@ function renderAttendance() {
         <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
       </button>
     </div>
-    <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--g100);padding-bottom:0">
+    ${state.user?.role!=='hub_manager' ? `<div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--g100);padding-bottom:0">
       <button onclick="_attTab='today';localStorage.setItem('att_tab','today');navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${_attTab==='today'?'var(--blue)':'transparent'};color:${_attTab==='today'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Today</button>
       <button onclick="_attTab='calendar';localStorage.setItem('att_tab','calendar');navigate('attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${_attTab==='calendar'?'var(--blue)':'transparent'};color:${_attTab==='calendar'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Calendar</button>
-    </div>
+    </div>` : ''}
 
-    ${_attTab==='calendar' ? '<div id="att-cal-inner"><div style=\"padding:20px;text-align:center;color:var(--g400)\">Loading...</div></div>' : allTechs.length===0 ? `<div class="empty-state" style="margin-top:40px">No attendance records for ${myHub} today.</div>` : `
+    ${allTechs.length===0 ? `<div class="empty-state" style="margin-top:40px">No attendance records for ${myHub} today.</div>` : `
 
     <!-- Present techs -->
     ${presentTechs.length ? `
@@ -2395,10 +2395,10 @@ function renderMyAttendance() {
            <div style="font-size:13px;color:var(--g500);margin-top:8px">${state.myCheckin} → ${state.myCheckout}</div>`}
            `}
     </div>
-    <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:2px solid var(--g100);padding-bottom:0">
+    ${state.user?.role==='technician' ? `<div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:2px solid var(--g100);padding-bottom:0">
       <button onclick="window._myAttTab='today';navigate('my-attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${(window._myAttTab||'today')==='today'?'var(--blue)':'transparent'};color:${(window._myAttTab||'today')==='today'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Today</button>
       <button onclick="window._myAttTab='month';navigate('my-attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${(window._myAttTab||'today')==='month'?'var(--blue)':'transparent'};color:${(window._myAttTab||'today')==='month'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">This Month</button>
-    </div>
+    </div>` : ''}
     ${(window._myAttTab||'today')==='month' ? `<div id="tech-cal-inner" style="padding:20px;text-align:center;color:var(--g400)">Loading...</div>` : ''}
     ${(window._myAttTab||'today')!=='month' ? `<div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">This week</div>` : ''}
     <div class="tw"><table>
