@@ -385,7 +385,7 @@ tr:hover td{background:var(--g50)}
         <button id="video-rec-btn" onclick="toggleVideoRecording()" style="width:80px;height:80px;border-radius:50%;background:#ef4444;color:white;border:4px solid white;font-size:28px;cursor:pointer;box-shadow:0 4px 16px rgba(239,68,68,.5)">⏺</button>
         <div style="width:56px"></div>
       </div>
-      <div style="color:rgba(255,255,255,.5);font-size:12px">Tap ⏺ to start recording</div>
+      <div id="video-hint" style="color:rgba(255,255,255,.5);font-size:12px">Tap ⏺ to start recording</div>
     </div>
   </div>
 
@@ -758,6 +758,10 @@ async function startVideoCapture(jobIdx) {
       canvas.height = video.videoHeight || 720;
     };
 
+    // iOS Safari: must add video to DOM
+    video.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none';
+    document.body.appendChild(video);
+
     _videoSession.canvasInt = setInterval(() => {
       if (!video.videoWidth) return;
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -811,11 +815,15 @@ function toggleVideoRecording() {
     _videoSession.recorder.start(100);
 
     // UI
-    btn.textContent = '⏹ Stop Recording';
+    btn.innerHTML = '⏹';
+    btn.style.background = '#374151';
+    btn.title = 'Stop Recording';
     btn.style.background = '#374151';
     document.getElementById('video-rec-dot').style.display = 'block';
     document.getElementById('video-timer').style.display = 'block';
-    document.getElementById('video-status').textContent = 'Recording...';
+    document.getElementById('video-status').textContent = '';
+    const hint = document.getElementById('video-hint');
+    if (hint) hint.style.display = 'none';
 
     // Timer + auto stop at 60s
     _videoSession.elapsed = 0;
@@ -831,7 +839,8 @@ function toggleVideoRecording() {
     clearInterval(_videoSession.timerInt);
     _videoSession.recorder.stop();
     _videoSession.recorder = null;
-    btn.textContent = '⏺ Start Recording';
+    btn.innerHTML = '⏺';
+    btn.style.background = '#ef4444';
     document.getElementById('video-rec-dot').style.display = 'none';
     document.getElementById('video-status').textContent = 'Processing...';
   }
@@ -3015,6 +3024,9 @@ function startCamera() {
     .then(stream => {
       _photoSession.stream = stream;
       video.srcObject = stream;
+      video.setAttribute('playsinline', 'true');
+      video.setAttribute('muted', 'true');
+      video.play().catch(e => console.warn('Photo video play:', e));
     })
     .catch(err => {
       console.error('Camera error:', err);
