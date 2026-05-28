@@ -369,6 +369,27 @@ tr:hover td{background:var(--g50)}
 
 <!-- ══ PHOTO CAPTURE MODAL ══ -->
 <!-- Video capture modal -->
+  <!-- Part Photo Modal -->
+  <div id="part-photo-modal" style="display:none;position:fixed;inset:0;background:#000;z-index:4000;flex-direction:column">
+    <div style="position:absolute;top:0;left:0;right:0;z-index:2;padding:16px;background:linear-gradient(rgba(0,0,0,.7),transparent)">
+      <div id="ppm-title" style="font-size:15px;font-weight:700;color:white;text-align:center">Before Photo</div>
+      <div style="font-size:11px;color:rgba(255,255,255,.5);text-align:center;margin-top:2px">Position part clearly and capture</div>
+    </div>
+    <video id="ppm-video" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></video>
+    <canvas id="ppm-canvas" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none"></canvas>
+    <div style="position:absolute;bottom:0;left:0;right:0;padding:16px 20px;padding-bottom:max(20px,env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(0,0,0,.85));z-index:2">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <button onclick="closePartPhotoModal()" style="width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.3);color:white;font-size:16px;cursor:pointer">✕</button>
+        <button id="ppm-snap-btn" onclick="capturePartSnap()" style="width:72px;height:72px;border-radius:50%;background:white;border:4px solid rgba(255,255,255,.4);cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 20px rgba(255,255,255,.3)">
+          <div style="width:58px;height:58px;border-radius:50%;background:white;border:3px solid #ddd"></div>
+        </button>
+        <button id="ppm-retake-btn" onclick="retakePartSnap()" style="display:none;width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.3);color:white;font-size:18px;cursor:pointer">↩</button>
+        <div id="ppm-snap-placeholder" style="width:48px"></div>
+      </div>
+      <button id="ppm-confirm-btn" onclick="confirmPartSnap()" style="display:none;width:100%;padding:15px;font-size:16px;font-weight:700;border-radius:12px;background:#16a34a;color:white;border:none;cursor:pointer">Save Photo</button>
+    </div>
+  </div>
+
   <div id="video-modal" style="display:none;position:fixed;inset:0;background:#000;z-index:3000;flex-direction:column">
     <!-- Fullscreen canvas -->
     <div style="position:absolute;inset:0">
@@ -750,6 +771,279 @@ async function loadVehiclesForHub(hubName) {
 }
 
 // ─ LOAD MY ATTENDANCE (technician) ─
+
+
+// ── PARTS TRACKING ───────────────────────────────────────────────────────────
+let _partsSession = {}; // work_order_id → { parts: [], photoCaptureFor: null }
+
+async function loadJobParts(woId) {
+  const rows = await sb(`job_parts?work_order_id=eq.${woId}&select=*&order=created_at.asc`) || [];
+  return rows;
+}
+
+async function initPartsForJob(jobIdx) {
+  const j = state.jobs[jobIdx];
+  if (!j) return;
+  const woId = j.db_id;
+
+  // Already loaded
+  if (_partsSession[woId]) return _partsSession[woId];
+
+  // Load existing parts from DB
+  const existing = await loadJobParts(woId);
+
+  // Parse recommended parts from JC
+  const recommended = (j.parts_to_be_changed || '')
+    .split(',')
+    .map(p => p.trim())
+    .filter(Boolean);
+
+  // Merge: recommended parts + any already saved
+  const parts = [];
+  recommended.forEach(pName => {
+    const found = existing.find(e => e.part_name === pName && e.is_recommended);
+    parts.push(found || {
+      id: null, work_order_id: woId, part_name: pName,
+      is_recommended: true, status: 'pending',
+      quantity: 1, photo_before: null, photo_after: null
+    });
+  });
+
+  // Add any extra parts from DB
+  existing.filter(e => !e.is_recommended).forEach(e => parts.push(e));
+
+  _partsSession[woId] = { parts, jobIdx };
+  return _partsSession[woId];
+}
+
+async function savePartToDB(woId, part, jobIdx) {
+  const j = state.jobs[jobIdx];
+  const payload = {
+    work_order_id: woId,
+    job_card_number: j.jc_number || null,
+    reg_number: j.vehicle || null,
+    hub_name: j.hub || state.hub || null,
+    technician_name: state.user?.name || null,
+    technician_id: state.user?.id || null,
+    part_name: part.part_name,
+    is_recommended: part.is_recommended,
+    status: part.status,
+    quantity: part.quantity || 1,
+    photo_before: part.photo_before || null,
+    photo_after: part.photo_after || null,
+    updated_at: new Date().toISOString()
+  };
+
+  if (part.id) {
+    await sb(`job_parts?id=eq.${part.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+  } else {
+    const res = await sb('job_parts', { method: 'POST', prefer: 'return=representation', body: JSON.stringify(payload) });
+    if (res && res[0]) part.id = res[0].id;
+  }
+}
+
+async function setPartStatus(woId, partIdx, status) {
+  const session = _partsSession[woId];
+  if (!session) return;
+  const part = session.parts[partIdx];
+  part.status = status;
+  await savePartToDB(woId, part, session.jobIdx);
+  renderPartsSection(woId);
+}
+
+async function setPartQty(woId, partIdx, qty) {
+  const session = _partsSession[woId];
+  if (!session) return;
+  session.parts[partIdx].quantity = parseInt(qty) || 1;
+  await savePartToDB(woId, session.parts[partIdx], session.jobIdx);
+}
+
+async function addExtraPart(woId) {
+  const input = document.getElementById(`extra-part-input-${woId}`);
+  const name = input?.value?.trim();
+  if (!name) { input.style.borderColor='#ef4444'; setTimeout(()=>input.style.borderColor='',1500); return; }
+  const session = _partsSession[woId];
+  if (!session) return;
+  const newPart = {
+    id: null, work_order_id: woId, part_name: name,
+    is_recommended: false, status: 'pending',
+    quantity: 1, photo_before: null, photo_after: null
+  };
+  session.parts.push(newPart);
+  await savePartToDB(woId, newPart, session.jobIdx);
+  input.value = '';
+  renderPartsSection(woId);
+}
+
+// ── PART PHOTO CAPTURE ───────────────────────────────────────────────────────
+let _partPhotoSession = { woId: null, partIdx: null, phase: null, stream: null };
+
+async function capturePartPhoto(woId, partIdx, phase) {
+  _partPhotoSession = { woId, partIdx, phase, stream: null };
+  const modal = document.getElementById('part-photo-modal');
+  const title = document.getElementById('ppm-title');
+  const part = _partsSession[woId]?.parts[partIdx];
+  title.textContent = `${phase === 'before' ? 'Before' : 'After'} — ${part?.part_name}`;
+  modal.style.display = 'flex';
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width:{ideal:1280}, height:{ideal:960} }, audio: false
+    });
+    _partPhotoSession.stream = stream;
+    const video = document.getElementById('ppm-video');
+    video.srcObject = stream;
+    video.setAttribute('playsinline','');
+    video.setAttribute('muted','');
+    video.play().catch(()=>{});
+  } catch(e) {
+    alert('Camera error: ' + e.message);
+    closePartPhotoModal();
+  }
+}
+
+async function capturePartSnap() {
+  const video = document.getElementById('ppm-video');
+  const canvas = document.getElementById('ppm-canvas');
+  const { woId, partIdx, phase } = _partPhotoSession;
+  const j = state.jobs[_partsSession[woId]?.jobIdx];
+  const part = _partsSession[woId]?.parts[partIdx];
+
+  canvas.width = video.videoWidth || 1280;
+  canvas.height = video.videoHeight || 960;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0);
+
+  // Watermark — bottom right
+  const lines = [j?.vehicle||'—', j?.jc_number||'—', new Date().toLocaleString('en-IN')];
+  const pad = 10, lh = 16, fs = 12;
+  const maxW = Math.max(...lines.map(l=>l.length)) * (fs*0.6) + pad*2;
+  const boxH = lines.length * lh + pad;
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(canvas.width-maxW-pad, canvas.height-boxH-pad, maxW, boxH);
+  ctx.fillStyle = '#fff';
+  ctx.font = `${fs}px monospace`;
+  ctx.textAlign = 'right';
+  lines.forEach((l,i) => ctx.fillText(l, canvas.width-pad*2, canvas.height-boxH-pad+pad+(i+1)*lh-3));
+  ctx.textAlign = 'left';
+
+  // Show captured image
+  video.style.display = 'none';
+  canvas.style.display = 'block';
+  document.getElementById('ppm-snap-btn').style.display = 'none';
+  document.getElementById('ppm-confirm-btn').style.display = 'block';
+  document.getElementById('ppm-retake-btn').style.display = 'block';
+}
+
+function retakePartSnap() {
+  document.getElementById('ppm-video').style.display = 'block';
+  document.getElementById('ppm-canvas').style.display = 'none';
+  document.getElementById('ppm-snap-btn').style.display = 'block';
+  document.getElementById('ppm-confirm-btn').style.display = 'none';
+  document.getElementById('ppm-retake-btn').style.display = 'none';
+}
+
+async function confirmPartSnap() {
+  const canvas = document.getElementById('ppm-canvas');
+  const { woId, partIdx, phase } = _partPhotoSession;
+  document.getElementById('ppm-confirm-btn').textContent = 'Uploading...';
+
+  // Upload to Cloudinary
+  const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.8));
+  const fd = new FormData();
+  fd.append('file', blob, `part_${phase}_${Date.now()}.jpg`);
+  fd.append('upload_preset', CLOUDINARY_PRESET);
+  fd.append('folder', 'part_photos');
+  try {
+    const r = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`, { method:'POST', body:fd });
+    const d = await r.json();
+    if (d.secure_url) {
+      const part = _partsSession[woId].parts[partIdx];
+      if (phase === 'before') part.photo_before = d.secure_url;
+      else part.photo_after = d.secure_url;
+      await savePartToDB(woId, part, _partsSession[woId].jobIdx);
+      closePartPhotoModal();
+      renderPartsSection(woId);
+    } else {
+      alert('Upload failed: ' + (d.error?.message||'Unknown'));
+      document.getElementById('ppm-confirm-btn').textContent = 'Save Photo';
+    }
+  } catch(e) {
+    alert('Upload error: ' + e.message);
+    document.getElementById('ppm-confirm-btn').textContent = 'Save Photo';
+  }
+}
+
+function closePartPhotoModal() {
+  if (_partPhotoSession.stream) {
+    _partPhotoSession.stream.getTracks().forEach(t=>t.stop());
+    _partPhotoSession.stream = null;
+  }
+  document.getElementById('part-photo-modal').style.display = 'none';
+  document.getElementById('ppm-video').style.display = 'block';
+  document.getElementById('ppm-canvas').style.display = 'none';
+  document.getElementById('ppm-snap-btn').style.display = 'block';
+  document.getElementById('ppm-confirm-btn').style.display = 'none';
+  document.getElementById('ppm-confirm-btn').textContent = 'Save Photo';
+  document.getElementById('ppm-retake-btn').style.display = 'none';
+}
+
+function partsAllValid(woId) {
+  const session = _partsSession[woId];
+  if (!session) return true; // no parts = allow completion
+  return session.parts.every(p => {
+    if (p.status === 'used') return p.photo_before && p.photo_after;
+    return true; // not_used or pending = ok
+  });
+}
+
+function renderPartsSection(woId) {
+  const el = document.getElementById(`parts-section-${woId}`);
+  if (!el) return;
+  const session = _partsSession[woId];
+  if (!session) { el.innerHTML = '<div style="color:rgba(255,255,255,.4);font-size:12px">Loading parts...</div>'; return; }
+  const { parts } = session;
+
+  el.innerHTML = `
+    ${parts.length === 0 ? '<div style="font-size:12px;color:rgba(255,255,255,.4)">No recommended parts</div>' : ''}
+    ${parts.map((p, i) => `
+      <div style="background:rgba(255,255,255,.06);border-radius:10px;padding:12px;margin-bottom:8px;border:1px solid ${p.status==='used'?'rgba(34,197,94,.3)':p.status==='not_used'?'rgba(239,68,68,.2)':'rgba(255,255,255,.1)'}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:13px;font-weight:600;color:#fff;flex:1">${p.part_name}${p.is_recommended?'':' <span style="font-size:10px;color:rgba(255,255,255,.4)">(extra)</span>'}</div>
+          <div style="display:flex;gap:6px">
+            <button onclick="setPartStatus('${woId}',${i},'used')" style="padding:4px 10px;font-size:11px;border-radius:6px;border:none;cursor:pointer;font-weight:600;background:${p.status==='used'?'#16a34a':'rgba(255,255,255,.1)'};color:${p.status==='used'?'#fff':'rgba(255,255,255,.6)'}">Used</button>
+            <button onclick="setPartStatus('${woId}',${i},'not_used')" style="padding:4px 10px;font-size:11px;border-radius:6px;border:none;cursor:pointer;font-weight:600;background:${p.status==='not_used'?'#ef4444':'rgba(255,255,255,.1)'};color:${p.status==='not_used'?'#fff':'rgba(255,255,255,.6)'}">Not Used</button>
+          </div>
+        </div>
+        ${p.status==='used' ? `
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <span style="font-size:11px;color:rgba(255,255,255,.5)">Qty:</span>
+            <select onchange="setPartQty('${woId}',${i},this.value)" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:6px;padding:3px 8px;font-size:12px">
+              <option value="1" ${(p.quantity||1)===1?'selected':''}>1</option>
+              <option value="2" ${(p.quantity||1)===2?'selected':''}>2</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button onclick="capturePartPhoto('${woId}',${i},'before')" style="flex:1;padding:8px;font-size:12px;border-radius:8px;border:none;cursor:pointer;font-weight:600;background:${p.photo_before?'rgba(34,197,94,.2)':'rgba(255,255,255,.1)'};color:${p.photo_before?'#4ade80':'rgba(255,255,255,.7)'}">
+              ${p.photo_before ? '✓ Before Photo' : '📷 Before Photo'}
+            </button>
+            <button onclick="capturePartPhoto('${woId}',${i},'after')" style="flex:1;padding:8px;font-size:12px;border-radius:8px;border:none;cursor:pointer;font-weight:600;background:${p.photo_after?'rgba(34,197,94,.2)':'rgba(255,255,255,.1)'};color:${p.photo_after?'#4ade80':'rgba(255,255,255,.7)'}">
+              ${p.photo_after ? '✓ After Photo' : '📷 After Photo'}
+            </button>
+          </div>
+          ${(!p.photo_before||!p.photo_after) ? '<div style="font-size:10px;color:#f97316;margin-top:4px">Both photos required to complete job</div>' : ''}
+        ` : ''}
+      </div>
+    `).join('')}
+    <!-- Add extra part -->
+    <div style="display:flex;gap:8px;margin-top:4px">
+      <input id="extra-part-input-${woId}" placeholder="Add part name..." 
+        style="flex:1;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#fff;font-size:13px;font-family:inherit"
+        onkeydown="if(event.key==='Enter')addExtraPart('${woId}')"/>
+      <button onclick="addExtraPart('${woId}')" style="padding:9px 14px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-size:13px;font-weight:600;cursor:pointer">+ Add</button>
+    </div>
+  `;
+}
 
 // ── VIDEO CAPTURE ────────────────────────────────────────────────────────────
 let _videoSession = { stream:null, recorder:null, chunks:[], jobIdx:null, timerInt:null, canvasInt:null, elapsed:0 };
@@ -2858,6 +3152,13 @@ function renderMyJobs() {
             </button>` : ''}
             ${isBlocked ? `<div style="text-align:right"><span style="font-size:12px;color:var(--g400)">🔒</span><br><span style="font-size:10px;color:var(--g400)">Complete previous<br>job to start this</span></div>` : ''}
             ${isActive ? `
+              <!-- Parts Section -->
+              <div style="background:rgba(0,0,0,.3);border-radius:10px;padding:12px;margin-bottom:10px">
+                <div style="font-size:12px;font-weight:700;color:rgba(255,255,255,.7);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">Parts</div>
+                <div id="parts-section-${j.db_id}">
+                  <div style="font-size:12px;color:rgba(255,255,255,.4)">Loading...</div>
+                </div>
+              </div>
               ${!j.video_url ? `
                 <button class="btn btn-blue btn-sm" style="margin-bottom:6px;width:100%;font-weight:600" onclick="startVideoCapture(${gi})">
                   🎥 Record Video <span style="font-size:10px;opacity:.8">(required)</span>
@@ -2889,19 +3190,11 @@ function startJobWithPhotos(i) {
 function endJobWithPhotos(i) {
   const j = state.jobs[i];
   if (!j.video_url) {
-    // Show error — video required before completion
-    const gi = state.jobs.indexOf(j);
-    const card = document.querySelector(`[data-job-idx="${gi}"]`) || document.getElementById('content');
-    const msg = document.createElement('div');
-    msg.className = 'alert al-error';
-    msg.style.cssText = 'margin:8px 0;font-size:13px';
-    msg.textContent = '🎥 Please record a video before completing this job.';
-    // Show alert near the complete button
-    const existing = card.querySelector('.video-required-msg');
-    if (existing) existing.remove();
-    msg.className += ' video-required-msg';
-    card.appendChild(msg);
-    setTimeout(() => msg.remove(), 3000);
+    alert('Please record a video before completing this job.');
+    return;
+  }
+  if (!partsAllValid(j.db_id)) {
+    alert('Please capture Before & After photos for all parts marked as Used.');
     return;
   }
   openPhotoCapture('end', i);
@@ -4158,6 +4451,40 @@ async function loadTechProfile(techName, role) {
 const RUNWAY_URL = 'http://metabaselatest-dy7gqwqrma-el.a.run.app/api/public/card/c228d48b-34d8-4289-8856-71f65f373038/query/json';
 const RECOVERY_THRESHOLD = 2; // runway days < 2 = recovery mode
 
+
+async function showPartsGallery(woId, woNum, techName) {
+  const parts = await loadJobParts(woId);
+  const inner = document.getElementById('modal-inner');
+
+  inner.innerHTML = `
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div class="modal-title">Parts — ${woNum}</div>
+    <div class="modal-sub" style="margin-bottom:12px">${techName}</div>
+    ${parts.length === 0
+      ? '<div style="color:var(--g400);font-size:13px;text-align:center;padding:20px">No parts recorded</div>'
+      : parts.map(p => `
+        <div style="border:1px solid var(--g100);border-radius:10px;padding:12px;margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div style="font-size:13px;font-weight:600">${p.part_name}${p.is_recommended?'':' <span style="font-size:10px;color:var(--g400)">(extra)</span>'}</div>
+            <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;background:${p.status==='used'?'#dcfce7':p.status==='not_used'?'#fee2e2':'#f1f5f9'};color:${p.status==='used'?'#166534':p.status==='not_used'?'#991b1b':'#64748b'}">${p.status==='used'?'Used':p.status==='not_used'?'Not Used':'Pending'}</span>
+          </div>
+          ${p.status==='used' ? `
+            <div style="font-size:12px;color:var(--g500);margin-bottom:8px">Qty: ${p.quantity||1}</div>
+            <div style="display:flex;gap:8px">
+              ${p.photo_before
+                ? `<a href="${p.photo_before}" target="_blank" style="flex:1"><img src="${p.photo_before}" style="width:100%;height:80px;object-fit:cover;border-radius:6px;border:1px solid var(--g100)"/><div style="font-size:10px;color:var(--g400);text-align:center;margin-top:2px">Before</div></a>`
+                : '<div style="flex:1;height:80px;background:var(--g50);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--g400)">No before photo</div>'}
+              ${p.photo_after
+                ? `<a href="${p.photo_after}" target="_blank" style="flex:1"><img src="${p.photo_after}" style="width:100%;height:80px;object-fit:cover;border-radius:6px;border:1px solid var(--g100)"/><div style="font-size:10px;color:var(--g400);text-align:center;margin-top:2px">After</div></a>`
+                : '<div style="flex:1;height:80px;background:var(--g50);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--g400)">No after photo</div>'}
+            </div>
+          ` : ''}
+        </div>
+      `).join('')}
+  `;
+  document.getElementById('modal').style.display = 'flex';
+}
+
 async function runAutoAssignment() {
   const myHub = state.hub || state.user?.assigned_hub_name || '';
   if (!myHub) { alert('Hub not set. Please check in first.'); return; }
@@ -4908,7 +5235,11 @@ async function renderWorkAssignedAsync() {
       <td><span class="badge ${sc}">${j.status}</span></td>
       <td style="font-size:11px;color:var(--g500)">${fmtDate(j.assigned_at)}</td>
       <td style="font-size:11px;color:var(--g500)">${j.completed_at ? fmtDate(j.completed_at) : '—'}</td>
-      <td>${j.status!=='Done'?'<button onclick="smMarkJobDone(\''+j.id+'\')" style="font-size:11px;padding:3px 8px;border:1px solid #ccc;border-radius:4px;background:white;cursor:pointer">Mark Done</button>':'—'}</td>
+      <td style="display:flex;gap:6px;flex-wrap:wrap">
+        ${j.status!=='Done'?'<button onclick="smMarkJobDone(\''+j.id+'\')" style="font-size:11px;padding:3px 8px;border:1px solid #ccc;border-radius:4px;background:white;cursor:pointer">Mark Done</button>':''}
+        ${j.video_url?'<a href="'+j.video_url+'" target="_blank" style="font-size:11px;padding:3px 8px;border:1px solid var(--blue);border-radius:4px;color:var(--blue);text-decoration:none">Video</a>':''}
+        <button onclick="showPartsGallery('${j.id}','${j.wo_number||j.id}','${j.assigned_tech_name||''}')" style="font-size:11px;padding:3px 8px;border:1px solid #16a34a;border-radius:4px;color:#16a34a;background:white;cursor:pointer">Parts</button>
+      </td>
     </tr>`;
   }).join('');
 
