@@ -1009,7 +1009,7 @@ function partsAllValid(woId) {
 }
 
 function renderPartsSection(woId) {
-  const el = document.getElementById(`parts-section-${woId}`);
+  const el = document.getElementById('ps_' + woId.replace(/-/g,''));
   if (!el) return;
   const session = _partsSession[woId];
   if (!session) { el.innerHTML = '<div style="color:rgba(255,255,255,.4);font-size:12px">Loading parts...</div>'; return; }
@@ -3177,7 +3177,7 @@ function renderMyJobs() {
               <!-- Parts Section -->
               <div style="background:#f8fafc;border-radius:10px;padding:12px;margin-bottom:10px;border:1px solid #e2e8f0">
                 <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">Parts</div>
-                <div id="parts-section-${j.db_id}">
+                <div id="ps_${j.db_id.replace(/-/g,'')}">
                   <div style="font-size:12px;color:#9ca3af">Loading...</div>
                 </div>
               </div>
