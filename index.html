@@ -802,6 +802,7 @@ async function initPartsForJob(jobIdx) {
     quantity: 1, photo_before: null, photo_after: null
   }));
 
+  console.log('[PARTS] woId:', woId, 'recommended:', recommended, 'parts:', parts.length);
   _partsSession[woId] = { parts, jobIdx };
   renderPartsSection(woId); // show immediately
 
@@ -1021,34 +1022,34 @@ function renderPartsSection(woId) {
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <div style="font-size:13px;font-weight:600;color:#fff;flex:1">${p.part_name}${p.is_recommended?'':' <span style="font-size:10px;color:rgba(255,255,255,.4)">(extra)</span>'}</div>
           <div style="display:flex;gap:6px">
-            <button onclick="setPartStatus('${woId}',${i},'used')" style="padding:4px 10px;font-size:11px;border-radius:6px;border:none;cursor:pointer;font-weight:600;background:${p.status==='used'?'#16a34a':'rgba(255,255,255,.1)'};color:${p.status==='used'?'#fff':'rgba(255,255,255,.6)'}">Used</button>
-            <button onclick="setPartStatus('${woId}',${i},'not_used')" style="padding:4px 10px;font-size:11px;border-radius:6px;border:none;cursor:pointer;font-weight:600;background:${p.status==='not_used'?'#ef4444':'rgba(255,255,255,.1)'};color:${p.status==='not_used'?'#fff':'rgba(255,255,255,.6)'}">Not Used</button>
+            <button onclick="setPartStatus('${woId}',${i},'used')" style="padding:4px 10px;font-size:11px;border-radius:6px;border:none;cursor:pointer;font-weight:600;background:${p.status==='used'?'#16a34a':'#f1f5f9'};color:${p.status==='used'?'#fff':'#374151'}">Used</button>
+            <button onclick="setPartStatus('${woId}',${i},'not_used')" style="padding:4px 10px;font-size:11px;border-radius:6px;border:none;cursor:pointer;font-weight:600;background:${p.status==='not_used'?'#ef4444':'#f1f5f9'};color:${p.status==='not_used'?'#fff':'#374151'}">Not Used</button>
           </div>
         </div>
         ${p.status==='used' ? `
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-            <span style="font-size:11px;color:rgba(255,255,255,.5)">Qty:</span>
-            <select onchange="setPartQty('${woId}',${i},this.value)" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:6px;padding:3px 8px;font-size:12px">
+            <span style="font-size:11px;color:#6b7280">Qty:</span>
+            <select onchange="setPartQty('${woId}',${i},this.value)" style="background:#f8fafc;color:#111;border:1px solid #e2e8f0;border-radius:6px;padding:3px 8px;font-size:12px">
               <option value="1" ${(p.quantity||1)===1?'selected':''}>1</option>
               <option value="2" ${(p.quantity||1)===2?'selected':''}>2</option>
             </select>
           </div>
           <div style="display:flex;gap:8px">
-            <button onclick="capturePartPhoto('${woId}',${i},'before')" style="flex:1;padding:8px;font-size:12px;border-radius:8px;border:none;cursor:pointer;font-weight:600;background:${p.photo_before?'rgba(34,197,94,.2)':'rgba(255,255,255,.1)'};color:${p.photo_before?'#4ade80':'rgba(255,255,255,.7)'}">
-              ${p.photo_before ? '✓ Before Photo' : '📷 Before Photo'}
+            <button onclick="capturePartPhoto('${woId}',${i},'before')" style="flex:1;padding:8px;font-size:12px;border-radius:8px;border:1px solid ${p.photo_before?'#16a34a':'#e2e8f0'};cursor:pointer;font-weight:600;background:${p.photo_before?'#dcfce7':'#f8fafc'};color:${p.photo_before?'#15803d':'#374151'}">
+              ${p.photo_before ? '✓ Before' : '📷 Before'}
             </button>
-            <button onclick="capturePartPhoto('${woId}',${i},'after')" style="flex:1;padding:8px;font-size:12px;border-radius:8px;border:none;cursor:pointer;font-weight:600;background:${p.photo_after?'rgba(34,197,94,.2)':'rgba(255,255,255,.1)'};color:${p.photo_after?'#4ade80':'rgba(255,255,255,.7)'}">
-              ${p.photo_after ? '✓ After Photo' : '📷 After Photo'}
+            <button onclick="capturePartPhoto('${woId}',${i},'after')" style="flex:1;padding:8px;font-size:12px;border-radius:8px;border:1px solid ${p.photo_after?'#16a34a':'#e2e8f0'};cursor:pointer;font-weight:600;background:${p.photo_after?'#dcfce7':'#f8fafc'};color:${p.photo_after?'#15803d':'#374151'}">
+              ${p.photo_after ? '✓ After' : '📷 After'}
             </button>
           </div>
-          ${(!p.photo_before||!p.photo_after) ? '<div style="font-size:10px;color:#f97316;margin-top:4px">Both photos required to complete job</div>' : ''}
+          ${(!p.photo_before||!p.photo_after) ? '<div style="font-size:10px;color:#dc2626;margin-top:4px">⚠ Both photos required</div>' : ''}
         ` : ''}
       </div>
     `).join('')}
     <!-- Add extra part -->
     <div style="display:flex;gap:8px;margin-top:4px">
       <input id="extra-part-input-${woId}" placeholder="Add part name..." 
-        style="flex:1;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#fff;font-size:13px;font-family:inherit"
+        style="flex:1;padding:9px 12px;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;color:#111;font-size:13px;font-family:inherit"
         onkeydown="if(event.key==='Enter')addExtraPart('${woId}')"/>
       <button onclick="addExtraPart('${woId}')" style="padding:9px 14px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-size:13px;font-weight:600;cursor:pointer">+ Add</button>
     </div>
@@ -3174,10 +3175,10 @@ function renderMyJobs() {
             ${isBlocked ? `<div style="text-align:right"><span style="font-size:12px;color:var(--g400)">🔒</span><br><span style="font-size:10px;color:var(--g400)">Complete previous<br>job to start this</span></div>` : ''}
             ${isActive ? `
               <!-- Parts Section -->
-              <div style="background:rgba(0,0,0,.3);border-radius:10px;padding:12px;margin-bottom:10px">
-                <div style="font-size:12px;font-weight:700;color:rgba(255,255,255,.7);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">Parts</div>
+              <div style="background:#f8fafc;border-radius:10px;padding:12px;margin-bottom:10px;border:1px solid #e2e8f0">
+                <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">Parts</div>
                 <div id="parts-section-${j.db_id}">
-                  <div style="font-size:12px;color:rgba(255,255,255,.4)">Loading...</div>
+                  <div style="font-size:12px;color:#9ca3af">Loading...</div>
                 </div>
               </div>
               ${!j.video_url ? `
