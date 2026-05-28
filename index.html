@@ -386,6 +386,10 @@ tr:hover td{background:var(--g50)}
         <div style="width:56px"></div>
       </div>
       <div id="video-hint" style="color:rgba(255,255,255,.5);font-size:12px">Tap ⏺ to start recording</div>
+      <div style="display:flex;gap:10px;width:100%;margin-top:4px">
+        <button id="video-retake-btn" onclick="retakeVideo()" style="display:none;flex:1;padding:13px;font-size:15px;font-weight:600;border-radius:10px;background:#374151;color:white;border:none;cursor:pointer">↩ Retake</button>
+        <button id="video-upload-btn" onclick="uploadVideo()" style="display:none;flex:1;padding:13px;font-size:15px;font-weight:700;border-radius:10px;background:#16a34a;color:white;border:none;cursor:pointer">⬆ Upload Video</button>
+      </div>
     </div>
   </div>
 
@@ -831,7 +835,7 @@ function toggleVideoRecording() {
     _videoSession.recorder = new MediaRecorder(canvasStream, { mimeType });
     _videoSession.chunks = [];
     _videoSession.recorder.ondataavailable = e => { if(e.data.size>0) _videoSession.chunks.push(e.data); };
-    _videoSession.recorder.onstop = () => uploadVideo();
+    _videoSession.recorder.onstop = () => {}; // manual upload via button
     _videoSession.recorder.start(100);
 
     // UI
@@ -861,9 +865,29 @@ function toggleVideoRecording() {
     _videoSession.recorder = null;
     btn.innerHTML = '⏺';
     btn.style.background = '#ef4444';
+    btn.style.display = 'none'; // hide record btn after stop
     document.getElementById('video-rec-dot').style.display = 'none';
-    document.getElementById('video-status').textContent = 'Processing...';
+    document.getElementById('video-status').textContent = '✓ Video captured — tap Upload to save';
+    // Show upload button
+    document.getElementById('video-upload-btn').style.display = 'block';
+    document.getElementById('video-retake-btn').style.display = 'block';
   }
+}
+
+function retakeVideo() {
+  // Reset for re-recording
+  _videoSession.chunks = [];
+  _videoSession.elapsed = 0;
+  document.getElementById('video-upload-btn').style.display = 'none';
+  document.getElementById('video-retake-btn').style.display = 'none';
+  document.getElementById('video-rec-btn').style.display = 'flex';
+  document.getElementById('video-rec-btn').innerHTML = '⏺';
+  document.getElementById('video-rec-btn').style.background = '#ef4444';
+  document.getElementById('video-timer').textContent = '00:00';
+  document.getElementById('video-timer').style.display = 'none';
+  document.getElementById('video-status').textContent = 'Ready — tap Record to start (max 1 min)';
+  const hint = document.getElementById('video-hint');
+  if (hint) hint.style.display = 'block';
 }
 
 async function uploadVideo() {
@@ -909,8 +933,13 @@ function closeVideoModal() {
   if (_videoSession.recorder) { try { _videoSession.recorder.stop(); } catch(e){} _videoSession.recorder = null; }
   if (_videoSession.stream)   { _videoSession.stream.getTracks().forEach(t=>t.stop()); _videoSession.stream = null; }
   document.getElementById('video-modal').style.display = 'none';
-  document.getElementById('video-rec-btn').textContent = '⏺ Start Recording';
+  document.getElementById('video-rec-btn').innerHTML = '⏺';
   document.getElementById('video-rec-btn').disabled = false;
+  document.getElementById('video-rec-btn').style.display = 'flex';
+  const ub = document.getElementById('video-upload-btn');
+  const rb = document.getElementById('video-retake-btn');
+  if (ub) ub.style.display = 'none';
+  if (rb) rb.style.display = 'none';
   document.getElementById('video-rec-dot').style.display = 'none';
   document.getElementById('video-timer').style.display = 'none';
   document.getElementById('video-timer').textContent = '00:00';
