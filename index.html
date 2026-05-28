@@ -389,28 +389,50 @@ tr:hover td{background:var(--g50)}
     </div>
   </div>
 
-  <div id="photo-modal" class="photo-modal" style="display:none">
-  <div class="photo-modal-title" id="pm-title">Take Photo</div>
-  <div class="photo-modal-sub" id="pm-sub">Position vehicle and tap capture</div>
-  <div class="photo-preview">
-    <video id="pm-video" autoplay playsinline muted></video>
-    <canvas id="pm-canvas"></canvas>
-    <div class="photo-side-label" id="pm-side-label">Front</div>
+  <div id="photo-modal" style="display:none;position:fixed;inset:0;background:#000;z-index:2000;flex-direction:column">
+    <!-- Header -->
+    <div style="padding:14px 16px 10px;background:rgba(0,0,0,.7)">
+      <div style="font-size:15px;font-weight:700;color:white;text-align:center" id="pm-title">Take Photo</div>
+      <div style="font-size:12px;color:rgba(255,255,255,.6);text-align:center;margin-top:2px" id="pm-sub">Position vehicle and tap capture</div>
+    </div>
+    <!-- Camera view — takes remaining space -->
+    <div style="flex:1;position:relative;overflow:hidden">
+      <video id="pm-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;display:block"></video>
+      <canvas id="pm-canvas" style="width:100%;height:100%;object-fit:cover;display:none;position:absolute;inset:0"></canvas>
+      <!-- Side label top-left -->
+      <div id="pm-side-label" style="position:absolute;top:12px;left:12px;background:rgba(0,0,0,.65);color:white;font-size:13px;font-weight:700;padding:5px 14px;border-radius:20px;letter-spacing:.05em">FRONT</div>
+    </div>
+    <!-- Thumbnails -->
+    <div id="pm-thumbs" style="display:flex;gap:6px;padding:10px 12px;background:rgba(0,0,0,.8);justify-content:center"></div>
+    <!-- Action buttons -->
+    <div style="padding:12px 16px;padding-bottom:max(16px,env(safe-area-inset-bottom));background:#111;display:flex;flex-direction:column;gap:10px">
+      <div id="pm-upload-status" style="text-align:center;font-size:13px;color:rgba(255,255,255,.7);min-height:18px"></div>
+      <div id="pm-notes-wrap" style="display:none">
+        <textarea id="pm-notes" placeholder="Completion notes (optional) — parts replaced, issues found..." 
+          style="width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:white;font-size:13px;resize:none;height:60px;font-family:inherit;box-sizing:border-box"></textarea>
+      </div>
+      <!-- Main action button — changes state -->
+      <button id="pm-capture-btn" onclick="capturePhoto()" 
+        style="width:100%;padding:16px;font-size:17px;font-weight:700;border-radius:12px;border:none;cursor:pointer;background:#2563eb;color:white;font-family:inherit">
+        📷 Capture
+      </button>
+      <!-- Secondary row -->
+      <div style="display:flex;gap:10px">
+        <button id="pm-retake-btn" onclick="retakePhoto()" 
+          style="flex:1;padding:12px;font-size:14px;font-weight:600;border-radius:10px;border:2px solid rgba(255,255,255,.2);background:transparent;color:rgba(255,255,255,.8);cursor:pointer;font-family:inherit;display:none">
+          ↩ Retake
+        </button>
+        <button id="pm-done-btn" onclick="finishPhotoSession()" 
+          style="flex:1;padding:12px;font-size:14px;font-weight:700;border-radius:10px;border:none;background:#16a34a;color:white;cursor:pointer;font-family:inherit;display:none">
+          ✓ Upload &amp; Start
+        </button>
+      </div>
+      <button onclick="cancelPhotoSession()" 
+        style="width:100%;padding:10px;font-size:14px;border:none;background:rgba(255,255,255,.08);color:rgba(255,255,255,.6);border-radius:10px;cursor:pointer;font-family:inherit">
+        Cancel
+      </button>
+    </div>
   </div>
-  <div class="photo-sides" id="pm-thumbs"></div>
-  <div class="photo-actions">
-    <button class="btn-capture" id="pm-capture-btn" onclick="capturePhoto()" 
-      style="font-size:17px;padding:16px 32px;border-radius:12px;min-width:200px;font-weight:600">📷 Capture</button>
-    <button class="btn-retake" id="pm-retake-btn" onclick="retakePhoto()" style="font-size:14px;padding:10px 20px">↩ Retake</button>
-  </div>
-  <div id="pm-upload-status"></div>
-  <div id="pm-notes-wrap" style="display:none;margin:8px 0">
-    <textarea id="pm-notes" placeholder="Add completion notes (optional)... e.g. parts replaced, issues found" 
-      style="width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.1);color:white;font-size:13px;resize:none;height:70px;font-family:inherit"></textarea>
-  </div>
-  <button class="btn-photo-done" id="pm-done-btn" onclick="finishPhotoSession()">✓ Upload &amp; Complete</button>
-  <button style="margin-top:12px;background:none;border:none;color:rgba(255,255,255,.5);font-size:13px;cursor:pointer;font-family:inherit" onclick="cancelPhotoSession()">Cancel</button>
-</div>
 
 <script>
 // ─ CONFIG ─
@@ -3035,6 +3057,11 @@ function openPhotoCapture(phase, jobIdx) {
   renderPhotoThumbs();
   updatePhotoSideLabel();
   document.getElementById('photo-modal').style.display='flex';
+  document.getElementById('pm-retake-btn').style.display = 'none';
+  document.getElementById('pm-done-btn').style.display = 'none';
+  document.getElementById('pm-capture-btn').textContent = '📷 Capture';
+  document.getElementById('pm-capture-btn').style.background = '#2563eb';
+  document.getElementById('pm-capture-btn').onclick = capturePhoto;
   startCamera();
 }
 
@@ -3094,10 +3121,10 @@ function capturePhoto() {
   document.getElementById('pm-retake-btn').style.display='block';
   const isLast = side === _photoSession.sides[_photoSession.sides.length-1];
   const captBtn = document.getElementById('pm-capture-btn');
-  captBtn.textContent = isLast ? '✓ All Done' : '→ Next Photo';
-  captBtn.style.background = isLast ? '#16a34a' : '#1e40af';
-  captBtn.style.fontSize = '17px';
-  document.getElementById('pm-capture-btn').onclick = confirmPhoto;
+  captBtn.textContent = isLast ? '✓ All Done — Tap to Confirm' : '→ Next Photo';
+  captBtn.style.background = isLast ? '#16a34a' : '#2563eb';
+  captBtn.onclick = confirmPhoto;
+  document.getElementById('pm-retake-btn').style.display = 'block';
   renderPhotoThumbs();
   checkAllCaptured();
 }
@@ -3111,9 +3138,10 @@ function retakePhoto() {
   canvas.style.display='none';
   document.getElementById('pm-retake-btn').style.display='none';
   const captBtnR = document.getElementById('pm-capture-btn');
-  captBtnR.textContent='📷 Capture';
-  captBtnR.style.background='';
-  captBtnR.onclick=capturePhoto;
+  captBtnR.textContent = '📷 Capture';
+  captBtnR.style.background = '#2563eb';
+  captBtnR.onclick = capturePhoto;
+  document.getElementById('pm-retake-btn').style.display = 'none';
 }
 
 function confirmPhoto() {
@@ -3159,7 +3187,9 @@ function jumpToSide(i) {
 function checkAllCaptured() {
   const allDone = _photoSession.sides.every(s=>_photoSession.captured[s]);
   const btn = document.getElementById('pm-done-btn');
-  btn.style.display = allDone ? 'block' : 'none';
+  btn.style.display = allDone ? 'flex' : 'none';
+  btn.style.alignItems = 'center';
+  btn.style.justifyContent = 'center';
   btn.textContent = _photoSession.phase==='start' ? '✓ Upload & Start' : '✓ Upload & Complete';
   const notesWrap = document.getElementById('pm-notes-wrap');
   if (notesWrap) notesWrap.style.display = (allDone && _photoSession.phase==='end') ? 'block' : 'none';
