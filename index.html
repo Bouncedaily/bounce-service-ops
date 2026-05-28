@@ -920,16 +920,25 @@ async function submitRegularization(attId, techName, date, prevStatus) {
   if (!reason)    { alertEl.innerHTML = '<div class="alert al-error">Reason is required.</div>'; return; }
   if (newStatus === prevStatus) { alertEl.innerHTML = '<div class="alert al-warn">Status is same as current.</div>'; return; }
 
-  const patch = {
-    status: newStatus,
-    regularized_by: state.user?.name,
-    regularized_at: new Date().toISOString(),
-    previous_status: prevStatus,
-    regularization_reason: reason,
-    updated_at: new Date().toISOString()
-  };
+  // Base patch — always works
+  const patch = { status: newStatus, updated_at: new Date().toISOString() };
 
-  await sb(`attendance?id=eq.${attId}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  // Add audit columns if they exist (requires SQL migration)
+  try {
+    const testRow = await sb(`attendance?id=eq.${attId}&select=regularized_by&limit=1`);
+    if (testRow && testRow.length && 'regularized_by' in testRow[0]) {
+      patch.regularized_by = state.user?.name;
+      patch.regularized_at = new Date().toISOString();
+      patch.previous_status = prevStatus;
+      patch.regularization_reason = reason;
+    }
+  } catch(e) {}
+
+  const patchRes = await sb(`attendance?id=eq.${attId}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  if (patchRes === null) {
+    document.getElementById('reg-alert').innerHTML = '<div class="alert al-error">Update failed. Please try again.</div>';
+    return;
+  }
   closeModal();
 
   // Show success toast
