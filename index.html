@@ -275,10 +275,29 @@ tr:hover td{background:var(--g50)}
           <button class="btn btn-outline" id="tr-technician"    onclick="setTestRole('technician')"    style="font-size:13px;padding:8px">Technician</button>
         </div>
       </div>
-      <button class="btn btn-blue btn-full" style="padding:13px;" onclick="sendOTP()">Login</button>
+      <button class="btn btn-blue btn-full" style="padding:13px;" onclick="checkMobile()">Next</button>
     </div>
 
-    <!-- Step 2: OTP removed — direct mobile login -->
+    <!-- Step 2: Password entry -->
+    <div class="step" id="step-password">
+      <div class="login-title">Enter password</div>
+      <div class="login-sub" id="password-sub">Welcome back</div>
+      <div id="s2-alert"></div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <div style="position:relative">
+          <input class="form-input" id="password-input" type="password" placeholder="Enter your password"
+            style="padding-right:44px" onkeydown="if(event.key==='Enter')verifyPassword()"/>
+          <button onclick="togglePwdVis()" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--g400)" id="pwd-eye">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+      </div>
+      <button class="btn btn-blue btn-full" style="padding:13px;" onclick="verifyPassword()" id="pwd-btn">Login</button>
+      <button class="btn btn-outline btn-full" style="padding:10px;margin-top:8px;font-size:13px" onclick="goStep('step-mobile');document.getElementById('s2-alert').innerHTML=''">← Back</button>
+    </div>
+
+    <!-- Step 3 was OTP, now skipped -->
 
     <!-- Step 3: Hub selection (managers only) -->
     <div class="step" id="step-hub">
@@ -935,18 +954,65 @@ function setAlert(id, type, msg) {
     ? `<div class="alert al-${type}">${msg}</div>` : '';
 }
 
-async function sendOTP() {
+// Simple hash — SHA-256 via Web Crypto API
+async function hashPassword(pwd) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pwd));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+function togglePwdVis() {
+  const inp = document.getElementById('password-input');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+async function checkMobile() {
   const mobile = document.getElementById('mobile-input').value.trim();
   if (!/^\d{10}$/.test(mobile)) { setAlert('s1-alert','error','Enter a valid 10-digit mobile number.'); return; }
   const btn = document.querySelector('#step-mobile .btn-blue');
   btn.textContent = 'Checking...'; btn.disabled = true;
   let user = null;
   try { user = await fetchUserByMobile(mobile); } catch(e) {}
-  btn.textContent = 'Login'; btn.disabled = false;
+  btn.textContent = 'Next'; btn.disabled = false;
   if (!user) { setAlert('s1-alert','error','Mobile number not registered. Contact your admin.'); return; }
   state.pendingUser = user;
-  proceedAfterAuth(user);
+  // Test numbers skip password
+  if (TEST_MOBILES.includes(mobile)) {
+    proceedAfterAuth(user);
+    return;
+  }
+  // Check if password is set
+  const pwdRow = await sb(`users?mobile=eq.${mobile}&select=password_hash&limit=1`);
+  const hasPassword = pwdRow && pwdRow.length && pwdRow[0].password_hash;
+  if (!hasPassword) {
+    // No password set — show info and allow login (first time)
+    setAlert('s1-alert','warn','No password set. Contact your admin to set a password.');
+    return;
+  }
+  // Go to password step
+  document.getElementById('password-sub').textContent = `Welcome, ${user.name}`;
+  document.getElementById('password-input').value = '';
+  document.getElementById('s2-alert').innerHTML = '';
+  goStep('step-password');
 }
+
+async function verifyPassword() {
+  const mobile = document.getElementById('mobile-input').value.trim();
+  const pwd    = document.getElementById('password-input').value;
+  const btn    = document.getElementById('pwd-btn');
+  if (!pwd) { setAlert('s2-alert','error','Please enter your password.'); return; }
+  btn.textContent = 'Verifying...'; btn.disabled = true;
+  const hashed = await hashPassword(pwd);
+  const row = await sb(`users?mobile=eq.${mobile}&password_hash=eq.${hashed}&select=id&limit=1`);
+  btn.textContent = 'Login'; btn.disabled = false;
+  if (!row || !row.length) {
+    setAlert('s2-alert','error','Incorrect password. Please try again.');
+    document.getElementById('password-input').value = '';
+    return;
+  }
+  proceedAfterAuth(state.pendingUser);
+}
+
+async function sendOTP() { await checkMobile(); } // backward compat
 
 async function proceedAfterAuth(u) {
   const initials = u.name.split(' ').map(x=>x[0]).join('').slice(0,2);

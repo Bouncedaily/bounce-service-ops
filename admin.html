@@ -369,6 +369,7 @@ function renderUsers() {
             <td>
               <div style="display:flex;gap:6px;flex-wrap:wrap">
                 <button class="btn btn-outline btn-sm" onclick="openEditUser('${u.id}')">Edit</button>
+                <button class="btn btn-outline btn-sm" style="color:#7c3aed;border-color:#7c3aed" onclick="showSetPasswordModal('${u.id}','${u.name}')">Set Password</button>
                 <button class="btn btn-sm ${u.is_active===false?'btn-green':'btn-red'}" onclick="toggleActive('${u.id}',${u.is_active===false})">${u.is_active===false?'Activate':'Deactivate'}</button>
               </div>
             </td>
@@ -805,6 +806,50 @@ window.addEventListener('DOMContentLoaded', async () => {
     showLogin();
   }
 });
+
+// ── PASSWORD MANAGEMENT ──────────────────────────────────────────────────────
+function showSetPasswordModal(userId, userName) {
+  document.getElementById('modal-inner').innerHTML = `
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div class="modal-title">Set Password</div>
+    <div class="modal-sub">${userName}</div>
+    <div id="pwd-modal-alert"></div>
+    <div class="form-group" style="margin-top:16px">
+      <label class="form-label">New Password</label>
+      <input class="form-input" id="new-pwd-input" type="password" placeholder="Min 6 characters"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Confirm Password</label>
+      <input class="form-input" id="confirm-pwd-input" type="password" placeholder="Re-enter password"/>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:8px">
+      <button class="btn btn-outline" style="flex:1" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-purple" style="flex:1" onclick="savePassword('${userId}')">Set Password</button>
+    </div>`;
+  document.getElementById('modal').style.display = 'flex';
+}
+
+async function hashPwd(pwd) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pwd));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+async function savePassword(userId) {
+  const pwd     = document.getElementById('new-pwd-input')?.value || '';
+  const confirm = document.getElementById('confirm-pwd-input')?.value || '';
+  const alertEl = document.getElementById('pwd-modal-alert');
+  if (pwd.length < 6) { alertEl.innerHTML='<div class="alert al-error">Password must be at least 6 characters.</div>'; return; }
+  if (pwd !== confirm) { alertEl.innerHTML='<div class="alert al-error">Passwords do not match.</div>'; return; }
+  const hashed = await hashPwd(pwd);
+  await sb(`users?id=eq.${userId}`, { method:'PATCH', body: JSON.stringify({ password_hash: hashed, password_set_at: new Date().toISOString() }) });
+  closeModal();
+  const t = document.createElement('div');
+  t.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1e293b;color:white;padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999';
+  t.textContent = '✓ Password set successfully';
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(), 3000);
+  nav('users');
+}
 </script>
 </body>
 </html>
