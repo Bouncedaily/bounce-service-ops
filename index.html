@@ -708,6 +708,7 @@ async function loadMyAttendance(userId) {
     const dbCheckout = r.checkout_time ? new Date(r.checkout_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}) : null;
     state.myCheckout = dbCheckout || state.myCheckout || null;
     state.hub = r.hubs?.name || null; state.hubId = r.hub_id || null; state.myAttId = r.id;
+    // checked_in means actively working — treat like present for session purposes
     if (state.hub) state.attendance[state.user.name] = { status:r.status, checkin:state.myCheckin, checkout:state.myCheckout, hub:state.hub, hub_id:state.hubId, att_id:r.id };
   } else {
     state.myCheckin = null; state.myCheckout = null; state.myAttId = null;
@@ -874,7 +875,7 @@ async function cancelPreviousWO(woDbId) {
 async function showRegularizeModal(techName, date, currentStatus, attId) {
   const inner = document.getElementById('modal-inner');
   const statusOptions = ['present','half_day','absent','leave','week_off'].map(s => {
-    const labels = {present:'Present',half_day:'Half Day',absent:'Absent',leave:'Leave',week_off:'Week Off'};
+    const labels = {present:'Present',checked_in:'Working',half_day:'Half Day',absent:'Absent',leave:'Leave',week_off:'Week Off'};
     return `<button onclick="selectRegStatus(this,'${s}')" class="btn ${s===currentStatus?'btn-blue':'btn-outline'} btn-sm"
       data-status="${s}" style="flex:1;font-size:12px;padding:8px 4px">${labels[s]}</button>`;
   }).join('');
@@ -1825,7 +1826,7 @@ function renderDashboard() {
   // Attendance counts — filtered
   const attList = Object.values(state.attendance).filter(attInFilter);
   const total   = attList.length;
-  const present = attList.filter(a=>a.status==='present').length;
+  const present = attList.filter(a=>a.status==='present'||a.status==='checked_in').length;
   const absent  = attList.filter(a=>a.status==='absent').length;
   const onLeave = attList.filter(a=>a.status==='leave').length;
 
@@ -2490,8 +2491,8 @@ function renderMyAttendance() {
     <div class="tw"><table>
       <thead><tr><th>Day</th><th>Hub</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Hours</th></tr></thead>
       <tbody>${wk.map(r=>{
-        const bc=r.s==='present'?'b-present':r.s==='leave'?'b-leave':'b-open';
-        const lbl=r.s==='present'?'Present':r.s==='leave'?'On Leave':'Pending';
+        const bc=r.s==='present'?'b-present':r.s==='checked_in'?'b-inprog':r.s==='half_day'?'b-leave':r.s==='absent'?'b-absent':r.s==='week_off'?'b-leave':r.s==='leave'?'b-leave':'b-open';
+        const lbl=r.s==='present'?'Present':r.s==='checked_in'?'Working':r.s==='half_day'?'Half Day':r.s==='absent'?'Absent':r.s==='week_off'?'Week Off':r.s==='leave'?'On Leave':'Pending';
         return `<tr>
           <td style="font-weight:${r.d==='Today'?'600':'400'}">${r.d}</td>
           <td style="font-size:12px;color:var(--g500)">${r.hub}</td>
@@ -3699,9 +3700,9 @@ async function loadTechProfile(techName, role) {
   const dayNames     = ['S','M','T','W','T','F','S'];
   const attMap       = {};
   attRows.forEach(r=>{ attMap[r.date]=r.status; });
-  const cellColor    = s => s==='present'?'#dcfce7':s==='half_day'?'#fef3c7':s==='absent'?'#fee2e2':s==='week_off'?'#f3e8ff':'var(--g100)';
-  const cellText     = s => s==='present'?'P':s==='half_day'?'H':s==='absent'?'A':s==='week_off'?'W':'';
-  const cellTColor   = s => s==='present'?'#166534':s==='half_day'?'#92400e':s==='absent'?'#991b1b':s==='week_off'?'#6b21a8':'var(--g400)';
+  const cellColor    = s => s==='present'?'#dcfce7':s==='checked_in'?'#dbeafe':s==='half_day'?'#fef3c7':s==='absent'?'#fee2e2':s==='week_off'?'#f3e8ff':'var(--g100)';
+  const cellText     = s => s==='present'?'P':s==='checked_in'?'CI':s==='half_day'?'H':s==='absent'?'A':s==='week_off'?'W':'';
+  const cellTColor   = s => s==='present'?'#166534':s==='checked_in'?'#1e40af':s==='half_day'?'#92400e':s==='absent'?'#991b1b':s==='week_off'?'#6b21a8':'var(--g400)';
 
   // Productivity score
   const prodPct = Math.min(100, Math.round((parseFloat(avgHrsDay)||0)/8*100));
