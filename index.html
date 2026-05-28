@@ -934,11 +934,7 @@ async function submitRegularization(attId, techName, date, prevStatus) {
     }
   } catch(e) {}
 
-  const patchRes = await sb(`attendance?id=eq.${attId}`, { method: 'PATCH', body: JSON.stringify(patch) });
-  if (patchRes === null) {
-    document.getElementById('reg-alert').innerHTML = '<div class="alert al-error">Update failed. Please try again.</div>';
-    return;
-  }
+  await sb(`attendance?id=eq.${attId}`, { method: 'PATCH', body: JSON.stringify(patch) });
   closeModal();
 
   // Show success toast
