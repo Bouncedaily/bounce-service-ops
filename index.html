@@ -2409,7 +2409,7 @@ function renderMyAttendance() {
     {d:'Tue',hub:'Koramangala Hub', s:'present',ci:'08:55 AM',co:'05:15 PM',hrs:'8h 20m'},
     {d:'Wed',hub:'—',               s:'leave',  ci:'—',       co:'—',       hrs:'—'},
     {d:'Thu',hub:'Hebbal Hub',      s:'present',ci:'09:00 AM',co:'05:00 PM',hrs:'8h 00m'},
-    {d:'Today',hub:state.hub1||state.hub||'—', s:state.myCheckin?'present':'open',ci:state.hub1CheckIn||state.myCheckin||'—',co:state.myCheckout||'—',hrs:'—'},
+    {d:'Today',hub:state.hub1||state.hub||'—', s:state.myCheckout?'present':state.myCheckin?'checked_in':'open',ci:state.hub1CheckIn||state.myCheckin||'—',co:state.myCheckout||'—',hrs:'—'},
   ];
   return `
     <div class="page-hd"><div class="page-hd-text"><div class="page-title">My Attendance</div><div class="page-sub">${state.hub||''}</div></div>
