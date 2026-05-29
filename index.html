@@ -606,6 +606,105 @@ const DEMO_JOBS = [
   {id:'j5', wo_number:'WO-005', vehicle_reg:'KA05IJ7890', issue:'Tyre puncture repair', priority:'Medium', status:'Open',        wo_type:'oos',            assigned_at: new Date().toISOString(), hub_id:'hub-4', users:{name:'Selvam V'},  hubs:{name:'Electronic City Hub'}},
 ];
 let _demoMode = false;
+
+let _partsSession = {};
+
+async function loadJobParts(woId) {
+  return await sb('job_parts?work_order_id=eq.'+woId+'&select=*&order=created_at.asc') || [];
+}
+
+function renderPartsHTML(woId, partsCsv, jobIdx) {
+  if (!_partsSession[woId]) {
+    var pts = (partsCsv||'').split(',').map(function(p){return p.trim();}).filter(Boolean);
+    _partsSession[woId] = { parts: pts.map(function(pName){ return {id:null,work_order_id:woId,part_name:pName,is_recommended:true,status:'pending',quantity:1,photo_before:null,photo_after:null}; }), jobIdx:jobIdx };
+    loadJobParts(woId).then(function(existing){ if(!existing||!existing.length)return; existing.forEach(function(e){ var idx=_partsSession[woId].parts.findIndex(function(p){return p.part_name===e.part_name&&p.is_recommended===e.is_recommended;}); if(idx>=0)_partsSession[woId].parts[idx]=e; else if(!e.is_recommended)_partsSession[woId].parts.push(e); }); renderPartsSection(woId); }).catch(function(){});
+  }
+  var parts=_partsSession[woId].parts, sid=woId.replace(/-/g,''), h='';
+  if(!parts.length) return '<div style="font-size:12px;color:#9ca3af">No parts listed</div>';
+  for(var i=0;i<parts.length;i++){
+    var p=parts[i], bc=p.status==='used'?'#16a34a':p.status==='not_used'?'#ef4444':'#e2e8f0';
+    var usedBg=p.status==='used'?'#16a34a':'#f1f5f9', usedCo=p.status==='used'?'#fff':'#374151';
+    var notBg=p.status==='not_used'?'#ef4444':'#f1f5f9', notCo=p.status==='not_used'?'#fff':'#374151';
+    h+='<div style="background:#fff;border-radius:8px;padding:10px;margin-bottom:8px;border:1px solid '+bc+'">';
+    h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:'+(p.status==='used'?'8':'0')+'px">';
+    h+='<div style="font-size:13px;font-weight:600;color:#111;flex:1">'+p.part_name+'</div>';
+    h+='<div style="display:flex;gap:6px">';
+    h+='<button data-wo="'+woId+'" data-pi="'+i+'" data-st="used" onclick="handlePartStatus(this)" style="padding:4px 10px;font-size:11px;border-radius:6px;border:none;cursor:pointer;font-weight:600;background:'+usedBg+';color:'+usedCo+'">Used</button>';
+    h+='<button data-wo="'+woId+'" data-pi="'+i+'" data-st="not_used" onclick="handlePartStatus(this)" style="padding:4px 10px;font-size:11px;border-radius:6px;border:none;cursor:pointer;font-weight:600;background:'+notBg+';color:'+notCo+'">Not Used</button>';
+    h+='</div></div>';
+    if(p.status==='used'){
+      h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="font-size:11px;color:#6b7280">Qty:</span>';
+      h+='<select data-wo="'+woId+'" data-pi="'+i+'" onchange="handlePartQty(this)" style="background:#f8fafc;color:#111;border:1px solid #e2e8f0;border-radius:6px;padding:3px 8px;font-size:12px">';
+      h+='<option value="1"'+((p.quantity||1)===1?' selected':'')+'>1</option><option value="2"'+((p.quantity||1)===2?' selected':'')+'>2</option></select></div>';
+      var bbg=p.photo_before?'#dcfce7':'#f8fafc', bbc=p.photo_before?'#16a34a':'#e2e8f0', btc=p.photo_before?'#15803d':'#374151';
+      var abg=p.photo_after?'#dcfce7':'#f8fafc', abc_=p.photo_after?'#16a34a':'#e2e8f0', atc=p.photo_after?'#15803d':'#374151';
+      h+='<div style="display:flex;gap:8px">';
+      h+='<button data-wo="'+woId+'" data-pi="'+i+'" data-ph="before" onclick="handlePartPhoto(this)" style="flex:1;padding:8px;font-size:12px;border-radius:8px;border:1px solid '+bbc+';cursor:pointer;font-weight:600;background:'+bbg+';color:'+btc+'">'+(p.photo_before?'&#10003; Before':'&#128247; Before')+'</button>';
+      h+='<button data-wo="'+woId+'" data-pi="'+i+'" data-ph="after" onclick="handlePartPhoto(this)" style="flex:1;padding:8px;font-size:12px;border-radius:8px;border:1px solid '+abc_+';cursor:pointer;font-weight:600;background:'+abg+';color:'+atc+'">'+(p.photo_after?'&#10003; After':'&#128247; After')+'</button>';
+      h+='</div>';
+      if(!p.photo_before||!p.photo_after) h+='<div style="font-size:10px;color:#dc2626;margin-top:4px">&#9888; Both photos required</div>';
+    }
+    h+='</div>';
+  }
+  h+='<div style="display:flex;gap:8px;margin-top:4px">';
+  h+='<input id="epi_'+sid+'" placeholder="Add part name..." style="flex:1;padding:9px 12px;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;color:#111;font-size:13px;font-family:inherit">';
+  h+='<button data-wo="'+woId+'" onclick="handleAddPart(this)" style="padding:9px 14px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-size:13px;font-weight:600;cursor:pointer">+ Add</button>';
+  h+='</div>';
+  return h;
+}
+
+function handlePartStatus(btn) { setPartStatus(btn.dataset.wo, parseInt(btn.dataset.pi), btn.dataset.st); }
+function handlePartQty(sel) { setPartQty(sel.dataset.wo, parseInt(sel.dataset.pi), sel.value); }
+function handlePartPhoto(btn) { capturePartPhoto(btn.dataset.wo, parseInt(btn.dataset.pi), btn.dataset.ph); }
+function handleAddPart(btn) { addExtraPart(btn.dataset.wo); }
+
+function renderPartsSection(woId) {
+  var el = document.getElementById('ps_'+woId.replace(/-/g,''));
+  if(el) el.innerHTML = renderPartsHTML(woId, null, null);
+}
+
+async function setPartStatus(woId, partIdx, status) {
+  if(!_partsSession[woId]) return;
+  _partsSession[woId].parts[partIdx].status = status;
+  renderPartsSection(woId);
+  await savePartToDB(woId, _partsSession[woId].parts[partIdx], _partsSession[woId].jobIdx);
+}
+
+async function setPartQty(woId, partIdx, qty) {
+  if(!_partsSession[woId]) return;
+  _partsSession[woId].parts[partIdx].quantity = parseInt(qty)||1;
+  await savePartToDB(woId, _partsSession[woId].parts[partIdx], _partsSession[woId].jobIdx);
+}
+
+async function addExtraPart(woId) {
+  var input = document.getElementById('epi_'+woId.replace(/-/g,''));
+  var name = input ? input.value.trim() : '';
+  if(!name){if(input){input.style.borderColor='#ef4444';setTimeout(function(){input.style.borderColor='';},1500);}return;}
+  if(!_partsSession[woId]) return;
+  var newPart = {id:null,work_order_id:woId,part_name:name,is_recommended:false,status:'pending',quantity:1,photo_before:null,photo_after:null};
+  _partsSession[woId].parts.push(newPart);
+  await savePartToDB(woId, newPart, _partsSession[woId].jobIdx);
+  if(input) input.value='';
+  renderPartsSection(woId);
+}
+
+async function savePartToDB(woId, part, jobIdx) {
+  var j = state.jobs[jobIdx];
+  var payload = {work_order_id:woId,job_card_number:j?j.jc_number:null,reg_number:j?j.vehicle:null,hub_name:j?(j.hub||state.hub):state.hub,technician_name:state.user?state.user.name:null,technician_id:state.user?state.user.id:null,part_name:part.part_name,is_recommended:part.is_recommended,status:part.status,quantity:part.quantity||1,photo_before:part.photo_before||null,photo_after:part.photo_after||null,updated_at:new Date().toISOString()};
+  if(part.id){
+    await sb('job_parts?id=eq.'+part.id,{method:'PATCH',body:JSON.stringify(payload)});
+  } else {
+    var res = await sb('job_parts',{method:'POST',prefer:'return=representation',body:JSON.stringify(payload)});
+    if(res&&res[0]) part.id=res[0].id;
+  }
+}
+
+function partsAllValid(woId) {
+  if(!_partsSession[woId]) return true;
+  return _partsSession[woId].parts.every(function(p){ return p.status!=='used'||(p.photo_before&&p.photo_after); });
+}
+
+
 const CLOUDINARY_CLOUD = 'dmaldc00k';
 const CLOUDINARY_PRESET = 'job_videos';
 const CHECKIN_CUTOFF_HOUR = 13;   // 1 PM
@@ -2858,6 +2957,12 @@ function renderMyJobs() {
             </button>` : ''}
             ${isBlocked ? `<div style="text-align:right"><span style="font-size:12px;color:var(--g400)">🔒</span><br><span style="font-size:10px;color:var(--g400)">Complete previous<br>job to start this</span></div>` : ''}
             ${isActive ? `
+              <div style="background:#f8fafc;border-radius:10px;padding:12px;margin-bottom:10px;border:1px solid #e2e8f0">
+                <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">Parts</div>
+                <div id="ps_${j.db_id.replace(/-/g,'')}">
+                  ${renderPartsHTML(j.db_id, j.parts_to_be_changed, gi)}
+                </div>
+              </div>
               ${!j.video_url ? `
                 <button class="btn btn-blue btn-sm" style="margin-bottom:6px;width:100%;font-weight:600" onclick="startVideoCapture(${gi})">
                   🎥 Record Video <span style="font-size:10px;opacity:.8">(required)</span>
