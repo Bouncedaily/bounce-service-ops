@@ -2978,7 +2978,7 @@ function renderMyJobs() {
       const isBlocked   = j.status==='Open' && (!isFirstOpen || !!activeJob);
       const startPhotos = j.start_photos||[];
       const endPhotos = j.end_photos||[];
-      return `<div class="card" style="${isActive?'border-color:var(--blue);border-width:2px':isBlocked?'opacity:0.6':''};">
+      return `<div class="card" onclick="if(event.target.tagName!=='BUTTON'&&event.target.tagName!=='SELECT'&&event.target.tagName!=='INPUT')openJobDetail(${gi})" style="cursor:pointer;${isActive?'border-color:var(--blue);border-width:2px':isBlocked?'opacity:0.6':''};">
         <div class="fl jc-sb g12" style="align-items:flex-start">
           <div style="flex:1;min-width:0">
             <div style="margin-bottom:2px">
