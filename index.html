@@ -3159,7 +3159,10 @@ function renderMyJobs() {
       Priority order: Start <strong>${firstOpenJob?.vehicle||'first job'}</strong> (${firstOpenJob?.priority||'High'} priority) first. Other jobs are locked.
     </div>` : ''}
     ${filteredJobs.length===0?`<div class="empty-state">No jobs found for ${fmtSel}.</div>`:''}
-    ${filteredJobs.map(j=>{
+    ${[...filteredJobs].sort((a,b)=>{
+      const s={Open:0,'In Progress':1,Done:2}; const p={High:0,Medium:1,Low:2};
+      return (s[a.status]??3)-(s[b.status]??3) || (p[a.priority]??1)-(p[b.priority]??1);
+    }).map(j=>{
       const gi=state.jobs.indexOf(j);
       const sc=j.status==='Done'?'b-done':j.status==='In Progress'?'b-inprog':'b-open';
       const pc=j.priority==='High'?'b-high':j.priority==='Low'?'b-low':'b-med';
