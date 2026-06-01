@@ -613,6 +613,66 @@ async function loadJobParts(woId) {
   return await sb('job_parts?work_order_id=eq.'+woId+'&select=*&order=created_at.asc') || [];
 }
 
+
+// ── JOB DETAIL PAGE ──────────────────────────────────────────────────────────
+function openJobDetail(jobIdx) {
+  const j = state.jobs[jobIdx];
+  if (!j) return;
+  window._jobDetailIdx = jobIdx;
+  navigate('job-detail');
+}
+
+function renderJobDetail() {
+  const jobIdx = window._jobDetailIdx;
+  const j = state.jobs[jobIdx];
+  if (!j) return '<div class="empty-state">Job not found</div>';
+
+  const statusColor = j.status==='In Progress'?'var(--blue)':j.status==='Done'?'var(--green)':'var(--amber)';
+  const isActive = j.status === 'In Progress';
+
+  return `
+    <div class="page-hd">
+      <button onclick="navigate('my-jobs')" style="background:none;border:none;cursor:pointer;font-size:20px;color:var(--g500);padding:4px 8px 4px 0">&#8592;</button>
+      <div class="page-hd-text"><div class="page-title">${j.vehicle||'—'}</div><div class="page-sub">${j.jc_number||'—'}</div></div>
+    </div>
+
+    <!-- Job Info -->
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <span style="font-size:13px;font-weight:700;color:${statusColor};background:${statusColor}18;padding:4px 12px;border-radius:20px">${j.status}</span>
+        <span style="font-size:12px;color:var(--g400)">${j.priority||'Medium'} Priority</span>
+      </div>
+      <div style="font-size:14px;font-weight:600;color:var(--g700);margin-bottom:4px">${j.issue||'—'}</div>
+      <div style="font-size:12px;color:var(--g400)">${j.wo_type||''} · Assigned ${j.assigned_at ? new Date(j.assigned_at).toLocaleDateString('en-IN') : '—'}</div>
+      ${j.video_url ? '<div style="margin-top:10px"><a href="'+j.video_url+'" target="_blank" style="font-size:13px;color:var(--blue);font-weight:600">&#127909; View Video</a></div>' : ''}
+    </div>
+
+    <!-- Parts Section -->
+    <div class="card" style="margin-bottom:12px">
+      <div style="font-size:13px;font-weight:700;color:var(--g700);margin-bottom:12px;text-transform:uppercase;letter-spacing:.05em">Parts</div>
+      <div id="ps_${j.db_id.replace(/-/g,'')}">
+        ${renderPartsHTML(j.db_id, j.parts_to_be_changed, jobIdx)}
+      </div>
+    </div>
+
+    <!-- Actions -->
+    ${isActive ? `
+    <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:80px">
+      ${!j.video_url ? `
+        <button class="btn btn-blue" style="width:100%;padding:14px;font-size:15px;font-weight:600" onclick="startVideoCapture(${jobIdx})">
+          Record Video <span style="font-size:11px;opacity:.7">(required)</span>
+        </button>
+        <button class="btn btn-green" style="width:100%;padding:14px;font-size:15px;font-weight:600;opacity:.4;cursor:not-allowed" onclick="endJobWithPhotos(${jobIdx})">
+          Complete Job
+        </button>` :
+      `<div style="font-size:13px;color:var(--green);font-weight:600;text-align:center;padding:8px">&#9989; Video recorded</div>
+        <button class="btn btn-green" style="width:100%;padding:14px;font-size:15px;font-weight:700" onclick="endJobWithPhotos(${jobIdx})">
+          Complete Job
+        </button>`}
+    </div>` : ''}
+  `;
+}
+
 function renderPartsHTML(woId, partsCsv, jobIdx) {
   if (!_partsSession[woId]) {
     var pts = (partsCsv||'').split(',').map(function(p){return p.trim();}).filter(Boolean);
@@ -1951,7 +2011,7 @@ function navigate(page) {
     return;
   }
   const fns = {
-    dashboard:renderDashboard, attendance:renderAttendance,
+    dashboard:renderDashboard, attendance:renderAttendance, 'job-detail':renderJobDetail,
     'qr-hub':renderQRHub,
     'my-attendance':renderMyAttendance, 'my-jobs':renderMyJobs
   };
@@ -2957,12 +3017,6 @@ function renderMyJobs() {
             </button>` : ''}
             ${isBlocked ? `<div style="text-align:right"><span style="font-size:12px;color:var(--g400)">🔒</span><br><span style="font-size:10px;color:var(--g400)">Complete previous<br>job to start this</span></div>` : ''}
             ${isActive ? `
-              <div style="background:#f8fafc;border-radius:10px;padding:12px;margin-bottom:10px;border:1px solid #e2e8f0">
-                <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">Parts</div>
-                <div id="ps_${j.db_id.replace(/-/g,'')}">
-                  ${renderPartsHTML(j.db_id, j.parts_to_be_changed, gi)}
-                </div>
-              </div>
               ${!j.video_url ? `
                 <button class="btn btn-blue btn-sm" style="margin-bottom:6px;width:100%;font-weight:600" onclick="startVideoCapture(${gi})">
                   🎥 Record Video <span style="font-size:10px;opacity:.8">(required)</span>
