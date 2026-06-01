@@ -718,13 +718,18 @@ function openJobDetail(jobIdx) {
   const j = state.jobs[jobIdx];
   if (!j) return;
   window._jobDetailIdx = jobIdx;
+  if (j) localStorage.setItem('_jobDetailWoId', j.db_id);
   navigate('job-detail');
 }
 
 function renderJobDetail() {
-  const jobIdx = window._jobDetailIdx;
-  const j = state.jobs[jobIdx];
-  if (!j) return '<div class="empty-state">Job not found</div>';
+  let jobIdx = window._jobDetailIdx;
+  let j = state.jobs[jobIdx];
+  if (!j) {
+    const wid = localStorage.getItem('_jobDetailWoId');
+    if (wid) { jobIdx = state.jobs.findIndex(x => x.db_id === wid); if (jobIdx >= 0) { j = state.jobs[jobIdx]; window._jobDetailIdx = jobIdx; } }
+  }
+  if (!j) return '<div class="empty-state" style="padding:40px;text-align:center"><button class="btn btn-blue" onclick="navigate(\'my-jobs\')">Back to My Jobs</button></div>';
 
   const statusColor = j.status==='In Progress'?'var(--blue)':j.status==='Done'?'var(--green)':'var(--amber)';
   const isActive = j.status === 'In Progress';
