@@ -3149,26 +3149,31 @@ function startJobWithPhotos(i) {
   openPhotoCapture('start', i);
 }
 
-function endJobWithPhotos(i) {
+async function endJobWithPhotos(i) {
   const j = state.jobs[i];
   if (!j.video_url) {
-    // Show error — video required before completion
-    const gi = state.jobs.indexOf(j);
-    const card = document.querySelector(`[data-job-idx="${gi}"]`) || document.getElementById('content');
-    const msg = document.createElement('div');
-    msg.className = 'alert al-error';
-    msg.style.cssText = 'margin:8px 0;font-size:13px';
-    msg.textContent = '🎥 Please record a video before completing this job.';
-    // Show alert near the complete button
-    const existing = card.querySelector('.video-required-msg');
-    if (existing) existing.remove();
-    msg.className += ' video-required-msg';
-    card.appendChild(msg);
-    setTimeout(() => msg.remove(), 3000);
+    alert('Please record a video before completing this job.');
     return;
+  }
+  // Load parts from DB and check validation
+  try {
+    const dbParts = await loadJobParts(j.db_id);
+    const bad = dbParts.filter(function(p){ return p.status==='used' && (!p.photo_before||!p.photo_after); });
+    if (bad.length) {
+      alert('Capture Before & After photos for: ' + bad.map(function(p){return p.part_name;}).join(', '));
+      return;
+    }
+  } catch(e) {
+    // If DB check fails, also check in-memory
+    const sess = _partsSession[j.db_id];
+    if (sess) {
+      const bad = sess.parts.filter(function(p){ return p.status==='used' && (!p.photo_before||!p.photo_after); });
+      if (bad.length) { alert('Capture Before & After photos for: ' + bad.map(function(p){return p.part_name;}).join(', ')); return; }
+    }
   }
   openPhotoCapture('end', i);
 }
+
 
 // ─ VEHICLE SEARCH ─
 let _vehResults = [];
