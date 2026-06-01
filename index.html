@@ -712,6 +712,9 @@ function closePartPhotoModal() {
 async function autoAssignOnCheckin(techName, techId, hubName, hubId) {
   // Only run for technician role
   if (state.user?.role !== 'technician') return;
+  // Prevent duplicate runs
+  if (window._autoAssignRunning) return;
+  window._autoAssignRunning = true;
   try {
     console.log('[AutoAssign] Technician checked in:', techName, 'hub:', hubName);
 
@@ -792,6 +795,8 @@ async function autoAssignOnCheckin(techName, techId, hubName, hubId) {
     }
   } catch(e) {
     console.warn('[AutoAssign] Error:', e.message);
+  } finally {
+    window._autoAssignRunning = false;
   }
 }
 
@@ -3864,7 +3869,6 @@ async function renderWorkOrdersAsync() {
     <div class="page-hd">
       <div class="page-hd-text"><div class="page-title">Work Orders</div><div class="page-sub">${myHub}</div></div>
       <div style="display:flex;gap:8px;align-items:center">
-        <button id="auto-assign-btn" class="btn btn-blue btn-sm" onclick="runAutoAssignment()" style="display:flex;align-items:center;gap:6px;font-size:13px;padding:8px 14px">⚡ Auto Assign</button>
         <button class="btn-refresh" onclick="window._jcCache={};window._woPg={ua:0,as:0};navigate('workorders')" title="Refresh">
           <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> Refresh
         </button>
