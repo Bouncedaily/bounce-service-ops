@@ -708,6 +708,93 @@ function closePartPhotoModal() {
   document.getElementById('ppm-retake-btn').style.display='none';
 }
 
+
+async function autoAssignOnCheckin(techName, techId, hubName, hubId) {
+  // Only run for technician role
+  if (state.user?.role !== 'technician') return;
+  try {
+    console.log('[AutoAssign] Technician checked in:', techName, 'hub:', hubName);
+
+    // Get runway to determine mode
+    const runwayRows = await sb('runway?hub_name=eq.'+encodeURIComponent(hubName)+'&select=bike_model_name,runway_days') || [];
+    const criticalModels = runwayRows.filter(function(r){return (r.runway_days||0)<2;}).map(function(r){return r.bike_model_name;});
+    const mode = criticalModels.length > 0 ? 'RECOVERY' : 'STABLE';
+
+    // Check if tech already has open jobs today
+    const existing = await sb('work_orders?assigned_tech_id=eq.'+techId+'&status=in.(Open,In Progress)&select=id&limit=1') || [];
+    if (existing.length > 0) {
+      console.log('[AutoAssign] Tech already has jobs, skipping');
+      return;
+    }
+
+    // Get unassigned JCs for this hub
+    const jcRows = await sb('draft_jc?hub_name=eq.'+encodeURIComponent(hubName)+'&current_jc_status=in.(Job Open,JC not opened in DMS)&select=job_card_number,reg_number,submission_type,labour_time_hours,parts_to_be_changed,overall_tat_days,bike_model&limit=50') || [];
+
+    // Get already assigned JC numbers
+    const assigned = await sb('work_orders?hub_name=eq.'+encodeURIComponent(hubName)+'&status=in.(Open,In Progress)&select=job_card_number') || [];
+    const assignedSet = new Set(assigned.map(function(w){return w.job_card_number;}));
+    const unassigned = jcRows.filter(function(j){return j.reg_number && !assignedSet.has(j.job_card_number);});
+
+    if (!unassigned.length) { console.log('[AutoAssign] No unassigned JCs'); return; }
+
+    // Score vehicles
+    const score = function(j) {
+      let s = 0;
+      const model = (j.bike_model||'').toLowerCase();
+      const labour = parseFloat(j.labour_time_hours)||0;
+      const aging  = parseFloat(j.overall_tat_days)||0;
+      if (mode==='RECOVERY') {
+        const isCrit = criticalModels.some(function(m){return model.includes(m.toLowerCase())||m.toLowerCase().includes(model);});
+        if (isCrit) s+=1000;
+        s+=(10-Math.min(labour,10))*50;
+      } else {
+        s+=aging*100;
+      }
+      return s;
+    };
+
+    const sorted = unassigned.slice().sort(function(a,b){return score(b)-score(a);});
+
+    // Assign up to 9hr cap
+    let totalHrs = 0;
+    const MAX_HRS = 9;
+    let assigned_count = 0;
+
+    for (var k=0; k<sorted.length; k++) {
+      const jc = sorted[k];
+      const labour = parseFloat(jc.labour_time_hours)||0;
+      if (labour > 0 && totalHrs + labour > MAX_HRS) continue;
+      totalHrs += labour;
+      const woNum = 'WO-'+String(Date.now()).slice(-6)+'-'+Math.floor(Math.random()*100);
+      await sb('work_orders', {method:'POST', prefer:'return=minimal', body:JSON.stringify({
+        wo_number: woNum,
+        vehicle_reg: jc.reg_number,
+        issue: jc.parts_to_be_changed || 'Auto-assigned on check-in',
+        job_card_number: jc.job_card_number,
+        assigned_tech_id: techId,
+        assigned_tech_name: techName,
+        hub_id: hubId,
+        hub_name: hubName,
+        priority: mode==='RECOVERY'?'High':'Medium',
+        status: 'Open',
+        wo_type: (jc.submission_type||'').toLowerCase().includes('oos')?'oos':'running_repair',
+        assigned_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })});
+      assigned_count++;
+      if (assigned_count >= 3) break; // max 3 jobs per auto-assign
+    }
+
+    if (assigned_count > 0) {
+      console.log('[AutoAssign] Assigned', assigned_count, 'jobs to', techName);
+      // Reload jobs
+      await loadMyJobs();
+    }
+  } catch(e) {
+    console.warn('[AutoAssign] Error:', e.message);
+  }
+}
+
 async function loadJobParts(woId) {
   return await sb('job_parts?work_order_id=eq.'+woId+'&select=*&order=created_at.asc') || [];
 }
@@ -3324,6 +3411,8 @@ async function markAtt(scannedHub) {
     state.myCheckin = t12;
     renderTopbar();
     state.attendance[state.user.name]={status:'checked_in',checkin:t12,checkout:null,hub:scannedHub,hub_id:hubId,att_id:attId};
+    // Auto-assign jobs on check-in
+    autoAssignOnCheckin(state.user.name, state.user.id, scannedHub, hubId);
   } else {
     await saveCheckout(state.myAttId);
     state.myCheckout=t12;
@@ -5404,6 +5493,8 @@ async function processCheckin(mode,lat,lng,accuracy,distanceM,withinFence){
     state.myCheckin=t12; state.myAttId=attId||'demo-att';
     if (state.hub2 && !state.hub2CheckIn) state.hub2CheckIn = t12;
     state.attendance[state.user.name]={status:'checked_in',checkin:t24,checkout:null,hub:state.hub,att_id:attId};
+    // Auto-assign jobs on check-in
+    autoAssignOnCheckin(state.user.name, state.user.id, state.hub, state.hubId);
     try{const s=JSON.parse(localStorage.getItem('bounce_session')||'{}');s.myCheckin=t12;s.myAttId=state.myAttId;s.myCheckinDate=TODAY;localStorage.setItem('bounce_session',JSON.stringify(s));}catch(e){}
   }else{
     // If myAttId is missing, try to find today's attendance record
