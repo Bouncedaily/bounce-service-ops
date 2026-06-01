@@ -5494,7 +5494,8 @@ async function processCheckin(mode,lat,lng,accuracy,distanceM,withinFence){
     if (state.hub2 && !state.hub2CheckIn) state.hub2CheckIn = t12;
     state.attendance[state.user.name]={status:'checked_in',checkin:t24,checkout:null,hub:state.hub,att_id:attId};
     // Auto-assign jobs on check-in
-    autoAssignOnCheckin(state.user.name, state.user.id, state.hub, state.hubId);
+    const _resolvedHubId = state.hubId || (typeof HUBS !== 'undefined' ? HUBS.find(function(h){return h.name===state.hub;})?.id : null);
+    if (_resolvedHubId) autoAssignOnCheckin(state.user.name, state.user.id, state.hub, _resolvedHubId);
     try{const s=JSON.parse(localStorage.getItem('bounce_session')||'{}');s.myCheckin=t12;s.myAttId=state.myAttId;s.myCheckinDate=TODAY;localStorage.setItem('bounce_session',JSON.stringify(s));}catch(e){}
   }else{
     // If myAttId is missing, try to find today's attendance record
