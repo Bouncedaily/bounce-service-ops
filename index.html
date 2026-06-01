@@ -3504,34 +3504,36 @@ function capturePhoto() {
   // Show preview
   video.style.display='none';
   canvas.style.display='block';
-  document.getElementById('pm-retake-btn').style.display='block';
+  canvas.style.opacity='1';
+  // Show preview with full-width Next/Retake buttons
   const isLast = side === _photoSession.sides[_photoSession.sides.length-1];
   const captBtn = document.getElementById('pm-capture-btn');
-  // Keep shutter style — change inner circle color to indicate captured
   captBtn.onclick = confirmPhoto;
-  captBtn.querySelector('div').style.background = isLast ? '#16a34a' : '#2563eb';
-  document.getElementById('pm-retake-btn').style.display = 'flex';
+  captBtn.style.cssText = 'width:100%;padding:14px;font-size:16px;font-weight:700;border-radius:12px;border:none;cursor:pointer;font-family:inherit;background:'+(isLast?'#16a34a':'#2563eb')+';color:white';
+  captBtn.textContent = isLast ? '✓ Use Photo' : '→ Next Photo';
+  const retBtn = document.getElementById('pm-retake-btn');
+  retBtn.style.cssText = 'display:flex;width:100%;padding:12px;font-size:15px;font-weight:600;border-radius:12px;border:2px solid rgba(255,255,255,.3);background:transparent;color:white;cursor:pointer;font-family:inherit;margin-top:8px;justify-content:center';
+  retBtn.textContent = '↩ Retake';
   document.getElementById('pm-retake-placeholder').style.display = 'none';
-  // Move side label to corner after capture
-  const lbl = document.getElementById('pm-side-label');
-  lbl.style.cssText = 'position:absolute;top:auto;left:50%;bottom:180px;transform:translateX(-50%);background:rgba(0,0,0,.45);color:white;font-size:22px;font-weight:800;padding:10px 24px;border-radius:12px;letter-spacing:.1em;pointer-events:none';
+  document.getElementById('pm-side-label').style.display = 'none';
   renderPhotoThumbs();
   checkAllCaptured();
-}
 
 
 
 function retakePhoto() {
   const video = document.getElementById('pm-video');
   const canvas = document.getElementById('pm-canvas');
-  video.style.display='block';
-  canvas.style.display='none';
-  document.getElementById('pm-retake-btn').style.display='none';
-  const captBtnR = document.getElementById('pm-capture-btn');
-  captBtnR.querySelector('div').style.background = 'white';
-  captBtnR.onclick = capturePhoto;
+  video.style.display = 'block';
+  canvas.style.display = 'none';
+  // Restore shutter button
+  const captBtn = document.getElementById('pm-capture-btn');
+  captBtn.onclick = capturePhoto;
+  captBtn.style.cssText = 'width:72px;height:72px;border-radius:50%;background:white;border:4px solid rgba(255,255,255,.4);cursor:pointer;box-shadow:0 2px 20px rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center';
+  captBtn.innerHTML = '<div style="width:58px;height:58px;border-radius:50%;background:white;border:3px solid #ddd"></div>';
   document.getElementById('pm-retake-btn').style.display = 'none';
   document.getElementById('pm-retake-placeholder').style.display = 'block';
+  document.getElementById('pm-side-label').style.display = 'block';
 }
 
 function confirmPhoto() {
@@ -5589,6 +5591,7 @@ async function initApp() {
     }
   } catch(e) { localStorage.removeItem('bounce_session'); }
   document.getElementById('login-page').style.display = 'flex';
+}
 }
 initApp();
 </script>
