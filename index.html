@@ -3539,6 +3539,11 @@ function confirmPhoto() {
   const current = sides[_photoSession.currentSide];
   if (!_photoSession.captured[current]) return;
   // Move to next side if not last
+  // Hide canvas, show live camera for next shot
+  const cv = document.getElementById('pm-canvas');
+  const vd = document.getElementById('pm-video');
+  if (cv) { cv.style.display='none'; cv.style.opacity='1'; }
+  if (vd) vd.style.display='block';
   if (_photoSession.currentSide < sides.length - 1) {
     _photoSession.currentSide++;
     updatePhotoSideLabel();
@@ -3560,14 +3565,15 @@ function updatePhotoSideLabel() {
 
 function renderPhotoThumbs() {
   const sides = _photoSession.sides;
-  document.getElementById('pm-thumbs').innerHTML = sides.map((s,i)=>{
+  document.getElementById('pm-thumbs').innerHTML = sides.map((s,i) => {
     const img = _photoSession.captured[s];
     const isCurrent = i === _photoSession.currentSide;
-    const isActive = i===_photoSession.currentSide;
-    return `<div class="photo-thumb ${img?'done':''} ${isActive?'active':''}" onclick="jumpToSide(${i})">
-      ${img ? `<img src="${img}"/><div class="tick">✓</div>` : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.4);font-size:18px">📷</div>`}
-      <div class="photo-thumb-label">${s}</div>
-    </div>`;
+    if (img) {
+      return '<div style="text-align:center"><img src="'+img+'" style="width:52px;height:52px;object-fit:cover;border-radius:8px;border:2px solid #4ade80"/><div style="font-size:9px;color:rgba(255,255,255,.6);margin-top:2px">'+s+'</div></div>';
+    }
+    const borderCol = isCurrent ? 'white' : 'rgba(255,255,255,.3)';
+    const dotCol = isCurrent ? 'white' : 'rgba(255,255,255,.3)';
+    return '<div style="text-align:center"><div style="width:52px;height:52px;border-radius:8px;border:2px solid '+borderCol+';background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center"><div style="width:8px;height:8px;border-radius:50%;background:'+dotCol+'"></div></div><div style="font-size:9px;color:rgba(255,255,255,.6);margin-top:2px">'+s+'</div></div>';
   }).join('');
 }
 
