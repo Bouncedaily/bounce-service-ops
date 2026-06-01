@@ -2032,14 +2032,9 @@ function renderNav() {
     `<div class="si" id="si-${n.id}" onclick="navigate('${n.id}')">${ico(n.ic)} ${n.lbl}</div>`
   ).join('');
   const role = state.user?.role;
-  const newJobs = role==='technician'
-    ? (state.jobs||[]).filter(j=>j.status==='Open'&&!j._seen).length : 0;
   document.getElementById('bottom-nav').innerHTML = nav.map(n=>{
-    const badge = (n.id==='my-jobs' && newJobs>0)
-      ? `<span style="position:absolute;top:2px;right:calc(50% - 22px);background:#2563eb;color:white;font-size:10px;font-weight:700;border-radius:999px;min-width:16px;height:16px;display:flex;align-items:center;justify-content:center;padding:0 4px;line-height:1">${newJobs}</span>`
-      : '';
-    return `<button class="bnt" id="bt-${n.id}" style="position:relative" onclick="navigate('${n.id}');${n.id==='my-jobs'?'(state.jobs||[]).forEach(j=>j._seen=true);':''}">
-      ${ico(n.ic,22)}${badge}<span>${n.lbl}</span></button>`;
+    return `<button class="bnt" id="bt-${n.id}" onclick="navigate('${n.id}')">
+      ${ico(n.ic,22)}<span>${n.lbl}</span></button>`;
   }).join('');
 }
 
