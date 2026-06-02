@@ -709,133 +709,89 @@ function closePartPhotoModal() {
 }
 
 
-// ── AUTO ASSIGN ENGINE ───────────────────────────────────────────────────────
-async function getAutoAssignParams(hubName) {
-  const runwayRows = await sb('runway?hub_name=eq.'+encodeURIComponent(hubName)+'&select=bike_model_name,runway_days') || [];
-  const criticalModels = runwayRows.filter(function(r){return (r.runway_days||0)<2;}).map(function(r){return r.bike_model_name;});
-  const mode = criticalModels.length > 0 ? 'RECOVERY' : 'STABLE';
-  return {mode, criticalModels};
-}
-
-function scoreJC(jc, mode, criticalModels) {
-  var s = 0;
-  var model  = (jc.bike_model||'').toLowerCase();
-  var labour = parseFloat(jc.labour_time_hours)||0;
-  var aging  = parseFloat(jc.overall_tat_days)||0;
-  if (mode==='RECOVERY') {
-    var isCrit = criticalModels.some(function(m){return model.includes(m.toLowerCase())||m.toLowerCase().includes(model);});
-    if (isCrit) s+=1000;
-    s+=(10-Math.min(labour,10))*50;
-  } else {
-    s+=aging*100;
-  }
-  return s;
-}
-
-async function getUnassignedJCs(hubName, techId, nearEndOfShift) {
-  // Get all open JCs for hub
-  const jcRows = await sb('draft_jc?hub_name=eq.'+encodeURIComponent(hubName)+'&current_jc_status=in.(Job Open,JC not opened in DMS)&select=job_card_number,reg_number,submission_type,labour_time_hours,parts_to_be_changed,overall_tat_days,bike_model&limit=100') || [];
-  // Get already assigned JCs at hub
-  const assigned = await sb('work_orders?hub_name=eq.'+encodeURIComponent(hubName)+'&status=in.(Open,In Progress)&select=job_card_number') || [];
-  const assignedSet = new Set(assigned.map(function(w){return w.job_card_number;}));
-  var unassigned = jcRows.filter(function(j){return j.reg_number && !assignedSet.has(j.job_card_number);});
-  // Near end of shift — only assign short jobs (≤1.5 hrs or null)
-  if (nearEndOfShift) {
-    unassigned = unassigned.filter(function(j){ var l=parseFloat(j.labour_time_hours)||0; return l===0||l<=1.5; });
-  }
-  return unassigned;
-}
-
-async function assignJobsToTech(techName, techId, hubName, hubId, count) {
-  const {mode, criticalModels} = await getAutoAssignParams(hubName);
-  const checkinTime = state.myCheckin;
-  var hoursWorked = 0;
-  if (checkinTime) {
-    const ci = new Date();
-    const [h,m] = checkinTime.split(':').map(Number);
-    ci.setHours(h,m,0,0);
-    hoursWorked = (Date.now()-ci.getTime())/3600000;
-  }
-  const nearEndOfShift = hoursWorked >= 7.5;
-  const assignCount = nearEndOfShift ? 1 : count;
-
-  const unassigned = await getUnassignedJCs(hubName, techId, nearEndOfShift);
-  if (!unassigned.length) return 0;
-
-  const sorted = unassigned.slice().sort(function(a,b){return scoreJC(b,mode,criticalModels)-scoreJC(a,mode,criticalModels);});
-
-  var done = 0;
-  for (var k=0; k<sorted.length && done<assignCount; k++) {
-    const jc = sorted[k];
-    const woNum = 'WO-'+String(Date.now()).slice(-6)+'-'+Math.floor(Math.random()*100);
-    await sb('work_orders', {method:'POST', prefer:'return=minimal', body:JSON.stringify({
-      wo_number: woNum,
-      vehicle_reg: jc.reg_number,
-      issue: jc.parts_to_be_changed || 'Auto-assigned',
-      job_card_number: jc.job_card_number,
-      assigned_tech_id: techId,
-      assigned_tech_name: techName,
-      hub_id: hubId,
-      hub_name: hubName,
-      priority: mode==='RECOVERY'?'High':'Medium',
-      status: 'Open',
-      wo_type: (jc.submission_type||'').toLowerCase().includes('oos')?'oos':'running_repair',
-      assigned_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    })});
-    done++;
-  }
-  console.log('[AutoAssign]', done, 'jobs assigned to', techName, '| mode:', mode, '| nearEnd:', nearEndOfShift);
-  return done;
-}
-
 async function autoAssignOnCheckin(techName, techId, hubName, hubId) {
+  // Only run for technician role
   if (state.user?.role !== 'technician') return;
-  if (window._autoAssignRunning) return;
-  window._autoAssignRunning = true;
   try {
-    // Check if already has open jobs
-    const existing = await sb('work_orders?assigned_tech_id=eq.'+techId+'&status=in.(Open,In Progress)&select=id') || [];
-    if (existing.length >= 3) { console.log('[AutoAssign] Already has', existing.length, 'jobs'); return; }
-    const needed = 3 - existing.length;
-    const assigned = await assignJobsToTech(techName, techId, hubName, hubId, needed);
-    if (assigned > 0) await loadMyJobs();
-  } catch(e) {
-    console.warn('[AutoAssign] checkin error:', e.message);
-  } finally {
-    window._autoAssignRunning = false;
-  }
-}
+    console.log('[AutoAssign] Technician checked in:', techName, 'hub:', hubName);
 
-async function autoAssignOnCompletion() {
-  // Called when a job is marked Done — top up to 3 jobs
-  if (state.user?.role !== 'technician') return;
-  if (window._autoAssignRunning) return;
-  window._autoAssignRunning = true;
-  try {
-    const techId  = state.user.id;
-    const techName = state.user.name;
-    const hubName  = state.hub || state.user?.assigned_hub_name;
-    const hubId    = state.hubId || HUBS.find(function(h){return h.name===hubName;})?.id;
-    if (!hubId) return;
+    // Get runway to determine mode
+    const runwayRows = await sb('runway?hub_name=eq.'+encodeURIComponent(hubName)+'&select=bike_model_name,runway_days') || [];
+    const criticalModels = runwayRows.filter(function(r){return (r.runway_days||0)<2;}).map(function(r){return r.bike_model_name;});
+    const mode = criticalModels.length > 0 ? 'RECOVERY' : 'STABLE';
 
-    const existing = await sb('work_orders?assigned_tech_id=eq.'+techId+'&status=in.(Open,In Progress)&select=id') || [];
-    if (existing.length >= 3) return; // still has enough
-    const needed = 3 - existing.length;
-    const assigned = await assignJobsToTech(techName, techId, hubName, hubId, needed);
-    if (assigned > 0) {
+    // Check if tech already has open jobs today
+    const existing = await sb('work_orders?assigned_tech_id=eq.'+techId+'&status=in.(Open,In Progress)&select=id&limit=1') || [];
+    if (existing.length > 0) {
+      console.log('[AutoAssign] Tech already has jobs, skipping');
+      return;
+    }
+
+    // Get unassigned JCs for this hub
+    const jcRows = await sb('draft_jc?hub_name=eq.'+encodeURIComponent(hubName)+'&current_jc_status=in.(Job Open,JC not opened in DMS)&select=job_card_number,reg_number,submission_type,labour_time_hours,parts_to_be_changed,overall_tat_days,bike_model&limit=50') || [];
+
+    // Get already assigned JC numbers
+    const assigned = await sb('work_orders?hub_name=eq.'+encodeURIComponent(hubName)+'&status=in.(Open,In Progress)&select=job_card_number') || [];
+    const assignedSet = new Set(assigned.map(function(w){return w.job_card_number;}));
+    const unassigned = jcRows.filter(function(j){return j.reg_number && !assignedSet.has(j.job_card_number);});
+
+    if (!unassigned.length) { console.log('[AutoAssign] No unassigned JCs'); return; }
+
+    // Score vehicles
+    const score = function(j) {
+      let s = 0;
+      const model = (j.bike_model||'').toLowerCase();
+      const labour = parseFloat(j.labour_time_hours)||0;
+      const aging  = parseFloat(j.overall_tat_days)||0;
+      if (mode==='RECOVERY') {
+        const isCrit = criticalModels.some(function(m){return model.includes(m.toLowerCase())||m.toLowerCase().includes(model);});
+        if (isCrit) s+=1000;
+        s+=(10-Math.min(labour,10))*50;
+      } else {
+        s+=aging*100;
+      }
+      return s;
+    };
+
+    const sorted = unassigned.slice().sort(function(a,b){return score(b)-score(a);});
+
+    // Assign up to 9hr cap
+    let totalHrs = 0;
+    const MAX_HRS = 9;
+    let assigned_count = 0;
+
+    for (var k=0; k<sorted.length; k++) {
+      const jc = sorted[k];
+      const labour = parseFloat(jc.labour_time_hours)||0;
+      if (labour > 0 && totalHrs + labour > MAX_HRS) continue;
+      totalHrs += labour;
+      const woNum = 'WO-'+String(Date.now()).slice(-6)+'-'+Math.floor(Math.random()*100);
+      await sb('work_orders', {method:'POST', prefer:'return=minimal', body:JSON.stringify({
+        wo_number: woNum,
+        vehicle_reg: jc.reg_number,
+        issue: jc.parts_to_be_changed || 'Auto-assigned on check-in',
+        job_card_number: jc.job_card_number,
+        assigned_tech_id: techId,
+        assigned_tech_name: techName,
+        hub_id: hubId,
+        hub_name: hubName,
+        priority: mode==='RECOVERY'?'High':'Medium',
+        status: 'Open',
+        wo_type: (jc.submission_type||'').toLowerCase().includes('oos')?'oos':'running_repair',
+        assigned_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })});
+      assigned_count++;
+      if (assigned_count >= 3) break; // max 3 jobs per auto-assign
+    }
+
+    if (assigned_count > 0) {
+      console.log('[AutoAssign] Assigned', assigned_count, 'jobs to', techName);
+      // Reload jobs
       await loadMyJobs();
-      // Show toast
-      const t = document.createElement('div');
-      t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#166534;color:white;padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999';
-      t.textContent = assigned + ' new job' + (assigned>1?'s':'') + ' assigned';
-      document.body.appendChild(t);
-      setTimeout(function(){t.remove();}, 3000);
     }
   } catch(e) {
-    console.warn('[AutoAssign] completion error:', e.message);
-  } finally {
-    window._autoAssignRunning = false;
+    console.warn('[AutoAssign] Error:', e.message);
   }
 }
 
@@ -2032,9 +1988,14 @@ function renderNav() {
     `<div class="si" id="si-${n.id}" onclick="navigate('${n.id}')">${ico(n.ic)} ${n.lbl}</div>`
   ).join('');
   const role = state.user?.role;
+  const newJobs = role==='technician'
+    ? (state.jobs||[]).filter(j=>j.status==='Open'&&!j._seen).length : 0;
   document.getElementById('bottom-nav').innerHTML = nav.map(n=>{
-    return `<button class="bnt" id="bt-${n.id}" onclick="navigate('${n.id}')">
-      ${ico(n.ic,22)}<span>${n.lbl}</span></button>`;
+    const badge = (n.id==='my-jobs' && newJobs>0)
+      ? `<span style="position:absolute;top:0px;right:calc(50% - 20px);background:#ef4444;color:white;font-size:10px;font-weight:800;border-radius:999px;min-width:18px;height:18px;display:flex;align-items:center;justify-content:center;padding:0 4px;box-shadow:0 2px 6px rgba(239,68,68,.5);letter-spacing:0;line-height:1">${newJobs}</span>`
+      : '';
+    return `<button class="bnt" id="bt-${n.id}" style="position:relative" onclick="navigate('${n.id}');${n.id==='my-jobs'?'(state.jobs||[]).forEach(j=>j._seen=true);':''}">
+      ${ico(n.ic,22)}${badge}<span>${n.lbl}</span></button>`;
   }).join('');
 }
 
@@ -3543,36 +3504,34 @@ function capturePhoto() {
   // Show preview
   video.style.display='none';
   canvas.style.display='block';
-  canvas.style.opacity='1';
-  // Show preview with full-width Next/Retake buttons
+  document.getElementById('pm-retake-btn').style.display='block';
   const isLast = side === _photoSession.sides[_photoSession.sides.length-1];
   const captBtn = document.getElementById('pm-capture-btn');
+  // Keep shutter style — change inner circle color to indicate captured
   captBtn.onclick = confirmPhoto;
-  captBtn.style.cssText = 'width:100%;padding:14px;font-size:16px;font-weight:700;border-radius:12px;border:none;cursor:pointer;font-family:inherit;background:'+(isLast?'#16a34a':'#2563eb')+';color:white';
-  captBtn.textContent = isLast ? '✓ Use Photo' : '→ Next Photo';
-  const retBtn = document.getElementById('pm-retake-btn');
-  retBtn.style.cssText = 'display:flex;width:100%;padding:12px;font-size:15px;font-weight:600;border-radius:12px;border:2px solid rgba(255,255,255,.3);background:transparent;color:white;cursor:pointer;font-family:inherit;margin-top:8px;justify-content:center';
-  retBtn.textContent = '↩ Retake';
+  captBtn.querySelector('div').style.background = isLast ? '#16a34a' : '#2563eb';
+  document.getElementById('pm-retake-btn').style.display = 'flex';
   document.getElementById('pm-retake-placeholder').style.display = 'none';
-  document.getElementById('pm-side-label').style.display = 'none';
+  // Move side label to corner after capture
+  const lbl = document.getElementById('pm-side-label');
+  lbl.style.cssText = 'position:absolute;top:auto;left:50%;bottom:180px;transform:translateX(-50%);background:rgba(0,0,0,.45);color:white;font-size:22px;font-weight:800;padding:10px 24px;border-radius:12px;letter-spacing:.1em;pointer-events:none';
   renderPhotoThumbs();
   checkAllCaptured();
+}
 
 
 
 function retakePhoto() {
   const video = document.getElementById('pm-video');
   const canvas = document.getElementById('pm-canvas');
-  video.style.display = 'block';
-  canvas.style.display = 'none';
-  // Restore shutter button
-  const captBtn = document.getElementById('pm-capture-btn');
-  captBtn.onclick = capturePhoto;
-  captBtn.style.cssText = 'width:72px;height:72px;border-radius:50%;background:white;border:4px solid rgba(255,255,255,.4);cursor:pointer;box-shadow:0 2px 20px rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center';
-  captBtn.innerHTML = '<div style="width:58px;height:58px;border-radius:50%;background:white;border:3px solid #ddd"></div>';
+  video.style.display='block';
+  canvas.style.display='none';
+  document.getElementById('pm-retake-btn').style.display='none';
+  const captBtnR = document.getElementById('pm-capture-btn');
+  captBtnR.querySelector('div').style.background = 'white';
+  captBtnR.onclick = capturePhoto;
   document.getElementById('pm-retake-btn').style.display = 'none';
   document.getElementById('pm-retake-placeholder').style.display = 'block';
-  document.getElementById('pm-side-label').style.display = 'block';
 }
 
 function confirmPhoto() {
@@ -3730,8 +3689,6 @@ async function finishPhotoSession() {
 
   const newStatus = phase==='start' ? 'In Progress' : 'Done';
   state.jobs[jobIdx].status = newStatus;
-  // Auto-assign new job on completion to maintain 3-job queue
-  if (newStatus === 'Done') autoAssignOnCompletion();
   if (phase==='start') state.jobs[jobIdx].start_photos = uploaded;
   else state.jobs[jobIdx].end_photos = uploaded;
 
@@ -3905,6 +3862,7 @@ async function renderWorkOrdersAsync() {
     <div class="page-hd">
       <div class="page-hd-text"><div class="page-title">Work Orders</div><div class="page-sub">${myHub}</div></div>
       <div style="display:flex;gap:8px;align-items:center">
+        <button id="auto-assign-btn" class="btn btn-blue btn-sm" onclick="runAutoAssignment()" style="display:flex;align-items:center;gap:6px;font-size:13px;padding:8px 14px">⚡ Auto Assign</button>
         <button class="btn-refresh" onclick="window._jcCache={};window._woPg={ua:0,as:0};navigate('workorders')" title="Refresh">
           <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> Refresh
         </button>
@@ -5631,7 +5589,6 @@ async function initApp() {
     }
   } catch(e) { localStorage.removeItem('bounce_session'); }
   document.getElementById('login-page').style.display = 'flex';
-}
 }
 initApp();
 </script>
