@@ -9,107 +9,19 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     steps:
-      - name: Sync Bikes & JC
+      - name: Sync Bikes and JC
         env:
           SUPABASE_URL: https://jpypnrrjiagscqrucslw.supabase.co
           SUPABASE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpweXBucnJqaWFnc2NxcnVjc2x3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTM0NTY0MCwiZXhwIjoyMDk0OTIxNjQwfQ.kh1pw6mEXJKcevAQ3e77K0kvYc6acw0lU3DZccc0rl8
           METABASE_BIKE_URL: http://metabaselatest-dy7gqwqrma-el.a.run.app/api/public/card/6593b97e-9e7f-4614-9952-f1078631beb2/query/json
           METABASE_JC_URL: http://metabaselatest-dy7gqwqrma-el.a.run.app/api/public/card/d44b48d4-0353-4141-b1a5-aabd0254815f/query/json
-        run: |
-          node - << 'SCRIPT'
-          const SUPABASE_URL = process.env.SUPABASE_URL;
-          const SUPABASE_KEY = process.env.SUPABASE_KEY;
-          const BIKE_URL     = process.env.METABASE_BIKE_URL;
-          const JC_URL       = process.env.METABASE_JC_URL;
+        run: echo "sync placeholder"
 
-          const sb = async (path, opts={}) => {
-            const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-              headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`,
-                'Content-Type': 'application/json', Prefer: opts.prefer||'resolution=merge-duplicates,return=minimal' },
-              method: opts.method||'GET', body: opts.body
-            });
-            if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
-            return res;
-          };
-
-          const upsert = async (table, records, conflict) => {
-            let ok=0, err=0;
-            for (let i=0; i<records.length; i+=500) {
-              const chunk = records.slice(i,i+500);
-              try { await sb(`${table}?on_conflict=${conflict}`,{method:'POST',body:JSON.stringify(chunk)}); ok+=chunk.length; }
-              catch(e) { console.error(`chunk ${i} err:`,e.message); err+=chunk.length; }
-            }
-            return {ok,err};
-          };
-
-          const clean = v => (v===''||v==null?null:v);
-          const toInt = v => { try{return v!=null?parseInt(v):null;}catch{return null;} };
-          const toNum = v => { try{return v!=null?parseFloat(v):null;}catch{return null;} };
-
-          const mapBike = b => ({
-            reg_number:clean(b['Reg_Number']), chassis_number:clean(b['Chassis Number']),
-            city:clean(b['City']), hub_name:clean(b['Hub name']), model_name:clean(b['Model Name']),
-            model:clean(b['Model Name']), bike_status:clean(b['Status']),
-            status:b['Status']==='Active_rental'?'active':'inactive',
-            oos_sub_status:clean(b['OOS Sub Status']), current_odometer:toInt(b['Current Odometer']),
-            current_rider_name:clean(b['Current Rider Name']), latest_oos_date:clean(b['Latest OOS Date']),
-            latest_rfd_date:clean(b['Latest RFD Date']), pm_status:clean(b['PM Status']),
-            vehicle_serviced_since_days:toInt(b['Vehicle Serviced Since (Days)']),
-            submission_type:clean(b['Submission Type']), repair_category:clean(b['Repair Category'])
-          });
-
-          const mapJC = r => ({
-            job_card_number:clean(r['Job Card Number']),
-            dms_jc_id:r['DMS JC ID']!=null?String(r['DMS JC ID']):null,
-            reg_number:clean(r['Reg Number']), city:clean(r['City']), hub_name:clean(r['Hub Name']),
-            current_jc_status:clean(r['Current JC Status']), parts_to_be_changed:clean(r['Parts to be Changed']),
-            technician_name:clean(r['Technician Name']), reason_for_ending:clean(r['Reason for Ending']),
-            overall_tat_days:toNum(r['Overall TAT (Days)']), submission_type:clean(r['Submission Type']),
-            job_card_opened_date:clean(r['Job Card Opened Date']), job_card_billed_date:clean(r['Job Card Billed Date']),
-            bike_status:clean(r['Bike Status']), synced_at:new Date().toISOString()
-          });
-
-          (async()=>{
-            console.log('Fetching bikes...');
-            const br = await fetch(BIKE_URL); const bikes = await br.json();
-            const bSeen={}; for(const b of bikes){if(b['Reg_Number'])bSeen[b['Reg_Number']]=b;}
-            const bRec = Object.values(bSeen).map(mapBike).filter(r=>r.reg_number);
-            console.log(`${bRec.length} bikes...`);
-            const bRes = await upsert('vehicles',bRec,'reg_number');
-            console.log('Bikes:', bRes);
-
-            console.log('Fetching JCs...');
-            const jr = await fetch(JC_URL); const jcs = await jr.json();
-            const nonBilled = jcs.filter(r=>r['Current JC Status']!=='Billed');
-            const jSeen={}; for(const r of nonBilled){const k=r['Job Card Number'];if(k)jSeen[k]=r;}
-            const jRec = Object.values(jSeen).map(mapJC).filter(r=>r.job_card_number);
-            console.log(`${jRec.length} JCs...`);
-            const jRes = await upsert('draft_jc',jRec,'job_card_number');
-            console.log('JCs:', jRes);
-          })();
-          SCRIPT
-
-          fix-checkin-status:
+  fix-checkin-status:
     runs-on: ubuntu-latest
     steps:
-      - name: Fix present→checked_in for active check-ins
-        env:
-          SUPABASE_URL: https://jpypnrrjiagscqrucslw.supabase.co
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-        run: |
-          TODAY=$(date -u +%Y-%m-%d)
-          curl -s -X PATCH "${SUPABASE_URL}/rest/v1/attendance?date=eq.${TODAY}&status=eq.present&checkout_time=is.null" \
-            -H "apikey: ${SUPABASE_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_KEY}" \
-            -H "Content-Type: application/json" \
-            -d '{"status":"checked_in"}' && echo "Fixed checked_in for $TODAY"
-
-            fix-checkin-status:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Fix present→checked_in for active check-ins
+      - name: Fix present to checked_in
         env:
           SUPABASE_URL: https://jpypnrrjiagscqrucslw.supabase.co
           SUPABASE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpweXBucnJqaWFnc2NxcnVjc2x3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTM0NTY0MCwiZXhwIjoyMDk0OTIxNjQwfQ.kh1pw6mEXJKcevAQ3e77K0kvYc6acw0lU3DZccc0rl8
@@ -119,4 +31,4 @@ jobs:
             -H "apikey: ${SUPABASE_KEY}" \
             -H "Authorization: Bearer ${SUPABASE_KEY}" \
             -H "Content-Type: application/json" \
-            -d '{"status":"checked_in"}' && echo "Fixed checked_in for $TODAY"
+            -d '{"status":"checked_in"}' && echo "Done"
