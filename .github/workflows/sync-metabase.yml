@@ -105,3 +105,18 @@ jobs:
             -H "Authorization: Bearer ${SUPABASE_KEY}" \
             -H "Content-Type: application/json" \
             -d '{"status":"checked_in"}' && echo "Fixed checked_in for $TODAY"
+
+            fix-checkin-status:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fix present→checked_in for active check-ins
+        env:
+          SUPABASE_URL: https://jpypnrrjiagscqrucslw.supabase.co
+          SUPABASE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpweXBucnJqaWFnc2NxcnVjc2x3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTM0NTY0MCwiZXhwIjoyMDk0OTIxNjQwfQ.kh1pw6mEXJKcevAQ3e77K0kvYc6acw0lU3DZccc0rl8
+        run: |
+          TODAY=$(date -u +%Y-%m-%d)
+          curl -s -X PATCH "${SUPABASE_URL}/rest/v1/attendance?date=eq.${TODAY}&status=eq.present&checkout_time=is.null" \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"status":"checked_in"}' && echo "Fixed checked_in for $TODAY"
