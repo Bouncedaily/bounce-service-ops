@@ -883,7 +883,14 @@ function renderPartsHTML(woId, partsCsv, jobIdx) {
     loadJobParts(woId).then(function(existing){ if(!existing||!existing.length)return; existing.forEach(function(e){ var idx=_partsSession[woId].parts.findIndex(function(p){return p.part_name===e.part_name&&p.is_recommended===e.is_recommended;}); if(idx>=0)_partsSession[woId].parts[idx]=e; else if(!e.is_recommended)_partsSession[woId].parts.push(e); }); renderPartsSection(woId); }).catch(function(){});
   }
   var parts=_partsSession[woId].parts, sid=woId.replace(/-/g,''), h='';
-  if(!parts.length) return '<div style="font-size:12px;color:#9ca3af">No parts listed</div>';
+  if(!parts.length) {
+    var sid0 = woId.replace(/-/g,'');
+    return '<div style="font-size:12px;color:#9ca3af;margin-bottom:8px">No recommended parts</div>' +
+      '<div style="display:flex;gap:8px;margin-top:4px">' +
+      '<input id="epi_'+sid0+'" placeholder="Add part name..." style="flex:1;padding:9px 12px;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;color:#111;font-size:13px;font-family:inherit">' +
+      '<button data-wo="'+woId+'" onclick="handleAddPart(this)" style="padding:9px 14px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-size:13px;font-weight:600;cursor:pointer">+ Add</button>' +
+      '</div>';
+  }
   for(var i=0;i<parts.length;i++){
     var p=parts[i], bc=p.status==='used'?'#16a34a':p.status==='not_used'?'#ef4444':'#e2e8f0';
     var usedBg=p.status==='used'?'#16a34a':'#f1f5f9', usedCo=p.status==='used'?'#fff':'#374151';
