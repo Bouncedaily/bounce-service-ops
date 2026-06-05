@@ -1,0 +1,94 @@
+name: Sync KM Run Everyday → Supabase
+
+on:
+  schedule:
+    - cron: '0 1 * * *'  # 6:30 AM IST daily
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Sync km_run_everyday
+        env:
+          SUPABASE_URL: https://fuslpeyhpmofzijrotkb.supabase.co
+          SUPABASE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1c2xwZXlocG1vZnppanJvdGtiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODc0ODQ0OCwiZXhwIjoyMDk0MzI0NDQ4fQ.IGtWV-bus0Tc1i3z7hWuFZEda06q8L31YyBgiOFujbs
+          METABASE_URL: http://metabaselatest-dy7gqwqrma-el.a.run.app/api/public/card/05aa96d4-3baa-444a-a854-694934369c3c/query/json
+        run: |
+          echo "Fetching km_run_everyday from Metabase..."
+          
+          # Fetch yesterday's date
+          YESTERDAY=$(date -u -d "yesterday" +%Y-%m-%d)
+          echo "Syncing data for: $YESTERDAY"
+          
+          # Fetch data from Metabase
+          curl -s "$METABASE_URL" -o /tmp/km_data.json
+          
+          # Check if data was fetched
+          ROW_COUNT=$(python3 -c "import json; data=json.load(open('/tmp/km_data.json')); print(len(data))" 2>/dev/null || echo "0")
+          echo "Fetched $ROW_COUNT rows"
+          
+          if [ "$ROW_COUNT" = "0" ]; then
+            echo "No data fetched, exiting"
+            exit 0
+          fi
+          
+          # Transform and upsert to Supabase
+          python3 << 'PYEOF'
+          import json, requests, os
+          
+          SUPABASE_URL = os.environ['SUPABASE_URL']
+          SUPABASE_KEY = os.environ['SUPABASE_KEY']
+          
+          with open('/tmp/km_data.json') as f:
+              raw = json.load(f)
+          
+          # Filter to yesterday only
+          from datetime import date, timedelta
+          yesterday = str(date.today() - timedelta(days=1))
+          
+          rows = []
+          for r in raw:
+              if str(r.get('date',''))[:10] == yesterday:
+                  rows.append({
+                      'id': r.get('id'),
+                      'booking_id': r.get('booking_id'),
+                      'bike_id': str(r.get('bike_id','')) if r.get('bike_id') else None,
+                      'date': str(r.get('date',''))[:10],
+                      'starting_odo': r.get('starting_odo'),
+                      'ending_odo': r.get('ending_odo'),
+                      'km_run_for_the_day': r.get('km_run_for_the_day'),
+                      'starting_soc': r.get('starting_soc'),
+                      'ending_soc': r.get('ending_soc'),
+                      'soc_delta': r.get('soc_delta'),
+                  })
+          
+          print(f"Rows for {yesterday}: {len(rows)}")
+          if not rows:
+              print("No rows for yesterday, exiting")
+              exit(0)
+          
+          # Upsert in batches of 1000
+          headers = {
+              'apikey': SUPABASE_KEY,
+              'Authorization': f'Bearer {SUPABASE_KEY}',
+              'Content-Type': 'application/json',
+              'Prefer': 'resolution=merge-duplicates'
+          }
+          
+          batch_size = 1000
+          for i in range(0, len(rows), batch_size):
+              batch = rows[i:i+batch_size]
+              r = requests.post(f"{SUPABASE_URL}/rest/v1/km_run_everyday", json=batch, headers=headers)
+              print(f"Batch {i//batch_size+1}: {r.status_code}")
+          
+          # Trigger km update for running bikes
+          r = requests.post(
+              f"{SUPABASE_URL}/rest/v1/rpc/update_running_km_from_daily",
+              json={}, headers=headers
+          )
+          print(f"Running km update: {r.status_code}")
+          PYEOF
+          
+          echo "Sync complete!"
