@@ -5,7 +5,7 @@ on:
     - cron: '0 1 * * *'
   push:
     paths:
-      - '.github/workflows/sync-km-everyday.yml'
+      - 'scripts/sync_km.py'
   workflow_dispatch:
 
 jobs:
@@ -13,69 +13,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - uses: actions/checkout@v4
+      - name: Install deps
+        run: pip install requests -q
       - name: Sync km_run_everyday
         env:
           SUPABASE_URL: https://fuslpeyhpmofzijrotkb.supabase.co
           SUPABASE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1c2xwZXlocG1vZnppanJvdGtiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODc0ODQ0OCwiZXhwIjoyMDk0MzI0NDQ4fQ.IGtWV-bus0Tc1i3z7hWuFZEda06q8L31YyBgiOFujbs
           METABASE_URL: http://metabaselatest-dy7gqwqrma-el.a.run.app/api/public/card/05aa96d4-3baa-444a-a854-694934369c3c/query/json
-        run: |
-          pip install requests -q
-          python3 << 'PYEOF'
-import json, requests, os
-from datetime import date, timedelta
-
-SUPABASE_URL = os.environ['SUPABASE_URL']
-SUPABASE_KEY = os.environ['SUPABASE_KEY']
-METABASE_URL = os.environ['METABASE_URL']
-
-yesterday = str(date.today() - timedelta(days=1))
-print(f"Syncing data for: {yesterday}")
-
-res = requests.get(METABASE_URL, timeout=300)
-print(f"Metabase status: {res.status_code}, size: {len(res.content)} bytes")
-raw = res.json()
-print(f"Total rows: {len(raw)}")
-
-if raw:
-    print(f"Sample keys: {list(raw[0].keys())}")
-
-rows = []
-for r in raw:
-    row_date = str(r.get('Date') or r.get('date') or '').split('T')[0]
-    if row_date != yesterday:
-        continue
-    rows.append({
-        'id': r.get('ID') or r.get('id'),
-        'booking_id': r.get('Booking ID') or r.get('booking_id'),
-        'bike_id': str(r.get('Bike ID') or r.get('bike_id') or ''),
-        'date': row_date,
-        'starting_odo': r.get('Starting Odo') or r.get('starting_odo'),
-        'ending_odo': r.get('Ending Odo') or r.get('ending_odo'),
-        'km_run_for_the_day': r.get('Km Run For The Day') or r.get('km_run_for_the_day'),
-        'starting_soc': r.get('Starting Soc') or r.get('starting_soc'),
-        'ending_soc': r.get('Ending Soc') or r.get('ending_soc'),
-        'soc_delta': r.get('Soc Delta') or r.get('soc_delta'),
-    })
-
-print(f"Rows for {yesterday}: {len(rows)}")
-
-if not rows:
-    print("No rows for yesterday")
-    exit(0)
-
-headers = {
-    'apikey': SUPABASE_KEY,
-    'Authorization': f'Bearer {SUPABASE_KEY}',
-    'Content-Type': 'application/json',
-    'Prefer': 'resolution=merge-duplicates'
-}
-
-for i in range(0, len(rows), 1000):
-    batch = rows[i:i+1000]
-    r = requests.post(f"{SUPABASE_URL}/rest/v1/km_run_everyday", json=batch, headers=headers)
-    print(f"Batch {i//1000+1}: {r.status_code}")
-
-r = requests.post(f"{SUPABASE_URL}/rest/v1/rpc/update_running_km_from_daily", json={}, headers=headers)
-print(f"Running km update: {r.status_code}")
-print("Done!")
-PYEOF
+        run: python3 scripts/sync_km.py
