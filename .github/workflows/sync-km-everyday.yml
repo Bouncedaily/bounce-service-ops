@@ -1,4 +1,4 @@
-name: Sync KM Run Everyday → Supabase
+name: Sync KM Run Everyday
 
 on:
   schedule:
