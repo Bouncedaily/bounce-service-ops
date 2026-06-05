@@ -2,7 +2,10 @@ name: Sync KM Run Everyday
 
 on:
   schedule:
-    - cron: '0 1 * * *'  # 6:30 AM IST daily
+    - cron: '0 1 * * *'
+  push:
+    paths:
+      - '.github/workflows/sync-km-everyday.yml'
   workflow_dispatch:
 
 jobs:
@@ -28,20 +31,16 @@ METABASE_URL = os.environ['METABASE_URL']
 yesterday = str(date.today() - timedelta(days=1))
 print(f"Syncing data for: {yesterday}")
 
-# Fetch from Metabase
 res = requests.get(METABASE_URL, timeout=300)
-print(f"Metabase status: {res.status_code}")
+print(f"Metabase status: {res.status_code}, size: {len(res.content)} bytes")
 raw = res.json()
-print(f"Total rows fetched: {len(raw)}")
+print(f"Total rows: {len(raw)}")
 
-# Print first row to debug column names
 if raw:
     print(f"Sample keys: {list(raw[0].keys())}")
 
-# Filter to yesterday — handle both capitalized and lowercase keys
 rows = []
 for r in raw:
-    # Handle capitalized column names from Metabase
     row_date = str(r.get('Date') or r.get('date') or '').split('T')[0]
     if row_date != yesterday:
         continue
@@ -61,7 +60,7 @@ for r in raw:
 print(f"Rows for {yesterday}: {len(rows)}")
 
 if not rows:
-    print("No rows for yesterday, exiting")
+    print("No rows for yesterday")
     exit(0)
 
 headers = {
@@ -71,21 +70,12 @@ headers = {
     'Prefer': 'resolution=merge-duplicates'
 }
 
-# Upsert in batches of 1000
-batch_size = 1000
-for i in range(0, len(rows), batch_size):
-    batch = rows[i:i+batch_size]
+for i in range(0, len(rows), 1000):
+    batch = rows[i:i+1000]
     r = requests.post(f"{SUPABASE_URL}/rest/v1/km_run_everyday", json=batch, headers=headers)
-    print(f"Batch {i//batch_size+1}: status={r.status_code}")
-    if r.status_code not in (200, 201):
-        print(f"Error: {r.text[:200]}")
+    print(f"Batch {i//1000+1}: {r.status_code}")
 
-# Trigger km update for running bikes
-r = requests.post(
-    f"{SUPABASE_URL}/rest/v1/rpc/update_running_km_from_daily",
-    json={}, headers=headers
-)
+r = requests.post(f"{SUPABASE_URL}/rest/v1/rpc/update_running_km_from_daily", json={}, headers=headers)
 print(f"Running km update: {r.status_code}")
 print("Done!")
 PYEOF
-# updated Fri Jun  5 09:48:17 UTC 2026
