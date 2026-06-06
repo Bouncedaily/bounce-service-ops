@@ -5363,6 +5363,8 @@ function getDistanceM(lat1,lng1,lat2,lng2){
 }
 
 function setAttMsg(type,msg){
+  if(window._attMsgTimer) clearTimeout(window._attMsgTimer);
+  if(type==='error'||type==='warn') window._attMsgTimer = setTimeout(function(){setAttMsg('','');}, 6000);
   const el=document.getElementById('att-status-msg'); if(!el)return;
   const s={loading:'background:var(--blue-lt);color:var(--blue)',success:'background:var(--green-lt);color:var(--green)',error:'background:var(--red-lt);color:var(--red)',warn:'background:var(--amber-lt);color:var(--amber)'};
   el.innerHTML=msg?`<div style="padding:10px 14px;border-radius:10px;font-size:13px;font-weight:500;margin-bottom:14px;${s[type]||''}">${msg}</div>`:'';
@@ -5483,12 +5485,18 @@ async function doGeoCheckin(mode){
     await processCheckin(mode,userLat,userLng,accuracy,null,true); return;
   }
   const dist=Math.round(getDistanceM(userLat,userLng,hubLat,hubLng));
-  if(dist<=GEOFENCE_RADIUS_M){
-    setAttMsg('success',`Location verified — you are ${dist}m from ${state.hub}. Marking attendance...`);
-    await processCheckin(mode,userLat,userLng,accuracy,dist,true);
-  }else{
-    setAttMsg('error',`You are ${dist}m away from ${state.hub}. Must be within ${GEOFENCE_RADIUS_M}m. Move closer and try again.`);
+  try {
+    if(dist<=GEOFENCE_RADIUS_M){
+      setAttMsg('success',`Location verified — you are ${dist}m from ${state.hub}. Marking attendance...`);
+      await processCheckin(mode,userLat,userLng,accuracy,dist,true);
+    }else{
+      setAttMsg('error',`You are ${dist}m away from ${state.hub}. Must be within ${GEOFENCE_RADIUS_M}m. Move closer and try again.`);
+      if(btn){btn.disabled=false;btn.style.opacity='1';}
+    }
+  } catch(e) {
+    setAttMsg('error','Something went wrong. Please try again.');
     if(btn){btn.disabled=false;btn.style.opacity='1';}
+    console.error('[checkin error]', e);
   }
 }
 
@@ -5515,7 +5523,7 @@ async function processCheckin(mode,lat,lng,accuracy,distanceM,withinFence){
           hub_id:          hubId,
           hub_name:        hubName,
           date:            new Date().toISOString().slice(0,10),
-          status:          'present',
+          status:          'checked_in',
           checkin_time:    new Date().toISOString(),
           geo_checkin:     geoData,
           approval_status: 'pending'
