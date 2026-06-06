@@ -5460,11 +5460,17 @@ async function doGeoCheckin(mode){
   const btn=document.getElementById(mode==='checkin'?'btn-checkin':'btn-checkout');
   if(btn){btn.disabled=true;btn.style.opacity='0.6';}
   setAttMsg('loading','Getting your location...');
+  if (!navigator.geolocation) {
+    setAttMsg('error','Location not supported on this device. Please use Chrome or Safari.');
+    if(btn){btn.disabled=false;btn.style.opacity='1';} return;
+  }
   let position;
   try{
-    position=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{enableHighAccuracy:true,timeout:10000,maximumAge:0}));
+    position=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{enableHighAccuracy:true,timeout:15000,maximumAge:0}));
   }catch(err){
-    const msg=err.code===1?'Location permission denied. Please allow location access in browser settings.':err.code===2?'Location unavailable. Try again outdoors.':'Location timed out. Please try again.';
+    const msg=err.code===1?'Location permission denied. Please allow location access and try again.'
+             :err.code===2?'Location unavailable. Try again outdoors or near a window.'
+             :'Location timed out. Move to an open area and try again.';
     setAttMsg('error',msg);
     if(btn){btn.disabled=false;btn.style.opacity='1';} return;
   }
