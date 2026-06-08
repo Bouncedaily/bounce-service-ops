@@ -1372,6 +1372,28 @@ function closeVideoModal() {
   navigate('my-jobs');
 }
 
+
+async function loadMyWeekAttendance() {
+  if (!state.user?.id) return;
+  // Get Mon of this week
+  const today = new Date();
+  const dow = today.getDay()||7; // Mon=1..Sun=7
+  const mon = new Date(today); mon.setDate(today.getDate()-(dow-1));
+  const monISO = mon.toISOString().slice(0,10);
+  const rows = await sb('attendance?user_id=eq.'+state.user.id+'&date=gte.'+monISO+'&date=lte.'+today.toISOString().slice(0,10)+'&select=date,status,checkin_time,checkout_time,hub_name,total_working_hours') || [];
+  state.myWeekAtt = {};
+  rows.forEach(function(r){
+    state.myWeekAtt[r.date] = {
+      date: r.date,
+      status: r.status,
+      hub: r.hub_name||'—',
+      checkin:  r.checkin_time  ? new Date(r.checkin_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}) : '—',
+      checkout: r.checkout_time ? new Date(r.checkout_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}) : '—',
+      total_working_hours: r.total_working_hours
+    };
+  });
+}
+
 async function loadMyAttendance(userId) {
   let rows;
   if (_demoMode) {
@@ -2292,7 +2314,7 @@ function navigate(page) {
   const fns = {
     dashboard:renderDashboard, attendance:renderAttendance, 'job-detail':renderJobDetail,
     'qr-hub':renderQRHub,
-    'my-attendance':renderMyAttendance, 'my-jobs':renderMyJobs
+    'my-attendance':async function(){ await loadMyWeekAttendance(); return renderMyAttendance(); }, 'my-jobs':renderMyJobs
   };
   c.innerHTML = (fns[page]||(() => ''))();
   if (page==='qr-hub') generateManagerQR();
@@ -3092,13 +3114,42 @@ function generateManagerQR() {
 function renderMyAttendance() {
   const checked    = !!state.myCheckin;
   const checkedOut = !!state.myCheckout;
-  const wk = [
-    {d:'Mon',hub:'Whitefield Hub',  s:'present',ci:'08:45 AM',co:'05:30 PM',hrs:'8h 45m'},
-    {d:'Tue',hub:'Koramangala Hub', s:'present',ci:'08:55 AM',co:'05:15 PM',hrs:'8h 20m'},
-    {d:'Wed',hub:'—',               s:'leave',  ci:'—',       co:'—',       hrs:'—'},
-    {d:'Thu',hub:'Hebbal Hub',      s:'present',ci:'09:00 AM',co:'05:00 PM',hrs:'8h 00m'},
-    {d:'Today',hub:state.hub1||state.hub||'—', s:state.myCheckout?'present':state.myCheckin?'checked_in':'open',ci:state.hub1CheckIn||state.myCheckin||'—',co:state.myCheckout||'—',hrs:'—'},
-  ];
+  // Build this week from real state.attendance data
+  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const today = new Date();
+  const todayDow = today.getDay(); // 0=Sun
+  // Get Mon-Today of this week
+  const wk = [];
+  for (let i = 1; i <= todayDow || i <= 5; i++) {
+    if (i > todayDow) break; // don't show future days
+    const d = new Date(today);
+    d.setDate(today.getDate() - (todayDow - i));
+    const iso = d.toISOString().slice(0,10);
+    const isToday = (i === todayDow);
+    const lbl = isToday ? 'Today' : dayNames[i];
+    let hub='—', s='open', ci='—', co='—', hrs='—';
+    if (isToday) {
+      hub = state.hub1||state.hub||'—';
+      s = state.myCheckout?'present':state.myCheckin?'checked_in':'open';
+      ci = state.hub1CheckIn||state.myCheckin||'—';
+      co = state.myCheckout||'—';
+    } else {
+      // Look up from myWeekAtt by date
+      const rec = (state.myWeekAtt||{})[iso];
+      if (rec) {
+        hub = rec.hub||'—';
+        s   = rec.status||'open';
+        ci  = rec.checkin||'—';
+        co  = rec.checkout||'—';
+        if (rec.total_working_hours) {
+          const h=Math.floor(rec.total_working_hours);
+          const m=Math.round((rec.total_working_hours-h)*60);
+          hrs = h+'h '+(m?m+'m':'');
+        }
+      }
+    }
+    wk.push({d:lbl, hub, s, ci, co, hrs});
+  }
   return `
     <div class="page-hd"><div class="page-hd-text"><div class="page-title">My Attendance</div><div class="page-sub">${state.hub||''}</div></div>
       <button class="btn-refresh" onclick="navigate('my-attendance')" title="Refresh">
@@ -3174,23 +3225,26 @@ function renderMyAttendance() {
       <button onclick="window._myAttTab='today';navigate('my-attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${(window._myAttTab||'today')==='today'?'var(--blue)':'transparent'};color:${(window._myAttTab||'today')==='today'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Today</button>
       <button onclick="window._myAttTab='month';navigate('my-attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${(window._myAttTab||'today')==='month'?'var(--blue)':'transparent'};color:${(window._myAttTab||'today')==='month'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">This Month</button>
     </div>` : ''}
-    ${(window._myAttTab||'today')==='month' ? `<div id="tech-cal-inner" style="padding:20px;text-align:center;color:var(--g400)">Loading...</div>` : ''}
-    ${(window._myAttTab||'today')!=='month' ? `<div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">This week</div>` : ''}
-    <div class="tw"><table>
-      <thead><tr><th>Day</th><th>Hub</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Hours</th></tr></thead>
-      <tbody>${wk.map(r=>{
-        const bc=r.s==='present'?'b-present':r.s==='checked_in'?'b-inprog':r.s==='half_day'?'b-leave':r.s==='absent'?'b-absent':r.s==='week_off'?'b-leave':r.s==='leave'?'b-leave':'b-open';
-        const lbl=r.s==='present'?'Present':r.s==='checked_in'?'Working':r.s==='half_day'?'Half Day':r.s==='absent'?'Absent':r.s==='week_off'?'Week Off':r.s==='leave'?'On Leave':'Pending';
-        return `<tr>
-          <td style="font-weight:${r.d==='Today'?'600':'400'}">${r.d}</td>
-          <td style="font-size:12px;color:var(--g500)">${r.hub}</td>
-          <td><span class="badge ${bc}">${lbl}</span></td>
-          <td class="mono" style="font-size:12px">${r.ci}</td>
-          <td class="mono" style="font-size:12px">${r.co}</td>
-          <td style="font-size:12px">${r.hrs}</td>
-        </tr>`;
-      }).join('')}</tbody>
-    </table></div>`;
+    ${(window._myAttTab||'today')==='month' ? `
+      <div id="tech-cal-inner" style="padding:20px;text-align:center;color:var(--g400)">Loading...</div>
+    ` : `
+      <div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">This week</div>
+      <div class="tw"><table>
+        <thead><tr><th>Day</th><th>Hub</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Hours</th></tr></thead>
+        <tbody>${wk.map(r=>{
+          const bc=r.s==='present'?'b-present':r.s==='checked_in'?'b-inprog':r.s==='half_day'?'b-leave':r.s==='absent'?'b-absent':r.s==='week_off'?'b-leave':r.s==='leave'?'b-leave':'b-open';
+          const lbl=r.s==='present'?'Present':r.s==='checked_in'?'Working':r.s==='half_day'?'Half Day':r.s==='absent'?'Absent':r.s==='week_off'?'Week Off':r.s==='leave'?'On Leave':'Pending';
+          return '<tr>'
+            +'<td style="font-weight:'+(r.d==='Today'?'600':'400')+'">'+r.d+'</td>'
+            +'<td style="font-size:12px;color:var(--g500)">'+r.hub+'</td>'
+            +'<td><span class="badge '+bc+'">'+lbl+'</span></td>'
+            +'<td class="mono" style="font-size:12px">'+r.ci+'</td>'
+            +'<td class="mono" style="font-size:12px">'+r.co+'</td>'
+            +'<td style="font-size:12px">'+r.hrs+'</td>'
+            +'</tr>';
+        }).join('')}</tbody>
+      </table></div>
+    `}`;
 }
 
 function renderMyJobs() {
