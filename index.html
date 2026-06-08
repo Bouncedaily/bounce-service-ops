@@ -787,7 +787,7 @@ async function assignJobsToTech(techName, techId, hubName, hubId, count) {
     })});
     done++;
   }
-  console.log('[AutoAssign]', done, 'jobs assigned to', techName, '| mode:', mode, '| nearEnd:', nearEnd);
+  if(_DEBUG)console.log('[AutoAssign]', done, 'jobs assigned to', techName, '| mode:', mode, '| nearEnd:', nearEnd);
   return done;
 }
 
@@ -902,6 +902,15 @@ function renderJobDetail() {
         </button>`}
     </div>` : ''}
   `;
+}
+
+
+function showJobCompleteAnimation() {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#16a34a;color:white;padding:20px 40px;border-radius:12px;font-size:18px;font-weight:700;z-index:9999;animation:popIn .3s ease-out';
+  el.textContent = '✓ Job Complete!';
+  document.body.appendChild(el);
+  setTimeout(function(){el.remove();}, 2000);
 }
 
 function renderPartsHTML(woId, partsCsv, jobIdx) {
@@ -1322,6 +1331,8 @@ async function uploadVideo() {
   document.getElementById('video-status').textContent = 'Uploading video...';
   document.getElementById('video-rec-btn').disabled = true;
 
+  // Yield to UI thread before blob creation to prevent freeze
+  await new Promise(function(r){setTimeout(r,10);});
   const blob = new Blob(_videoSession.chunks, { type: 'video/webm' });
   const formData = new FormData();
   formData.append('file', blob, `${j.jc_number||'job'}_${Date.now()}.webm`);
@@ -3666,9 +3677,12 @@ function capturePhoto() {
   ctx.fillStyle = 'rgba(0,0,0,0.5)';
   ctx.fillRect(0, canvas.height-36, canvas.width, 36);
   ctx.fillStyle = '#fff';
-  ctx.font = 'bold 16px sans-serif';
   const job = state.jobs[_photoSession.jobIdx];
-  ctx.fillText(`${job.vehicle} · ${side.toUpperCase()} · ${_photoSession.phase.toUpperCase()} · ${new Date().toLocaleString('en-IN')}`, 10, canvas.height-12);
+  const wmText = (job.vehicle||'—') + ' · ' + side.toUpperCase() + ' · ' + _photoSession.phase.toUpperCase() + ' · ' + new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
+  ctx.font = 'bold 16px sans-serif';
+  const wmMetrics = ctx.measureText(wmText);
+  if (wmMetrics.width > canvas.width - 20) ctx.font = 'bold 12px sans-serif';
+  ctx.fillText(wmText, 10, canvas.height-12);
   const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
   _photoSession.captured[side] = dataUrl;
   // Show preview
@@ -3859,7 +3873,7 @@ async function finishPhotoSession() {
 
   const newStatus = phase==='start' ? 'In Progress' : 'Done';
   state.jobs[jobIdx].status = newStatus;
-  if (newStatus === 'Done') autoAssignOnCompletion();
+  if (newStatus === 'Done') { showJobCompleteAnimation(); autoAssignOnCompletion(); }
   if (phase==='start') state.jobs[jobIdx].start_photos = uploaded;
   else state.jobs[jobIdx].end_photos = uploaded;
 
@@ -4707,7 +4721,7 @@ async function runAutoAssignment() {
   const btn = document.getElementById('auto-assign-btn');
   if (btn) { btn.textContent = '⏳ Running...'; btn.disabled = true; }
 
-  console.log('[AutoAssign] Starting for hub:', myHub, 'hubId:', state.hubId);
+  if(_DEBUG)console.log('[AutoAssign] Starting for hub:', myHub, 'hubId:', state.hubId);
 
   try {
     // Step 1: Fetch runway data from Supabase (synced every 15 mins from Metabase)
@@ -4774,7 +4788,7 @@ async function runAutoAssignment() {
       return score;
     };
 
-    console.log('[AutoAssign] Mode:', mode, 'Techs:', techs.map(t=>t.name), 'Unassigned JCs:', unassigned.length);
+    if(_DEBUG)console.log('[AutoAssign] Mode:', mode, 'Techs:', techs.map(t=>t.name), 'Unassigned JCs:', unassigned.length);
     const sorted = [...unassigned].sort((a,b) => scoreVehicle(b) - scoreVehicle(a));
 
     // Step 7: Assign vehicles to techs
@@ -4821,7 +4835,7 @@ async function runAutoAssignment() {
           updated_at: new Date().toISOString()
         })
       });
-      console.log('[AutoAssign] Saved WO for', jc.reg_number, '→', tech.name, 'techId:', techId);
+      if(_DEBUG)console.log('[AutoAssign] Saved WO for', jc.reg_number, '→', tech.name, 'techId:', techId);
 
       assignments.push({ jc: jc.job_card_number, reg: jc.reg_number, tech: tech.name, labour: labour });
     }
@@ -5694,7 +5708,7 @@ async function processCheckin(mode,lat,lng,accuracy,distanceM,withinFence){
         })
       });
       attId=res?.[0]?.id||null;
-      console.log('[checkin] saved att:', attId, 'hub:', hubName, 'hub_id:', hubId);
+      if(_DEBUG)console.log('[checkin] saved att:', attId, 'hub:', hubName, 'hub_id:', hubId);
     }
     state.myCheckin=t12; state.myAttId=attId||'demo-att';
     if (state.hub2 && !state.hub2CheckIn) state.hub2CheckIn = t12;
