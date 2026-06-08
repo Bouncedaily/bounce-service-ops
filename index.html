@@ -2104,7 +2104,7 @@ function renderNav() {
     const badge = (n.id==='my-jobs' && newJobs>0)
       ? `<span style="position:absolute;top:-4px;right:2px;background:#ef4444;color:white;font-size:11px;font-weight:700;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(239,68,68,.5);${highPriority>0?'animation:pulse-ring 1.5s infinite;':''}">${newJobs>99?'99+':newJobs}</span>`
       : '';
-    return `<button class="bnt" id="bt-${n.id}" style="position:relative" onclick="navigate('${n.id}')">
+    return `<button class="bnt" id="bt-${n.id}" style="position:relative;overflow:visible" onclick="navigate('${n.id}')">
       ${ico(n.ic,22)}${badge}<span>${n.lbl}</span></button>`;
   }).join('');
 }
@@ -2273,7 +2273,9 @@ function navigate(page) {
       c.innerHTML = renderMyAttendance();
       // Load real week attendance data async, then refresh
       if (state.user?.role === 'technician') {
-        loadMyWeekAttendance().then(function(){ c.innerHTML = renderMyAttendance(); }).catch(function(){});
+        loadMyWeekAttendance().then(function(){ c.innerHTML = renderMyAttendance(); renderTechCalendar(); }).catch(function(){});
+      } else {
+        renderTechCalendar();
       }
       injectSmTabBar('my-attendance');
       startDurationTimer(); startClock();
