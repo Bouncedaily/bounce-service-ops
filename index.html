@@ -5483,8 +5483,13 @@ async function doGeoCheckin(mode){
   // Fetch hub coords
   let hubLat=null,hubLng=null;
   if(state.hub){
-    const hd=await sb(`hubs?name=eq.${encodeURIComponent(state.hub)}&select=lat,lng&limit=1`);
-    if(hd&&hd.length&&hd[0].lat){hubLat=hd[0].lat;hubLng=hd[0].lng;}
+    try {
+      const hd=await sb(`hubs?name=eq.${encodeURIComponent(state.hub)}&select=lat,lng&limit=1`);
+      if(hd&&hd.length&&hd[0].lat){hubLat=hd[0].lat;hubLng=hd[0].lng;}
+    } catch(e) {
+      console.warn('[hub coords fetch failed]', e.message);
+      // proceed without geofence check
+    }
   }
   if(hubLat===null){
     setAttMsg('warn','Hub location not configured. Marking attendance without verification.');
@@ -5507,6 +5512,8 @@ async function doGeoCheckin(mode){
 }
 
 async function processCheckin(mode,lat,lng,accuracy,distanceM,withinFence){
+  const btn=document.getElementById(mode==='checkin'?'btn-checkin':'btn-checkout');
+  try {
   const t12=nowFmt(),t24=now24();
   const geoData={lat,lng,accuracy,distance_m:distanceM,within_fence:withinFence,timestamp:new Date().toISOString()};
   if(mode==='checkin'){
@@ -5579,6 +5586,11 @@ async function processCheckin(mode,lat,lng,accuracy,distanceM,withinFence){
     try{const s=JSON.parse(localStorage.getItem('bounce_session')||'{}');s.myCheckout=t12;s.myCheckinDate=TODAY;localStorage.setItem('bounce_session',JSON.stringify(s));}catch(e){}
   }
   setTimeout(()=>{closeModal&&closeModal();navigate('my-attendance');},1200);
+  } catch(e) {
+    console.error('[processCheckin error]', e);
+    setAttMsg('error','Attendance could not be saved. Please try again.');
+    if(btn){btn.disabled=false;btn.style.opacity='1';}
+  }
 }
 
 // ─ INIT ─
