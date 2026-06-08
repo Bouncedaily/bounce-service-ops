@@ -2080,7 +2080,7 @@ function renderNav() {
   const newJobs = role==='technician' ? totalActive : 0;
   document.getElementById('bottom-nav').innerHTML = nav.map(n=>{
     const badge = (n.id==='my-jobs' && newJobs>0)
-      ? `<span style="position:absolute;top:2px;right:4px;background:#ef4444;color:white;font-size:10px;font-weight:700;border-radius:10px;min-width:16px;height:16px;padding:0 4px;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(239,68,68,.5);${highPriority>0?'animation:pulse-ring 1.5s infinite;':''}">${newJobs>99?'99+':newJobs}</span>`
+      ? `<span style="position:absolute;top:4px;right:6px;background:#ef4444;color:white;font-size:10px;font-weight:700;border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(239,68,68,.5);${highPriority>0?'animation:pulse-ring 1.5s infinite;':''}">${newJobs>99?'9+':newJobs}</span>`
       : '';
     return `<button class="bnt" id="bt-${n.id}" style="position:relative" onclick="navigate('${n.id}')">
       ${ico(n.ic,22)}${badge}<span>${n.lbl}</span></button>`;
