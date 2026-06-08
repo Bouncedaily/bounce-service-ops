@@ -1374,22 +1374,22 @@ function closeVideoModal() {
 
 
 async function loadMyWeekAttendance() {
-  if (!state.user?.id) return;
-  // Get Mon of this week
+  if (!state.user?.id || _demoMode) return;
   const today = new Date();
-  const dow = today.getDay()||7; // Mon=1..Sun=7
+  const dow = today.getDay()||7;
   const mon = new Date(today); mon.setDate(today.getDate()-(dow-1));
   const monISO = mon.toISOString().slice(0,10);
-  const rows = await sb('attendance?user_id=eq.'+state.user.id+'&date=gte.'+monISO+'&date=lte.'+today.toISOString().slice(0,10)+'&select=date,status,checkin_time,checkout_time,hub_name,total_working_hours') || [];
+  const todayISO = today.toISOString().slice(0,10);
+  const rows = await sb('attendance?user_id=eq.'+state.user.id+'&date=gte.'+monISO+'&date=lte.'+todayISO+'&select=date,status,checkin_time,checkout_time,hub_name,total_working_hours&order=date.asc') || [];
   state.myWeekAtt = {};
   rows.forEach(function(r){
+    var h=0,m=0;
+    if (r.total_working_hours) { h=Math.floor(r.total_working_hours); m=Math.round((r.total_working_hours-h)*60); }
     state.myWeekAtt[r.date] = {
-      date: r.date,
-      status: r.status,
-      hub: r.hub_name||'—',
+      date: r.date, status: r.status, hub: r.hub_name||'—',
       checkin:  r.checkin_time  ? new Date(r.checkin_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}) : '—',
       checkout: r.checkout_time ? new Date(r.checkout_time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}) : '—',
-      total_working_hours: r.total_working_hours
+      hrs: r.total_working_hours ? h+'h '+(m?m+'m':'') : '—'
     };
   });
 }
@@ -2102,7 +2102,7 @@ function renderNav() {
   const newJobs = role==='technician' ? totalActive : 0;
   document.getElementById('bottom-nav').innerHTML = nav.map(n=>{
     const badge = (n.id==='my-jobs' && newJobs>0)
-      ? `<span style="position:absolute;top:4px;right:6px;background:#ef4444;color:white;font-size:10px;font-weight:700;border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(239,68,68,.5);${highPriority>0?'animation:pulse-ring 1.5s infinite;':''}">${newJobs>99?'9+':newJobs}</span>`
+      ? `<span style="position:absolute;top:-4px;right:2px;background:#ef4444;color:white;font-size:11px;font-weight:700;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(239,68,68,.5);${highPriority>0?'animation:pulse-ring 1.5s infinite;':''}">${newJobs>99?'99+':newJobs}</span>`
       : '';
     return `<button class="bnt" id="bt-${n.id}" style="position:relative" onclick="navigate('${n.id}')">
       ${ico(n.ic,22)}${badge}<span>${n.lbl}</span></button>`;
@@ -2271,6 +2271,10 @@ function navigate(page) {
 
     if (_st === 'my-attendance') {
       c.innerHTML = renderMyAttendance();
+      // Load real week attendance data async, then refresh
+      if (state.user?.role === 'technician') {
+        loadMyWeekAttendance().then(function(){ c.innerHTML = renderMyAttendance(); }).catch(function(){});
+      }
       injectSmTabBar('my-attendance');
       startDurationTimer(); startClock();
       return;
@@ -2314,7 +2318,7 @@ function navigate(page) {
   const fns = {
     dashboard:renderDashboard, attendance:renderAttendance, 'job-detail':renderJobDetail,
     'qr-hub':renderQRHub,
-    'my-attendance':async function(){ await loadMyWeekAttendance(); return renderMyAttendance(); }, 'my-jobs':renderMyJobs
+    'my-attendance':renderMyAttendance, 'my-jobs':renderMyJobs
   };
   c.innerHTML = (fns[page]||(() => ''))();
   if (page==='qr-hub') generateManagerQR();
@@ -3114,41 +3118,32 @@ function generateManagerQR() {
 function renderMyAttendance() {
   const checked    = !!state.myCheckin;
   const checkedOut = !!state.myCheckout;
-  // Build this week from real state.attendance data
-  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  const today = new Date();
-  const todayDow = today.getDay(); // 0=Sun
-  // Get Mon-Today of this week
+  // Build this week from cached week attendance + today's live state
+  const _dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const _today = new Date();
+  const _dow = _today.getDay() || 7; // Mon=1..Sun=7
   const wk = [];
-  for (let i = 1; i <= todayDow || i <= 5; i++) {
-    if (i > todayDow) break; // don't show future days
-    const d = new Date(today);
-    d.setDate(today.getDate() - (todayDow - i));
-    const iso = d.toISOString().slice(0,10);
-    const isToday = (i === todayDow);
-    const lbl = isToday ? 'Today' : dayNames[i];
-    let hub='—', s='open', ci='—', co='—', hrs='—';
-    if (isToday) {
-      hub = state.hub1||state.hub||'—';
-      s = state.myCheckout?'present':state.myCheckin?'checked_in':'open';
-      ci = state.hub1CheckIn||state.myCheckin||'—';
-      co = state.myCheckout||'—';
+  for (var _i = 1; _i <= _dow; _i++) {
+    const _d = new Date(_today);
+    _d.setDate(_today.getDate() - (_dow - _i));
+    const _iso = _d.toISOString().slice(0,10);
+    const _isToday = (_i === _dow);
+    const _lbl = _isToday ? 'Today' : _dayNames[_i];
+    let _hub='—', _s='open', _ci='—', _co='—', _hrs='—';
+    if (_isToday) {
+      _hub = state.hub1||state.hub||'—';
+      _s = state.myCheckout?'present':state.myCheckin?'checked_in':'open';
+      _ci = state.hub1CheckIn||state.myCheckin||'—';
+      _co = state.myCheckout||'—';
     } else {
-      // Look up from myWeekAtt by date
-      const rec = (state.myWeekAtt||{})[iso];
-      if (rec) {
-        hub = rec.hub||'—';
-        s   = rec.status||'open';
-        ci  = rec.checkin||'—';
-        co  = rec.checkout||'—';
-        if (rec.total_working_hours) {
-          const h=Math.floor(rec.total_working_hours);
-          const m=Math.round((rec.total_working_hours-h)*60);
-          hrs = h+'h '+(m?m+'m':'');
-        }
+      const _rec = (state.myWeekAtt||{})[_iso];
+      if (_rec) {
+        _hub = _rec.hub||'—'; _s = _rec.status||'open';
+        _ci = _rec.checkin||'—'; _co = _rec.checkout||'—';
+        if (_rec.hrs) _hrs = _rec.hrs;
       }
     }
-    wk.push({d:lbl, hub, s, ci, co, hrs});
+    wk.push({d:_lbl, hub:_hub, s:_s, ci:_ci, co:_co, hrs:_hrs});
   }
   return `
     <div class="page-hd"><div class="page-hd-text"><div class="page-title">My Attendance</div><div class="page-sub">${state.hub||''}</div></div>
@@ -3225,26 +3220,25 @@ function renderMyAttendance() {
       <button onclick="window._myAttTab='today';navigate('my-attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${(window._myAttTab||'today')==='today'?'var(--blue)':'transparent'};color:${(window._myAttTab||'today')==='today'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Today</button>
       <button onclick="window._myAttTab='month';navigate('my-attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${(window._myAttTab||'today')==='month'?'var(--blue)':'transparent'};color:${(window._myAttTab||'today')==='month'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">This Month</button>
     </div>` : ''}
-    ${(window._myAttTab||'today')==='month' ? `
-      <div id="tech-cal-inner" style="padding:20px;text-align:center;color:var(--g400)">Loading...</div>
-    ` : `
-      <div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">This week</div>
-      <div class="tw"><table>
-        <thead><tr><th>Day</th><th>Hub</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Hours</th></tr></thead>
-        <tbody>${wk.map(r=>{
-          const bc=r.s==='present'?'b-present':r.s==='checked_in'?'b-inprog':r.s==='half_day'?'b-leave':r.s==='absent'?'b-absent':r.s==='week_off'?'b-leave':r.s==='leave'?'b-leave':'b-open';
-          const lbl=r.s==='present'?'Present':r.s==='checked_in'?'Working':r.s==='half_day'?'Half Day':r.s==='absent'?'Absent':r.s==='week_off'?'Week Off':r.s==='leave'?'On Leave':'Pending';
-          return '<tr>'
-            +'<td style="font-weight:'+(r.d==='Today'?'600':'400')+'">'+r.d+'</td>'
-            +'<td style="font-size:12px;color:var(--g500)">'+r.hub+'</td>'
-            +'<td><span class="badge '+bc+'">'+lbl+'</span></td>'
-            +'<td class="mono" style="font-size:12px">'+r.ci+'</td>'
-            +'<td class="mono" style="font-size:12px">'+r.co+'</td>'
-            +'<td style="font-size:12px">'+r.hrs+'</td>'
-            +'</tr>';
-        }).join('')}</tbody>
-      </table></div>
-    `}`;
+    ${(window._myAttTab||'today')==='month'
+      ? `<div id="tech-cal-inner" style="padding:20px;text-align:center;color:var(--g400)">Loading...</div>`
+      : `<div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">This week</div>
+         <div class="tw"><table>
+           <thead><tr><th>Day</th><th>Hub</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Hours</th></tr></thead>
+           <tbody>${wk.map(r=>{
+             const bc=r.s==='present'?'b-present':r.s==='checked_in'?'b-inprog':r.s==='half_day'?'b-leave':r.s==='absent'?'b-absent':r.s==='week_off'?'b-leave':r.s==='leave'?'b-leave':'b-open';
+             const lbl=r.s==='present'?'Present':r.s==='checked_in'?'Working':r.s==='half_day'?'Half Day':r.s==='absent'?'Absent':r.s==='week_off'?'Week Off':r.s==='leave'?'On Leave':'Pending';
+             return '<tr>'
+               +'<td style="font-weight:'+(r.d==='Today'?'600':'400')+'">'+r.d+'</td>'
+               +'<td style="font-size:12px;color:var(--g500)">'+r.hub+'</td>'
+               +'<td><span class="badge '+bc+'">'+lbl+'</span></td>'
+               +'<td class="mono" style="font-size:12px">'+r.ci+'</td>'
+               +'<td class="mono" style="font-size:12px">'+r.co+'</td>'
+               +'<td style="font-size:12px">'+r.hrs+'</td>'
+               +'</tr>';
+           }).join('')}</tbody>
+         </table></div>`
+    }`;
 }
 
 function renderMyJobs() {
