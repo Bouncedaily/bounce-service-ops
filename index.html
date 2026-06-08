@@ -3222,9 +3222,9 @@ function renderMyAttendance() {
       <button onclick="window._myAttTab='today';navigate('my-attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${(window._myAttTab||'today')==='today'?'var(--blue)':'transparent'};color:${(window._myAttTab||'today')==='today'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Today</button>
       <button onclick="window._myAttTab='month';navigate('my-attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${(window._myAttTab||'today')==='month'?'var(--blue)':'transparent'};color:${(window._myAttTab||'today')==='month'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">This Month</button>
     </div>` : ''}
-    ${(window._myAttTab||'today')==='month'
-      ? `<div id="tech-cal-inner" style="padding:20px;text-align:center;color:var(--g400)">Loading...</div>`
-      : `<div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">This week</div>
+
+    ${(window._myAttTab||'today')!=='today'
+      ? `<div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">This Week</div>
          <div class="tw"><table>
            <thead><tr><th>Day</th><th>Hub</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Hours</th></tr></thead>
            <tbody>${wk.map(r=>{
@@ -3240,7 +3240,8 @@ function renderMyAttendance() {
                +'</tr>';
            }).join('')}</tbody>
          </table></div>`
-    }`;
+      : ''}
+    `;
 }
 
 function renderMyJobs() {
