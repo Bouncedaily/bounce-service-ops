@@ -563,7 +563,7 @@ async function bootstrap() {
     window._cities = [{id:'1784d900-6622-4095-a825-1dbd6a649b75',name:'Bangalore'},{id:'b0c2ce0b-39d8-40e8-a3cb-4eb7e76846eb',name:'Hyderabad'},{id:'d13dbf17-ce4d-4be9-b2e5-21fe6ff67c99',name:'NCR'},{id:'59d6939a-666c-4f0c-bc52-1d72deed24f2',name:'Indore'}];
   }
   // Vehicles loaded later per hub
-  if(_DEBUG)console.log(_demoMode ? 'Demo mode (Supabase unreachable)' : 'Live mode', '— hubs:', HUBS.length, '— users:', ALL_USERS.length);
+  console.log(_demoMode ? 'Demo mode (Supabase unreachable)' : 'Live mode', '— hubs:', HUBS.length, '— users:', ALL_USERS.length);
 }
 
 // ─ DEMO FALLBACK DATA (used when Supabase is unreachable e.g. sandbox) ─
