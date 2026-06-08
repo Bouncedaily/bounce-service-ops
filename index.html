@@ -639,12 +639,25 @@ async function capturePartPhoto(woId, partIdx, phase) {
   const title = document.getElementById('ppm-title');
   if (title) title.textContent = (phase==='before'?'Before':'After') + ' — ' + (part?.part_name||'');
   document.getElementById('part-photo-modal').style.display = 'flex';
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    const title = document.getElementById('ppm-title');
+    if(title) title.textContent = '⚠ Camera not supported on this device';
+    setTimeout(closePartPhotoModal, 3000); return;
+  }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1280},height:{ideal:960}},audio:false});
     _partPhotoSession.stream = stream;
     const v = document.getElementById('ppm-video');
     v.srcObject = stream; v.setAttribute('playsinline',''); v.muted=true; v.play().catch(()=>{});
-  } catch(e) { alert('Camera error: '+e.message); closePartPhotoModal(); }
+  } catch(e) {
+    const msg = e.name==='NotAllowedError' ? 'Camera permission denied. Enable in device settings.'
+              : e.name==='NotFoundError'   ? 'No camera found on this device.'
+              : e.name==='NotReadableError' ? 'Camera is in use by another app. Close it and retry.'
+              : 'Camera error: '+e.message;
+    const title = document.getElementById('ppm-title');
+    if(title) title.textContent = '⚠ '+msg;
+    setTimeout(closePartPhotoModal, 3000);
+  }
 }
 
 async function capturePartSnap() {
@@ -930,7 +943,25 @@ function handleAddPart(btn) { addExtraPart(btn.dataset.wo); }
 
 function renderPartsSection(woId) {
   var el = document.getElementById('ps_'+woId.replace(/-/g,''));
-  if(el) el.innerHTML = renderPartsHTML(woId, null, null);
+  if(!el) return;
+  el.innerHTML = renderPartsHTML(woId, null, null);
+  // Show real-time validation status
+  var statusEl = document.getElementById('parts-status-'+woId.replace(/-/g,''));
+  if (!statusEl) return;
+  var sess = _partsSession[woId];
+  if (!sess) return;
+  var usedParts = sess.parts.filter(function(p){return p.status==='used';});
+  var complete = usedParts.every(function(p){return p.photo_before&&p.photo_after;});
+  if (usedParts.length === 0) {
+    statusEl.textContent = '';
+  } else if (complete) {
+    statusEl.textContent = '✓ All part photos captured';
+    statusEl.style.color = '#16a34a';
+  } else {
+    var missing = usedParts.filter(function(p){return !p.photo_before||!p.photo_after;}).length;
+    statusEl.textContent = '⚠ '+missing+' part'+(missing>1?'s':'')+' still need photos';
+    statusEl.style.color = '#dc2626';
+  }
 }
 
 async function setPartStatus(woId, partIdx, status) {
@@ -1943,14 +1974,20 @@ async function refreshPage(page) {
 }
 
 function doLogout() {
-  state.user=null; state.hub=null; state.myCheckin=null; state.myCheckout=null;
+  // Clear ALL state — important on shared devices
+  state.user=null; state.hub=null; state.hubId=null;
+  state.myCheckin=null; state.myCheckout=null; state.myAttId=null;
   state.hub1=null; state.hub1Id=null; state.hub1CheckIn=null; state.hub1CheckOut=null;
   state.hub2=null; state.hub2Id=null; state.hub2CheckIn=null;
+  state.jobs=[]; state.attendance={}; state.allUsers=[];
+  _partsSession={}; _photoSession={}; _videoSession={};
   clearInterval(window._refreshT);
   clearInterval(window._durationTimer);
+  clearInterval(window._autoAssignRunning);
+  window._autoAssignRunning = false;
   window._jcCache = {};
-  // Clear session so hard refresh doesn't auto-login
-  localStorage.removeItem('bounce_session');
+  window._jobDetailWoId = null;
+  localStorage.clear(); // clear everything, not just session
   document.getElementById('app-shell').style.display='none';
   document.getElementById('login-page').style.display='flex';
   document.getElementById('mobile-input').value='';
@@ -5566,7 +5603,12 @@ async function processCheckin(mode,lat,lng,accuracy,distanceM,withinFence){
     state.attendance[state.user.name]={status:'checked_in',checkin:t24,checkout:null,hub:state.hub,att_id:attId};
     // Auto-assign jobs on check-in
     const _resolvedHubId = state.hubId || (typeof HUBS !== 'undefined' ? HUBS.find(function(h){return h.name===state.hub;})?.id : null);
-    if (_resolvedHubId) autoAssignOnCheckin(state.user.name, state.user.id, state.hub, _resolvedHubId);
+    if (_resolvedHubId) {
+      setAttMsg('info', 'Checking for job assignments...');
+      autoAssignOnCheckin(state.user.name, state.user.id, state.hub, _resolvedHubId).then(function(){
+        setAttMsg('success', 'Check-in complete. Jobs assigned to your queue.');
+      });
+    }
     try{const s=JSON.parse(localStorage.getItem('bounce_session')||'{}');s.myCheckin=t12;s.myAttId=state.myAttId;s.myCheckinDate=TODAY;localStorage.setItem('bounce_session',JSON.stringify(s));}catch(e){}
   }else{
     // If myAttId is missing, try to find today's attendance record
