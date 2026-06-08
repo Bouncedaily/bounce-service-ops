@@ -2072,13 +2072,17 @@ function renderNav() {
     `<div class="si" id="si-${n.id}" onclick="navigate('${n.id}')">${ico(n.ic)} ${n.lbl}</div>`
   ).join('');
   const role = state.user?.role;
-  const newJobs = role==='technician'
-    ? (state.jobs||[]).filter(j=>j.status==='Open'&&!j._seen).length : 0;
+  // Count Open + In Progress jobs
+  const openJobs      = (state.jobs||[]).filter(j=>j.status==='Open').length;
+  const inProgJobs    = (state.jobs||[]).filter(j=>j.status==='In Progress').length;
+  const totalActive   = openJobs + inProgJobs;
+  const highPriority  = (state.jobs||[]).filter(j=>(j.status==='Open'||j.status==='In Progress')&&j.priority==='High').length;
+  const newJobs = role==='technician' ? totalActive : 0;
   document.getElementById('bottom-nav').innerHTML = nav.map(n=>{
     const badge = (n.id==='my-jobs' && newJobs>0)
-      ? `<span style="position:absolute;top:0px;right:calc(50% - 20px);background:#ef4444;color:white;font-size:13px;font-weight:800;border-radius:999px;min-width:18px;height:18px;display:flex;align-items:center;justify-content:center;padding:0 4px;box-shadow:0 2px 6px rgba(239,68,68,.5);letter-spacing:0;line-height:1">${newJobs}</span>`
+      ? `<span style="position:absolute;top:-4px;right:2px;background:#ef4444;color:white;font-size:11px;font-weight:700;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(239,68,68,.5);${highPriority>0?'animation:pulse-ring 1.5s infinite;':''}">${newJobs>99?'99+':newJobs}</span>`
       : '';
-    return `<button class="bnt" id="bt-${n.id}" style="position:relative" onclick="navigate('${n.id}');${n.id==='my-jobs'?'(state.jobs||[]).forEach(j=>j._seen=true);':''}">
+    return `<button class="bnt" id="bt-${n.id}" style="position:relative" onclick="navigate('${n.id}')">
       ${ico(n.ic,22)}${badge}<span>${n.lbl}</span></button>`;
   }).join('');
 }
