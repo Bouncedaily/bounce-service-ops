@@ -393,7 +393,7 @@ tr:hover td{background:var(--g50)}
   <div id="video-modal" style="display:none;position:fixed;inset:0;background:#000;z-index:3000;flex-direction:column">
     <!-- Fullscreen canvas -->
     <div style="position:absolute;inset:0">
-      <canvas id="video-canvas" style="width:100%;height:100%;object-fit:cover;display:block"></canvas>
+      <canvas id="video-canvas" style="width:100%;height:100%;object-fit:contain;display:block;background:#000"></canvas>
       <!-- REC badge -->
       <div id="video-rec-dot" style="display:none;position:absolute;top:20px;left:16px;display:none;align-items:center;gap:6px;background:rgba(0,0,0,.5);padding:5px 12px;border-radius:20px">
         <div style="width:8px;height:8px;border-radius:50%;background:#ef4444;animation:blink 1s infinite"></div>
@@ -679,7 +679,7 @@ async function confirmPartSnap() {
   const btn = document.getElementById('ppm-confirm-btn');
   const {woId,partIdx,phase} = _partPhotoSession;
   btn.textContent='Uploading...';
-  const blob = await new Promise(res=>c.toBlob(res,'image/jpeg',0.8));
+  const blob = await new Promise(res=>c.toBlob(res,'image/jpeg',0.92));
   const fd = new FormData();
   fd.append('file',blob,'part_'+phase+'_'+Date.now()+'.jpg');
   fd.append('upload_preset',CLOUDINARY_PRESET);
@@ -1164,22 +1164,25 @@ async function startVideoCapture(jobIdx) {
       if (!video.videoWidth) return;
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       // Draw overlay bottom-right
-      const pad = 10, lh = 16, fs = 13;
+      const pad = 12, lh = 20, fs = 16;
       const lines = [
         j.vehicle || j.reg || '—',
         j.jc_number || '—',
         new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true})
       ];
-      const maxW = Math.max(...lines.map(l => l.length)) * (fs * 0.6) + pad*2;
+      ctx.font = `${fs}px monospace`;
+      const maxW = Math.max(...lines.map(l => ctx.measureText(l).width)) + pad*2;
       const boxH  = lines.length * lh + pad;
       const boxX  = canvas.width  - maxW - pad;
       const boxY  = canvas.height - boxH - pad;
       ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      ctx.beginPath();
-      ctx.roundRect(boxX, boxY, maxW, boxH, 4);
-      ctx.fill();
+      // roundRect fallback for older browsers
+      if (ctx.roundRect) {
+        ctx.beginPath(); ctx.roundRect(boxX, boxY, maxW, boxH, 4); ctx.fill();
+      } else {
+        ctx.fillRect(boxX, boxY, maxW, boxH);
+      }
       ctx.fillStyle = '#fff';
-      ctx.font = `${fs}px monospace`;
       ctx.textAlign = 'right';
       lines.forEach((line, i) => {
         ctx.fillText(line, canvas.width - pad*2, boxY + pad + (i+1)*lh - 3);
@@ -1190,7 +1193,17 @@ async function startVideoCapture(jobIdx) {
     document.getElementById('video-modal').style.display = 'flex';
     document.getElementById('video-status').textContent = 'Ready — tap Record to start (max 1 min)';
   } catch(e) {
-    alert('Camera access denied. Please allow camera permissions.');
+    const msg = e.name==='NotAllowedError' ? 'Camera permission denied. Go to browser Settings → Allow Camera.'
+              : e.name==='NotFoundError'   ? 'No camera found on this device.'
+              : e.name==='NotReadableError' ? 'Camera is in use by another app. Close it and try again.'
+              : 'Camera unavailable: ' + e.message;
+    document.getElementById('video-status').textContent = msg;
+    document.getElementById('video-pre-controls').style.display = 'none';
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = 'Close'; closeBtn.onclick = closeVideoModal;
+    closeBtn.style.cssText = 'width:100%;padding:14px;border-radius:12px;background:#ef4444;color:white;border:none;font-size:15px;font-weight:600;cursor:pointer;margin-top:8px';
+    document.getElementById('video-post-controls').appendChild(closeBtn);
+    document.getElementById('video-post-controls').style.display = 'flex';
   }
 }
 
@@ -3475,6 +3488,11 @@ function startCamera() {
   const canvas = document.getElementById('pm-canvas');
   canvas.style.display='none';
   video.style.display='block';
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    const wrap = document.getElementById('pm-video')?.parentElement;
+    if (wrap) wrap.innerHTML = '<div style="padding:40px;text-align:center;color:#fff;font-size:15px"><div style="font-size:32px;margin-bottom:12px">📷</div><div style="font-weight:600;margin-bottom:8px">Camera not supported</div><div style="font-size:13px;opacity:.7">Please use Chrome or Safari on your phone.</div></div>';
+    return;
+  }
   navigator.mediaDevices.getUserMedia({ video: { facingMode:'environment', width:{ideal:1280}, height:{ideal:960} } })
     .then(stream => {
       _photoSession.stream = stream;
@@ -3485,14 +3503,12 @@ function startCamera() {
     })
     .catch(err => {
       console.error('Camera error:', err);
-      document.getElementById('scan-alert') && (document.getElementById('scan-alert').innerHTML = '');
-      // Show error message, no file upload fallback
+      const msg = err.name==='NotAllowedError' ? 'Camera permission denied. Go to browser Settings → Allow Camera and try again.'
+                : err.name==='NotFoundError'   ? 'No camera found on this device.'
+                : err.name==='NotReadableError' ? 'Camera is in use by another app. Close it and try again.'
+                : 'Camera unavailable. Please try again.';
       const wrap = document.getElementById('pm-video')?.parentElement;
-      if (wrap) wrap.innerHTML = `<div style="padding:40px;text-align:center;color:#fff;font-size:14px">
-        <div style="font-size:32px;margin-bottom:12px">📷</div>
-        <div style="font-weight:600;margin-bottom:8px">Camera not available</div>
-        <div style="font-size:12px;opacity:.7">Please allow camera access in your browser settings and try again.</div>
-      </div>`;
+      if (wrap) wrap.innerHTML = '<div style="padding:40px;text-align:center;color:#fff;font-size:15px"><div style="font-size:32px;margin-bottom:12px">📷</div><div style="font-weight:600;margin-bottom:12px">Camera Error</div><div style="font-size:13px;opacity:.9;line-height:1.5">'+msg+'</div><button onclick="cancelPhotoSession()" style="margin-top:16px;padding:10px 24px;border-radius:8px;border:none;background:#ef4444;color:white;font-size:14px;cursor:pointer">Close</button></div>';
     });
 }
 
@@ -3515,10 +3531,10 @@ function capturePhoto() {
   ctx.fillStyle = 'rgba(0,0,0,0.5)';
   ctx.fillRect(0, canvas.height-36, canvas.width, 36);
   ctx.fillStyle = '#fff';
-  ctx.font = 'bold 13px sans-serif';
+  ctx.font = 'bold 16px sans-serif';
   const job = state.jobs[_photoSession.jobIdx];
   ctx.fillText(`${job.vehicle} · ${side.toUpperCase()} · ${_photoSession.phase.toUpperCase()} · ${new Date().toLocaleString('en-IN')}`, 10, canvas.height-12);
-  const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
   _photoSession.captured[side] = dataUrl;
   // Show preview
   video.style.display='none';
