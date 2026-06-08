@@ -4103,9 +4103,10 @@ async function renderWorkOrdersAsync() {
 
   const rowAS = (j) => {
     const pc = j.overall_tat_days>3?'b-absent':j.overall_tat_days>1?'b-med':'b-present';
-    // Find work order id for this JC
-    const wo = state.jobs.find(function(w){ return w.jc_number===j.job_card_number; });
-    const woId = wo ? wo.db_id : null;
+    // Find work order from hub WO map
+    const wo = _woMap[j.job_card_number];
+    const woId = wo ? wo.id : null;
+    const woTech = wo ? (wo.assigned_tech_name || j.technician_name) : j.technician_name;
     return `<tr>
       <td class="mono" style="font-size:12px">${j.reg_number||'—'}</td>
       <td class="mono" style="font-size:13px;color:var(--g400)">${j.job_card_number||'—'}</td>
@@ -4117,7 +4118,7 @@ async function renderWorkOrdersAsync() {
       <td style="font-size:12px">${j.submission_type||'—'}</td>
       <td style="font-size:12px">${j.job_card_opened_date?new Date(j.job_card_opened_date).toLocaleDateString('en-IN'):'—'}</td>
       <td style="font-size:12px;font-weight:600">${j.technician_name||'<span style="color:var(--g300)">—</span>'}</td>
-      <td>${woId ? `<button class="btn btn-outline btn-sm" onclick="smReassignJob('${woId}','${j.technician_name||''}')" style="font-size:11px;color:#7c3aed;border-color:#7c3aed">↔ Reassign</button>` : '—'}</td>
+      <td>${woId ? `<button class="btn btn-outline btn-sm" onclick="smReassignJob('${woId}','${woTech||''}')" style="font-size:11px;color:#7c3aed;border-color:#7c3aed">↔ Reassign</button>` : '—'}</td>
       ${role==='area_manager'?`<td><button class="btn btn-outline btn-sm" onclick="changeTechAlert('${j.job_card_number}')">Change Tech</button></td>`:''}
     </tr>`;
   };
