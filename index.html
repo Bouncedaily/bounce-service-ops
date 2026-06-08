@@ -4077,6 +4077,15 @@ async function renderWorkOrdersAsync() {
   const paginate  = (arr, pg) => arr.slice(pg*PAGE_SIZE, (pg+1)*PAGE_SIZE);
   const pageCount = (arr) => Math.ceil(arr.length / PAGE_SIZE);
 
+  // Load work orders for reassign lookup
+  let _woMap = {};
+  if (!_demoMode) {
+    try {
+      const _woRows = await sb('work_orders?hub_name=eq.'+encodeURIComponent(myHub)+'&status=in.(Open,In Progress)&select=id,job_card_number,assigned_tech_name,assigned_tech_id&limit=200') || [];
+      _woRows.forEach(function(w){ if(w.job_card_number) _woMap[w.job_card_number] = w; });
+    } catch(e) {}
+  }
+
   const TH_UA = `<tr><th>Reg No.</th><th>JC Number</th><th>DMS JC ID</th><th>Parts to Add</th><th>JC Status</th><th>TAT</th><th>Labour Hrs</th><th>Type</th><th>JC Opened</th><th>Assign Technician</th></tr>`;
   const TH_AS = `<tr><th>Reg No.</th><th>JC Number</th><th>DMS JC ID</th><th>Parts to Add</th><th>JC Status</th><th>TAT</th><th>Labour Hrs</th><th>Type</th><th>JC Opened</th><th>Technician</th><th>Reassign</th>${role==='area_manager'?'<th>Action</th>':''}</tr>`;
 
