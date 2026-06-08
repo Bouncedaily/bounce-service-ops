@@ -797,9 +797,8 @@ async function autoAssignOnCheckin(techName, techId, hubName, hubId) {
   window._autoAssignRunning = true;
   try {
     const existing = await sb('work_orders?assigned_tech_id=eq.'+techId+'&status=in.(Open,In Progress)&select=id') || [];
-    if (existing.length >= 3) { console.log('[AutoAssign] Already has', existing.length, 'jobs'); return; }
-    const needed = 3 - existing.length;
-    const done = await assignJobsToTech(techName, techId, hubName, hubId, needed);
+    if (existing.length >= 1) return; // Already has a job
+    const done = await assignJobsToTech(techName, techId, hubName, hubId, 1);
     if (done > 0) await loadMyJobs();
   } catch(e) {
     console.warn('[AutoAssign] checkin error:', e.message);
@@ -818,9 +817,8 @@ async function autoAssignOnCompletion() {
     const hubId = state.hubId || (typeof HUBS!=='undefined'?HUBS.find(function(h){return h.name===hubName;})?.id:null);
     if (!hubId) return;
     const existing = await sb('work_orders?assigned_tech_id=eq.'+techId+'&status=in.(Open,In Progress)&select=id') || [];
-    if (existing.length >= 3) return;
-    const needed = 3 - existing.length;
-    const done = await assignJobsToTech(techName, techId, hubName, hubId, needed);
+    if (existing.length >= 1) return; // Still has a job, wait
+    const done = await assignJobsToTech(techName, techId, hubName, hubId, 1);
     if (done > 0) {
       await loadMyJobs();
       const t = document.createElement('div');
