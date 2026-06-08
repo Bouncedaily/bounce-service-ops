@@ -3220,10 +3220,10 @@ function renderMyAttendance() {
     </div>
     ${state.user?.role==='technician' ? `<div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:2px solid var(--g100);padding-bottom:0">
       <button onclick="window._myAttTab='today';navigate('my-attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${(window._myAttTab||'today')==='today'?'var(--blue)':'transparent'};color:${(window._myAttTab||'today')==='today'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">Today</button>
-      <button onclick="window._myAttTab='month';navigate('my-attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${(window._myAttTab||'today')==='month'?'var(--blue)':'transparent'};color:${(window._myAttTab||'today')==='month'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">This Month</button>
+      <button onclick="window._myAttTab='week';navigate('my-attendance')" style="padding:8px 18px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid ${(window._myAttTab||'today')==='week'?'var(--blue)':'transparent'};color:${(window._myAttTab||'today')==='week'?'var(--blue)':'var(--g500)'};margin-bottom:-2px">This Week</button>
     </div>` : ''}
 
-    ${(window._myAttTab||'today')!=='today'
+    ${(window._myAttTab||'today')==='week'
       ? `<div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">This Week</div>
          <div class="tw"><table>
            <thead><tr><th>Day</th><th>Hub</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Hours</th></tr></thead>
@@ -3240,7 +3240,18 @@ function renderMyAttendance() {
                +'</tr>';
            }).join('')}</tbody>
          </table></div>`
-      : ''}
+      : `<div style="font-size:15px;font-weight:600;color:var(--g800);margin-bottom:12px">Today</div>
+         <div class="tw"><table>
+           <thead><tr><th>Hub</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Hours</th></tr></thead>
+           <tbody><tr>
+             <td style="font-size:12px;color:var(--g500)">${state.hub||'—'}</td>
+             <td><span class="badge ${state.myCheckout?'b-present':state.myCheckin?'b-inprog':'b-open'}">${state.myCheckout?'✓ Present':state.myCheckin?'● Working':'Pending'}</span></td>
+             <td class="mono" style="font-size:12px">${state.myCheckin||'—'}</td>
+             <td class="mono" style="font-size:12px">${state.myCheckout||'—'}</td>
+             <td style="font-size:12px">—</td>
+           </tr></tbody>
+         </table></div>`
+    }
     `;
 }
 
