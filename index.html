@@ -3926,6 +3926,90 @@ async function loadAllDraftJC() {
 }
 
 // ─ WORK ORDER PAGE (Hub Manager) — with JC Details ─────────────────────
+
+// ── SM REASSIGN JOB ──────────────────────────────────────────────────────────
+async function smReassignJob(woId, currentTechName) {
+  // Get available techs at hub
+  const myHub = state.hub || state.user?.assigned_hub_name;
+  const _hubId = state.hubId || HUBS.find(function(h){return h.name===myHub;})?.id;
+  let attRows = [];
+  if (_hubId) {
+    attRows = await sb('attendance?date=eq.'+TODAY+'&hub_id=eq.'+_hubId+'&status=in.(present,checked_in)&select=technician_name,user_id') || [];
+  }
+  if (!attRows.length && myHub) {
+    attRows = await sb('attendance?date=eq.'+TODAY+'&hub_name=eq.'+encodeURIComponent(myHub)+'&status=in.(present,checked_in)&select=technician_name,user_id') || [];
+  }
+  const techs = attRows.filter(function(t){ return t.technician_name !== currentTechName; });
+
+  if (!techs.length) {
+    alert('No other technicians checked in at this hub to reassign to.');
+    return;
+  }
+
+  // Show reassign modal
+  const inner = document.getElementById('modal-inner');
+  inner.innerHTML =
+    '<button class="modal-close" onclick="closeModal()">&#10005;</button>' +
+    '<div class="modal-title">Reassign Job</div>' +
+    '<div class="modal-sub" style="margin-bottom:16px">Currently assigned to: <strong>' + currentTechName + '</strong></div>' +
+    '<div style="font-size:13px;color:var(--g600);margin-bottom:8px">Select technician to reassign to:</div>' +
+    '<div style="display:flex;flex-direction:column;gap:8px">' +
+    techs.map(function(t){
+      var _wid = woId, _from = currentTechName, _to = t.technician_name, _tid = t.user_id;
+      var btn = document.createElement('button');
+      btn.style.cssText = 'padding:12px 16px;border-radius:10px;border:1px solid var(--g100);background:#fff;text-align:left;cursor:pointer;font-size:14px;font-weight:600;color:var(--g800);width:100%';
+      btn.textContent = t.technician_name;
+      btn.onclick = (function(wid,from,to,tid){ return function(){ smConfirmReassign(wid,from,to,tid); }; })(_wid,_from,_to,_tid);
+      return btn.outerHTML;
+    }).join('') +
+    '</div>';
+  document.getElementById('modal').style.display = 'flex';
+}
+
+async function smConfirmReassign(woId, fromTech, toTech, toTechId) {
+  closeModal();
+  const inner = document.getElementById('modal-inner');
+
+  try {
+    // 1. Get the work order details
+    const wo = await sb('work_orders?id=eq.'+woId+'&select=*&limit=1');
+    if (!wo || !wo.length) { alert('Job not found.'); return; }
+
+    // 2. Reassign to new tech — mark sm_override = true
+    await sb('work_orders?id=eq.'+woId, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        assigned_tech_name: toTech,
+        assigned_tech_id: toTechId,
+        sm_override: true,
+        sm_override_by: state.user?.name,
+        sm_override_at: new Date().toISOString(),
+        status: 'Open',
+        priority_order: 1,
+        updated_at: new Date().toISOString()
+      })
+    });
+
+    // 3. Original tech's existing active job (if any) gets paused to priority_order = 2
+    // Find original tech's current In Progress job and push to second priority
+    const fromJobs = await sb('work_orders?assigned_tech_name=eq.'+encodeURIComponent(fromTech)+'&status=eq.In Progress&select=id&limit=1') || [];
+    if (fromJobs.length) {
+      await sb('work_orders?id=eq.'+fromJobs[0].id, {
+        method: 'PATCH',
+        body: JSON.stringify({ priority_order: 2, updated_at: new Date().toISOString() })
+      });
+    }
+
+    // 4. Show success and refresh
+    alert('Job reassigned to ' + toTech + '. ' + fromTech + 's current job paused to second priority.');
+    window._jcCache = {};
+    navigate('workorders');
+
+  } catch(e) {
+    alert('Reassign failed: ' + e.message);
+  }
+}
+
 async function renderWorkOrdersAsync() {
   const myHub = state.hub || state.user?.assigned_hub_name || ALL_USERS.find(u=>u.id===state.user?.id)?.assigned_hub_name || '';
   const role  = state.user?.role;
@@ -3987,7 +4071,7 @@ async function renderWorkOrdersAsync() {
   const pageCount = (arr) => Math.ceil(arr.length / PAGE_SIZE);
 
   const TH_UA = `<tr><th>Reg No.</th><th>JC Number</th><th>DMS JC ID</th><th>Parts to Add</th><th>JC Status</th><th>TAT</th><th>Labour Hrs</th><th>Type</th><th>JC Opened</th><th>Assign Technician</th></tr>`;
-  const TH_AS = `<tr><th>Reg No.</th><th>JC Number</th><th>DMS JC ID</th><th>Parts to Add</th><th>JC Status</th><th>TAT</th><th>Labour Hrs</th><th>Type</th><th>JC Opened</th><th>Technician</th><th>Action</th></tr>`;
+  const TH_AS = `<tr><th>Reg No.</th><th>JC Number</th><th>DMS JC ID</th><th>Parts to Add</th><th>JC Status</th><th>TAT</th><th>Labour Hrs</th><th>Type</th><th>JC Opened</th><th>Technician</th><th>Reassign</th>${role==='area_manager'?'<th>Action</th>':''}</tr>`;
 
   const rowUA = (j) => {
     const pc = j.overall_tat_days>3?'b-absent':j.overall_tat_days>1?'b-med':'b-present';
@@ -4012,6 +4096,9 @@ async function renderWorkOrdersAsync() {
 
   const rowAS = (j) => {
     const pc = j.overall_tat_days>3?'b-absent':j.overall_tat_days>1?'b-med':'b-present';
+    // Find work order id for this JC
+    const wo = state.jobs.find(function(w){ return w.jc_number===j.job_card_number; });
+    const woId = wo ? wo.db_id : null;
     return `<tr>
       <td class="mono" style="font-size:12px">${j.reg_number||'—'}</td>
       <td class="mono" style="font-size:13px;color:var(--g400)">${j.job_card_number||'—'}</td>
@@ -4022,7 +4109,8 @@ async function renderWorkOrdersAsync() {
       <td style="font-size:12px">${j.labour_time_hours!=null?j.labour_time_hours.toFixed(1)+'h':'—'}</td>
       <td style="font-size:12px">${j.submission_type||'—'}</td>
       <td style="font-size:12px">${j.job_card_opened_date?new Date(j.job_card_opened_date).toLocaleDateString('en-IN'):'—'}</td>
-      <td style="font-size:12px">${j.technician_name||'<span style="color:var(--g300)">—</span>'}</td>
+      <td style="font-size:12px;font-weight:600">${j.technician_name||'<span style="color:var(--g300)">—</span>'}</td>
+      <td>${woId ? `<button class="btn btn-outline btn-sm" onclick="smReassignJob('${woId}','${j.technician_name||''}')" style="font-size:11px;color:#7c3aed;border-color:#7c3aed">↔ Reassign</button>` : '—'}</td>
       ${role==='area_manager'?`<td><button class="btn btn-outline btn-sm" onclick="changeTechAlert('${j.job_card_number}')">Change Tech</button></td>`:''}
     </tr>`;
   };
