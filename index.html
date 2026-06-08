@@ -2797,7 +2797,7 @@ function renderWorkOrders() {
   return `
     <div class="page-hd"><div class="page-title">Work Orders</div><div class="page-sub">${myHub} — assign and track jobs</div></div>
     <div class="wo-form-wrap">
-      <div class="wo-form-title">Assign new work order</div>
+      <div class="wo-form-title">⚡ Urgent Assignment</div><div style="font-size:12px;color:var(--g400);margin-bottom:8px">Manually assign a vehicle to a specific technician immediately</div>
 
       <div class="form-row">
         <div class="form-group" style="margin:0">
@@ -4037,7 +4037,14 @@ async function renderWorkOrdersAsync() {
   }
   const jcRows = window._jcCache[myHub];
   const oosRows    = jcRows.filter(j=>j.bike_status?.toLowerCase()==='oos');
-  const unassigned = oosRows.filter(j=>j.current_jc_status==='Job Open' || j.current_jc_status==='JC not opened in DMS');
+  // Exclude JCs that already have an active work order assigned
+  const assignedJCNums = new Set((state.jobs||[]).filter(function(w){
+    return w.status==='Open'||w.status==='In Progress';
+  }).map(function(w){ return w.jc_number; }).filter(Boolean));
+  const unassigned = oosRows.filter(function(j){
+    return (j.current_jc_status==='Job Open' || j.current_jc_status==='JC not opened in DMS')
+      && !assignedJCNums.has(j.job_card_number);
+  });
   const assigned   = oosRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open' && j.current_jc_status!=='JC not opened in DMS');
 
   // Build JC lookup by reg_number for vehicle search enrichment
@@ -4133,14 +4140,13 @@ async function renderWorkOrdersAsync() {
     <div class="page-hd">
       <div class="page-hd-text"><div class="page-title">Work Orders</div><div class="page-sub">${myHub}</div></div>
       <div style="display:flex;gap:8px;align-items:center">
-        <button id="auto-assign-btn" class="btn btn-blue btn-sm" onclick="runAutoAssignment()" style="display:flex;align-items:center;gap:6px;font-size:13px;padding:8px 14px">⚡ Auto Assign</button>
         <button class="btn-refresh" onclick="window._jcCache={};window._woPg={ua:0,as:0};navigate('workorders')" title="Refresh">
           <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> Refresh
         </button>
       </div>
     </div>
     <div class="wo-form-wrap">
-      <div class="wo-form-title">Assign new work order</div>
+      <div class="wo-form-title">⚡ Urgent Assignment</div><div style="font-size:12px;color:var(--g400);margin-bottom:8px">Manually assign a vehicle to a specific technician immediately</div>
       <div class="form-row">
         <div class="form-group" style="margin:0">
           <label class="form-label">Vehicle <span style="color:var(--g400);font-weight:400">(type reg no. to search)</span></label>
@@ -4375,7 +4381,14 @@ async function renderWorkOrdersWideAsync(role) {
   jcRows.forEach(j=>{ if(j.reg_number) window._jcLookup[j.reg_number]=j; });
 
   const oosRows    = jcRows.filter(j=>j.bike_status?.toLowerCase()==='oos');
-  const unassigned = oosRows.filter(j=>j.current_jc_status==='Job Open' || j.current_jc_status==='JC not opened in DMS');
+  // Exclude JCs that already have an active work order assigned
+  const assignedJCNums = new Set((state.jobs||[]).filter(function(w){
+    return w.status==='Open'||w.status==='In Progress';
+  }).map(function(w){ return w.jc_number; }).filter(Boolean));
+  const unassigned = oosRows.filter(function(j){
+    return (j.current_jc_status==='Job Open' || j.current_jc_status==='JC not opened in DMS')
+      && !assignedJCNums.has(j.job_card_number);
+  });
   const assigned   = oosRows.filter(j=>j.current_jc_status!=='Billed' && j.current_jc_status!=='Job Open' && j.current_jc_status!=='JC not opened in DMS');
 
   // Sort TAT descending
