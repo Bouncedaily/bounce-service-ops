@@ -5859,7 +5859,14 @@ async function doGeoCheckin(mode){
   }
   let position;
   try{
-    position=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{enableHighAccuracy:true,timeout:15000,maximumAge:0}));
+    // Try fast cached position first (up to 30s old), fallback to fresh GPS
+    position = await new Promise(function(res, rej) {
+      // First try: fast, low accuracy (accepts cached up to 30s)
+      navigator.geolocation.getCurrentPosition(res, function() {
+        // Fallback: high accuracy with 15s timeout
+        navigator.geolocation.getCurrentPosition(res, rej, {enableHighAccuracy:true, timeout:15000, maximumAge:0});
+      }, {enableHighAccuracy:false, timeout:5000, maximumAge:30000});
+    });
   }catch(err){
     const msg=err.code===1?'Location permission denied. Please allow location access and try again.'
              :err.code===2?'Location unavailable. Try again outdoors or near a window.'
@@ -5875,13 +5882,16 @@ async function doGeoCheckin(mode){
   }
   // Fetch hub coords
   let hubLat=null,hubLng=null;
+  // Use pre-cached hub coords from HUBS array (no DB call needed)
   if(state.hub){
-    try {
-      const hd=await sb(`hubs?name=eq.${encodeURIComponent(state.hub)}&select=lat,lng&limit=1`);
-      if(hd&&hd.length&&hd[0].lat){hubLat=hd[0].lat;hubLng=hd[0].lng;}
-    } catch(e) {
-      console.warn('[hub coords fetch failed]', e.message);
-      // proceed without geofence check
+    const hubObj = HUBS.find(function(h){ return h.name===state.hub; });
+    if(hubObj && hubObj.lat){ hubLat=hubObj.lat; hubLng=hubObj.lng; }
+    else {
+      // Fallback: fetch if not in cache
+      try {
+        const hd=await sb(`hubs?name=eq.${encodeURIComponent(state.hub)}&select=lat,lng&limit=1`);
+        if(hd&&hd.length&&hd[0].lat){hubLat=hd[0].lat;hubLng=hd[0].lng;}
+      } catch(e) {}
     }
   }
   if(hubLat===null){
