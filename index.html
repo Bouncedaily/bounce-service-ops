@@ -4603,6 +4603,99 @@ function debounceWaSearch(val) {
   window._waSearchTimer = setTimeout(()=>navigate('work-assigned'), 300);
 }
 
+
+async function smViewJob(woId, vehicleReg, techName) {
+  const inner = document.getElementById('modal-inner');
+  inner.innerHTML = '<button class="modal-close" onclick="closeModal()">&#10005;</button>' +
+    '<div class="modal-title">'+vehicleReg+'</div>' +
+    '<div class="modal-sub" style="margin-bottom:16px">'+techName+'</div>' +
+    '<div style="text-align:center;color:var(--g400);padding:20px">Loading...</div>';
+  document.getElementById('modal').style.display = 'flex';
+
+  try {
+    // Load work order details including photos/video
+    const wo = await sb('work_orders?id=eq.'+woId+'&select=*&limit=1');
+    const parts = await sb('job_parts?work_order_id=eq.'+woId+'&select=*&order=created_at.asc') || [];
+    const j = wo && wo[0] ? wo[0] : {};
+
+    const startPhotos = j.start_photos || [];
+    const endPhotos   = j.end_photos   || [];
+    const videoUrl    = j.video_url    || null;
+    const notes       = j.notes        || '';
+
+    let html = '<button class="modal-close" onclick="closeModal()">&#10005;</button>';
+    html += '<div class="modal-title">'+vehicleReg+'</div>';
+    html += '<div class="modal-sub" style="margin-bottom:16px">'+techName+' &nbsp;|&nbsp; '+j.status+'</div>';
+
+    // Video section
+    html += '<div style="font-size:13px;font-weight:700;color:var(--g700);margin-bottom:8px">&#127909; Video</div>';
+    if (videoUrl) {
+      html += '<div style="margin-bottom:16px">' +
+        '<a href="'+videoUrl+'" target="_blank" download style="display:inline-flex;align-items:center;gap:6px;padding:10px 16px;background:#2563eb;color:white;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600">&#11123; Download Video</a>' +
+        '<br><video src="'+videoUrl+'" controls style="width:100%;border-radius:8px;margin-top:8px;max-height:200px"></video>' +
+        '</div>';
+    } else {
+      html += '<div style="font-size:13px;color:var(--g400);margin-bottom:16px">No video recorded yet</div>';
+    }
+
+    // Start photos
+    html += '<div style="font-size:13px;font-weight:700;color:var(--g700);margin-bottom:8px">&#128247; Start Photos</div>';
+    if (startPhotos.length) {
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">';
+      startPhotos.forEach(function(url, i) {
+        html += '<a href="'+url+'" target="_blank" download><img src="'+url+'" style="width:100%;height:100px;object-fit:cover;border-radius:8px;border:1px solid var(--g100)"/></a>';
+      });
+      html += '</div>';
+    } else {
+      html += '<div style="font-size:13px;color:var(--g400);margin-bottom:16px">No start photos yet</div>';
+    }
+
+    // End photos
+    html += '<div style="font-size:13px;font-weight:700;color:var(--g700);margin-bottom:8px">&#128247; Completion Photos</div>';
+    if (endPhotos.length) {
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">';
+      endPhotos.forEach(function(url) {
+        html += '<a href="'+url+'" target="_blank" download><img src="'+url+'" style="width:100%;height:100px;object-fit:cover;border-radius:8px;border:1px solid var(--g100)"/></a>';
+      });
+      html += '</div>';
+    } else {
+      html += '<div style="font-size:13px;color:var(--g400);margin-bottom:16px">No completion photos yet</div>';
+    }
+
+    // Parts
+    if (parts.length) {
+      html += '<div style="font-size:13px;font-weight:700;color:var(--g700);margin-bottom:8px">&#9881; Parts</div>';
+      parts.forEach(function(p) {
+        var bc = p.status==='used'?'#dcfce7':p.status==='not_used'?'#fee2e2':'#f1f5f9';
+        var tc = p.status==='used'?'#166534':p.status==='not_used'?'#991b1b':'#64748b';
+        html += '<div style="border:1px solid var(--g100);border-radius:8px;padding:10px;margin-bottom:8px">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
+        html += '<div style="font-size:13px;font-weight:600">'+p.part_name+'</div>';
+        html += '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;background:'+bc+';color:'+tc+'">'+(p.status==='used'?'Used':p.status==='not_used'?'Not Used':'Pending')+'</span>';
+        html += '</div>';
+        if (p.status==='used') {
+          html += '<div style="font-size:12px;color:var(--g500);margin-bottom:6px">Qty: '+(p.quantity||1)+'</div>';
+          html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';
+          if (p.photo_before) html += '<div><div style="font-size:10px;color:var(--g400);margin-bottom:2px">Before</div><a href="'+p.photo_before+'" target="_blank" download><img src="'+p.photo_before+'" style="width:100%;height:70px;object-fit:cover;border-radius:6px"/></a></div>';
+          if (p.photo_after)  html += '<div><div style="font-size:10px;color:var(--g400);margin-bottom:2px">After</div><a href="'+p.photo_after+'" target="_blank" download><img src="'+p.photo_after+'" style="width:100%;height:70px;object-fit:cover;border-radius:6px"/></a></div>';
+          html += '</div>';
+        }
+        html += '</div>';
+      });
+    }
+
+    // Notes
+    if (notes) {
+      html += '<div style="font-size:13px;font-weight:700;color:var(--g700);margin-bottom:6px">&#128203; Notes</div>';
+      html += '<div style="font-size:13px;color:var(--g600);background:var(--g50);padding:10px;border-radius:8px">'+notes+'</div>';
+    }
+
+    inner.innerHTML = html;
+  } catch(e) {
+    inner.innerHTML = '<button class="modal-close" onclick="closeModal()">&#10005;</button><div style="padding:20px;color:var(--red)">Error loading job: '+e.message+'</div>';
+  }
+}
+
 async function smMarkJobDone(woId) {
   if (!woId || _demoMode) return;
   if (!confirm('Mark this job as Done?')) return;
