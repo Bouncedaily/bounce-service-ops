@@ -5669,7 +5669,7 @@ async function renderWorkAssignedAsync() {
       <td><span class="badge ${sc}">${j.status}</span></td>
       <td style="font-size:13px;color:var(--g500)">${fmtDate(j.assigned_at)}</td>
       <td style="font-size:13px;color:var(--g500)">${j.completed_at ? fmtDate(j.completed_at) : '—'}</td>
-      <td>${j.status!=='Done'?'<button onclick="smMarkJobDone(\''+j.id+'\')" style="font-size:13px;padding:3px 8px;border:1px solid #ccc;border-radius:4px;background:white;cursor:pointer">Mark Done</button>':'—'}</td>
+      <td><button onclick="smViewJob('${j.id}','${(j.vehicle_reg||'').replace(/'/g,'')}','${(j.assigned_tech_name||'').replace(/'/g,'')}')" style="font-size:12px;padding:6px 12px;border:1px solid var(--blue);border-radius:6px;color:var(--blue);background:white;cursor:pointer">&#128065; View</button></td>
     </tr>`;
   }).join('');
 
