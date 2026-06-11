@@ -32,3 +32,11 @@ jobs:
             -H "Authorization: Bearer ${SUPABASE_KEY}" \
             -H "Content-Type: application/json" \
             -d '{"status":"checked_in"}' && echo "Done"
+
+  auto-assign:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger auto-assign for techs with no active job
+        run: |
+          curl -s "https://jpypnrrjiagscqrucslw.supabase.co/functions/v1/auto-assign-jobs"
+          echo "Auto-assign done"
