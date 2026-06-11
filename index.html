@@ -3887,14 +3887,27 @@ async function finishPhotoSession() {
   else state.jobs[jobIdx].end_photos = uploaded;
 
   if (!_demoMode) {
-    await updateWOStatus(job.db_id, newStatus);
     const patch = phase==='start'
-      ? { status: 'In Progress', started_at: new Date().toISOString(), start_photos_done: true }
-      : { status: 'Done', completed_at: new Date().toISOString(), end_photos_done: true };
-    await sb(`work_orders?id=eq.${job.db_id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+      ? { status: 'In Progress', started_at: new Date().toISOString(), start_photos: uploaded, start_photos_done: true }
+      : { status: 'Done', completed_at: new Date().toISOString(), end_photos: uploaded, end_photos_done: true };
+    try {
+      await sb(`work_orders?id=eq.${job.db_id}`, { method: 'PATCH', body: JSON.stringify({...patch, updated_at: new Date().toISOString()}) });
+    } catch(e) {
+      if (statusEl) statusEl.innerHTML = '<div style="color:#f87171;font-size:13px">⚠️ Failed to save job status. Please try again.</div>';
+      if (btn) { btn.disabled=false; btn.textContent='Retry'; }
+      return;
+    }
   }
 
   // Small delay to show success message, then close
+  // Save notes if present (completion phase)
+  if (!_demoMode && phase==='end') {
+    const notes = document.getElementById('pm-notes')?.value?.trim();
+    if (notes) {
+      await sb(`work_orders?id=eq.${job.db_id}`, { method: 'PATCH', body: JSON.stringify({ notes, updated_at: new Date().toISOString() }) });
+    }
+  }
+
   await new Promise(r => setTimeout(r, 800));
   stopCamera();
   document.getElementById('photo-modal').style.display='none';
