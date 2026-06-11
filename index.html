@@ -5888,7 +5888,7 @@ async function doGeoCheckin(mode){
              :err.code===2?'Location unavailable. Try again outdoors or near a window.'
              :'Location timed out. Move to an open area and try again.';
     setAttMsg('error',msg);
-    if(btn){btn.disabled=false;btn.style.opacity='1';} return;
+    if(btn){btn.disabled=false;btn.style.opacity='1';btn.innerHTML=btn.dataset.origText||'Check In';}  return;
   }
   const userLat=position.coords.latitude, userLng=position.coords.longitude, accuracy=Math.round(position.coords.accuracy);
   // Skip geofence for test numbers
@@ -5921,11 +5921,11 @@ async function doGeoCheckin(mode){
       await processCheckin(mode,userLat,userLng,accuracy,dist,true);
     }else{
       setAttMsg('error',`You are ${dist}m away from ${state.hub}. Must be within ${GEOFENCE_RADIUS_M}m. Move closer and try again.`);
-      if(btn){btn.disabled=false;btn.style.opacity='1';}
+      if(btn){btn.disabled=false;btn.style.opacity='1';btn.innerHTML=btn.dataset.origText||'Check In';}
     }
   } catch(e) {
     setAttMsg('error','Something went wrong. Please try again.');
-    if(btn){btn.disabled=false;btn.style.opacity='1';}
+    if(btn){btn.disabled=false;btn.style.opacity='1';btn.innerHTML=btn.dataset.origText||'Check In';}
     console.error('[checkin error]', e);
   }
 }
@@ -5945,23 +5945,39 @@ async function processCheckin(mode,lat,lng,accuracy,distanceM,withinFence){
         const h = HUBS.find(x => x.name === hubName);
         if (h) { hubId = h.id; state.hubId = h.id; } // also fix state
       }
-      const res=await sb('attendance?on_conflict=user_id,date',{
-        method:'POST',prefer:'resolution=merge-duplicates,return=representation',
-        body:JSON.stringify({
-          user_id:         state.user.id,
-          technician_name: state.user.name,
-          employee_id:     state.user.employee_id || null,
-          phone_number:    state.user.mobile,
-          hub_id:          hubId,
-          hub_name:        hubName,
-          date:            new Date().toISOString().slice(0,10),
-          status:          'checked_in',
-          checkin_time:    new Date().toISOString(),
-          geo_checkin:     geoData,
-          approval_status: 'pending'
-        })
-      });
-      attId=res?.[0]?.id||null;
+      let res = null;
+      // Try insert with upsert
+      try {
+        res = await sb('attendance?on_conflict=user_id,date',{
+          method:'POST', prefer:'resolution=merge-duplicates,return=representation',
+          body: JSON.stringify({
+            user_id:         state.user.id,
+            technician_name: state.user.name,
+            employee_id:     state.user.employee_id || null,
+            phone_number:    state.user.mobile,
+            hub_id:          hubId,
+            hub_name:        hubName,
+            date:            new Date().toISOString().slice(0,10),
+            status:          'checked_in',
+            checkin_time:    new Date().toISOString(),
+            geo_checkin:     geoData,
+            approval_status: 'pending'
+          })
+        });
+      } catch(saveErr) {
+        // Retry once
+        await new Promise(r=>setTimeout(r,1000));
+        res = await sb('attendance?on_conflict=user_id,date',{
+          method:'POST', prefer:'resolution=merge-duplicates,return=representation',
+          body: JSON.stringify({
+            user_id: state.user.id, technician_name: state.user.name,
+            hub_id: hubId, hub_name: hubName,
+            date: new Date().toISOString().slice(0,10),
+            status: 'checked_in', checkin_time: new Date().toISOString()
+          })
+        });
+      }
+      attId = res?.[0]?.id || null;
       if(_DEBUG)console.log('[checkin] saved att:', attId, 'hub:', hubName, 'hub_id:', hubId);
     }
     state.myCheckin=t12; state.myAttId=attId||'demo-att';
@@ -6015,7 +6031,7 @@ async function processCheckin(mode,lat,lng,accuracy,distanceM,withinFence){
   } catch(e) {
     console.error('[processCheckin error]', e);
     setAttMsg('error','Attendance could not be saved. Please try again.');
-    if(btn){btn.disabled=false;btn.style.opacity='1';}
+    if(btn){btn.disabled=false;btn.style.opacity='1';btn.innerHTML=btn.dataset.origText||btn.textContent;}
   }
 }
 
