@@ -5764,7 +5764,7 @@ async function renderWorkAssignedAsync() {
 }
 
 // ─ GEO CHECK-IN / OUT ─
-const GEOFENCE_RADIUS_M = 200;
+const GEOFENCE_RADIUS_M = 300; // 300m radius — accounts for GPS inaccuracy indoors
 
 function getDistanceM(lat1,lng1,lat2,lng2){
   const R=6371000, dLat=(lat2-lat1)*Math.PI/180, dLng=(lng2-lng1)*Math.PI/180;
@@ -5876,20 +5876,35 @@ async function doGeoCheckin(mode){
   }
   let position;
   try{
-    // Try fast cached position first (up to 30s old), fallback to fresh GPS
+    setAttMsg('loading','Getting your location...');
     position = await new Promise(function(res, rej) {
-      // First try: fast, low accuracy (accepts cached up to 30s)
-      navigator.geolocation.getCurrentPosition(res, function() {
-        // Fallback: high accuracy with 15s timeout
-        navigator.geolocation.getCurrentPosition(res, rej, {enableHighAccuracy:true, timeout:15000, maximumAge:0});
-      }, {enableHighAccuracy:false, timeout:5000, maximumAge:30000});
+      var resolved = false;
+      function done(pos) { if(!resolved){resolved=true;res(pos);} }
+      function fail(err) { if(!resolved){resolved=true;rej(err);} }
+
+      // Attempt 1: Use last cached position (any age) — instant
+      navigator.geolocation.getCurrentPosition(done, function(){},
+        {enableHighAccuracy:false, timeout:1000, maximumAge:Infinity});
+
+      // Attempt 2: Low accuracy, accept 60s cache — fast
+      setTimeout(function(){
+        if(!resolved) navigator.geolocation.getCurrentPosition(done, function(){},
+          {enableHighAccuracy:false, timeout:4000, maximumAge:60000});
+      }, 500);
+
+      // Attempt 3: High accuracy fresh — slower but accurate
+      setTimeout(function(){
+        if(!resolved) navigator.geolocation.getCurrentPosition(done, fail,
+          {enableHighAccuracy:true, timeout:20000, maximumAge:0});
+      }, 2000);
     });
   }catch(err){
-    const msg=err.code===1?'Location permission denied. Please allow location access and try again.'
-             :err.code===2?'Location unavailable. Try again outdoors or near a window.'
-             :'Location timed out. Move to an open area and try again.';
+    const msg=err.code===1?'Camera/location permission denied. Please allow location in browser settings.'
+             :err.code===2?'Location unavailable. Try outdoors or near a window.'
+             :'Location timed out. Please try again.';
     setAttMsg('error',msg);
-    if(btn){btn.disabled=false;btn.style.opacity='1';btn.innerHTML=btn.dataset.origText||'Check In';}  return;
+    if(btn){btn.disabled=false;btn.style.opacity='1';btn.innerHTML=btn.dataset.origText||'Check In';}
+    return;
   }
   const userLat=position.coords.latitude, userLng=position.coords.longitude, accuracy=Math.round(position.coords.accuracy);
   // Skip geofence for test numbers
