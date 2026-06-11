@@ -819,6 +819,8 @@ async function autoAssignOnCompletion() {
     const hubName = state.hub || state.user?.assigned_hub_name;
     const hubId = state.hubId || (typeof HUBS!=='undefined'?HUBS.find(function(h){return h.name===hubName;})?.id:null);
     if (!hubId) return;
+    // Small delay to ensure DB has processed the Done status
+    await new Promise(function(r){setTimeout(r,300);});
     const existing = await sb('work_orders?assigned_tech_id=eq.'+techId+'&status=in.(Open,In Progress)&select=id') || [];
     if (existing.length >= 1) return; // Still has a job, wait
     const done = await assignJobsToTech(techName, techId, hubName, hubId, 1);
@@ -3897,8 +3899,8 @@ async function finishPhotoSession() {
       return;
     }
   }
-  // Auto-assign AFTER DB is updated — job must be Done in DB before checking for new work
-  if (newStatus === 'Done') { showJobCompleteAnimation(); autoAssignOnCompletion(); }
+  // Trigger auto-assign AFTER DB is updated
+  if (newStatus === 'Done') { showJobCompleteAnimation(); setTimeout(autoAssignOnCompletion, 500); }
 
   // Small delay to show success message, then close
   // Save notes if present (completion phase)
@@ -5967,11 +5969,13 @@ async function processCheckin(mode,lat,lng,accuracy,distanceM,withinFence){
     state.attendance[state.user.name]={status:'checked_in',checkin:t24,checkout:null,hub:state.hub,att_id:attId};
     // Auto-assign jobs on check-in
     const _resolvedHubId = state.hubId || (typeof HUBS !== 'undefined' ? HUBS.find(function(h){return h.name===state.hub;})?.id : null);
-    if (_resolvedHubId) {
-      setAttMsg('info', 'Checking for job assignments...');
-      autoAssignOnCheckin(state.user.name, state.user.id, state.hub, _resolvedHubId).then(function(){
-        setAttMsg('success', 'Check-in complete. Jobs assigned to your queue.');
-      });
+    if (_resolvedHubId && state.user?.id) {
+      setAttMsg('success', 'Check-in complete! Finding best job for you...');
+      setTimeout(function() {
+        autoAssignOnCheckin(state.user.name, state.user.id, state.hub, _resolvedHubId).then(function(){
+          loadMyJobs().then(function(){ navigate('my-jobs'); });
+        }).catch(function(e){ console.warn('auto-assign failed:', e.message); });
+      }, 300);
     }
     try{const s=JSON.parse(localStorage.getItem('bounce_session')||'{}');s.myCheckin=t12;s.myAttId=state.myAttId;s.myCheckinDate=TODAY;localStorage.setItem('bounce_session',JSON.stringify(s));}catch(e){}
   }else{
