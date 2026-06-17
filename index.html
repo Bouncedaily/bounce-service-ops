@@ -5779,14 +5779,10 @@ async function renderWorkAssignedAsync() {
     ? allJobs
     : allJobs.filter(j => (j.assigned_at && j.assigned_at.slice(0,10) === selDate) || j.status === 'Open' || j.status === 'In Progress');
 
-  // Apply search filter (vehicle reg or tech name)
+  // Apply search filter — JC number ILIKE
   const searchQ = (window._waSearch || '').trim().toLowerCase();
   const filtered = searchQ
-    ? byDate.filter(j =>
-        (j.vehicle_reg || '').toLowerCase().includes(searchQ) ||
-        (j.assigned_tech_name || '').toLowerCase().includes(searchQ) ||
-        (j.job_card_number || '').toLowerCase().includes(searchQ) ||
-        (j.issue || '').toLowerCase().includes(searchQ))
+    ? byDate.filter(j => (j.job_card_number || '').toLowerCase().includes(searchQ))
     : byDate;
 
   const fmtDate = d => d ? new Date(d).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:true}) : '—';
@@ -5838,7 +5834,7 @@ async function renderWorkAssignedAsync() {
 
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
       <div>
-        <input class="form-input" style="width:180px;font-size:13px" placeholder="Search reg no. or tech..." id="wa-search-input"
+        <input class="form-input" style="width:180px;font-size:13px" placeholder="Search JC No..." id="wa-search-input"
           value="${window._waSearch||''}"
           oninput="debounceWaSearch(this.value)"/>
       </div>
@@ -6175,4 +6171,9 @@ async function initApp() {
   try {
     const saved = localStorage.getItem('bounce_session');
     if (saved) sess = JSON.parse(saved);
-  } catch(e) {
+  } catch(e) { localStorage.removeItem('bounce_session'); }
+
+  if (sess && sess.user) {
+    try {
+      state.user       = sess.user;
+      state.hub        = sess.hub || (sess.user?.role==='hub_manager' ? sess.user?.assigned_hub_name 
