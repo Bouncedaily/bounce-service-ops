@@ -3405,7 +3405,7 @@ function renderMyJobs() {
               ${j.priority==='High' ? '<div class="urgent-dot"></div>' : ''}
               <span class="badge ${sc}">${j.status}</span>
               <span class="badge ${pc}">${j.priority}</span>
-              ${isActive && j.started_at ? `<span style="font-size:12px;background:var(--blue-lt);color:var(--blue);padding:2px 8px;border-radius:20px;font-weight:600">⏱ <span id="job-elapsed-timer" data-started="${j.started_at}">${(()=>{const s=Math.floor((new Date()-new Date(j.started_at))/1000);const h=Math.floor(s/3600);const m=Math.floor((s%3600)/60);return h>0?h+'h '+m+'m':m+'m';})()}</span></span>` : ''}
+              ${isActive && j.started_at ? `<span style="font-size:12px;background:var(--blue-lt);color:var(--blue);padding:2px 8px;border-radius:20px;font-weight:600">&#9201; <span id="job-elapsed-timer" data-started="${j.started_at}">${(()=>{var s=Math.floor((new Date()-new Date(j.started_at))/1000);var h=Math.floor(s/3600);var m=Math.floor((s%3600)/60);return h>0?h+'h '+m+'m':m+'m';})()}</span></span>` : ''}
             </div>
             ${startPhotos.length ? `<div style="margin-top:10px;font-size:13px;color:var(--green);font-weight:600;margin-bottom:4px">✓ START PHOTOS</div>
             <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -3894,9 +3894,9 @@ async function finishPhotoSession() {
     const patch = phase==='start'
       ? { status: 'In Progress', started_at: new Date().toISOString(), start_photos: uploaded, start_photos_done: true }
       : (function() {
-          const now = new Date();
-          const tat = job.assigned_at ? Math.round((now - new Date(job.assigned_at)) / 60000) : null;
-          return { status: 'Done', completed_at: now.toISOString(), end_photos: uploaded, end_photos_done: true, tat };
+          var now = new Date();
+          var tat = job.assigned_at ? Math.round((now - new Date(job.assigned_at)) / 60000) : null;
+          return { status: 'Done', completed_at: now.toISOString(), end_photos: uploaded, end_photos_done: true, tat: tat };
         })();
     try {
       await sb(`work_orders?id=eq.${job.db_id}`, { method: 'PATCH', body: JSON.stringify({...patch, updated_at: new Date().toISOString()}) });
@@ -4644,17 +4644,15 @@ function debounceWaSearch(val) {
   window._waSearchTimer = setTimeout(()=>navigate('work-assigned'), 300);
 }
 
-// ─ Work Assigned: auto-refresh every 60s ─
 function startWaAutoRefresh() {
   stopWaAutoRefresh();
   window._waRefreshInt = setInterval(function() {
     if (currentPage === 'work-assigned') navigate('work-assigned');
   }, 60000);
-  // Tick the "last updated X ago" label every 15s
   window._waTickInt = setInterval(function() {
-    const el = document.getElementById('wa-last-updated');
+    var el = document.getElementById('wa-last-updated');
     if (!el || !window._waLastUpdated) return;
-    const secs = Math.floor((new Date() - window._waLastUpdated) / 1000);
+    var secs = Math.floor((new Date() - window._waLastUpdated) / 1000);
     el.textContent = secs < 10 ? 'just now' : secs < 60 ? secs+'s ago' : Math.floor(secs/60)+'m ago';
   }, 15000);
 }
@@ -4662,18 +4660,16 @@ function stopWaAutoRefresh() {
   clearInterval(window._waRefreshInt);
   clearInterval(window._waTickInt);
 }
-
-// ─ Technician: elapsed timer for active job ─
 function startJobElapsedTimer() {
   clearInterval(window._jobElapsedInt);
   window._jobElapsedInt = setInterval(function() {
-    const el = document.getElementById('job-elapsed-timer');
+    var el = document.getElementById('job-elapsed-timer');
     if (!el) { clearInterval(window._jobElapsedInt); return; }
-    const started = el.dataset.started;
+    var started = el.dataset.started;
     if (!started) return;
-    const secs = Math.floor((new Date() - new Date(started)) / 1000);
-    const h = Math.floor(secs / 3600);
-    const m = Math.floor((secs % 3600) / 60);
+    var secs = Math.floor((new Date() - new Date(started)) / 1000);
+    var h = Math.floor(secs / 3600);
+    var m = Math.floor((secs % 3600) / 60);
     el.textContent = h > 0 ? h+'h '+m+'m' : m+'m';
   }, 30000);
 }
@@ -5779,11 +5775,12 @@ async function renderWorkAssignedAsync() {
     ? allJobs
     : allJobs.filter(j => (j.assigned_at && j.assigned_at.slice(0,10) === selDate) || j.status === 'Open' || j.status === 'In Progress');
 
-  // Apply search filter — JC number ILIKE
   const searchQ = (window._waSearch || '').trim().toLowerCase();
   const filtered = searchQ
     ? byDate.filter(j => (j.job_card_number || '').toLowerCase().includes(searchQ))
     : byDate;
+
+  window._waLastUpdated = new Date();
 
   const fmtDate = d => d ? new Date(d).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:true}) : '—';
   const fmtDateOnly = d => d ? new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '—';
@@ -5792,8 +5789,6 @@ async function renderWorkAssignedAsync() {
   const open   = filtered.filter(j=>j.status==='Open').length;
   const inProg = filtered.filter(j=>j.status==='In Progress').length;
   const done   = filtered.filter(j=>j.status==='Done').length;
-
-  window._waLastUpdated = new Date();
 
   const rows = filtered.map(j => {
     const sc = j.status==='Done'?'b-done':j.status==='In Progress'?'b-inprog':'b-open';
@@ -6176,4 +6171,51 @@ async function initApp() {
   if (sess && sess.user) {
     try {
       state.user       = sess.user;
-      state.hub        = sess.hub || (sess.user?.role==='hub_manager' ? sess.user?.assigned_hub_name 
+      state.hub        = sess.hub || (sess.user?.role==='hub_manager' ? sess.user?.assigned_hub_name : null) || null;
+      state.hubId      = sess.hubId      || null;
+      const isToday = sess.myCheckinDate === TODAY;
+      state.myCheckin  = (isToday && sess.myCheckin)  ? sess.myCheckin  : null;
+      state.myCheckout = (isToday && sess.myCheckout) ? sess.myCheckout : null;
+      state.myAttId    = (isToday && sess.myAttId)    ? sess.myAttId    : null;
+      if (sess.dashFilterCity) _dashFilterCity = sess.dashFilterCity;
+      if (sess.dashFilterHub)  _dashFilterHub  = sess.dashFilterHub;
+      const sessDate = sess.myCheckinDate || '';
+      if (sess.hub1 && sessDate === TODAY) {
+        state.hub1=sess.hub1; state.hub1Id=sess.hub1Id;
+        state.hub1CheckIn=sess.hub1CheckIn; state.hub1CheckOut=sess.hub1CheckOut;
+      }
+      if (sess.hub2 && sessDate === TODAY) {
+        state.hub2=sess.hub2; state.hub2Id=sess.hub2Id; state.hub2CheckIn=sess.hub2CheckIn;
+      }
+    } catch(e) {
+      // Corrupt session object — wipe and show login
+      localStorage.removeItem('bounce_session');
+      document.getElementById('login-page').style.display = 'flex';
+      return;
+    }
+
+    // Load data separately — network errors here should NOT log the user out
+    try {
+      if (state.user.role === 'hub_manager' && state.hubId) {
+        await Promise.all([loadAttendanceForHub(state.hubId), loadJobsForHub(state.hubId), loadVehiclesForHub(state.hub)]);
+      } else if (state.user.role === 'technician') {
+        await loadMyAttendance(state.user.id); await loadMyJobs();
+      } else { await loadAllHubsData(); }
+    } catch(e) {
+      console.warn('[initApp] data load error (session kept):', e.message);
+    }
+
+    document.getElementById('login-page').style.display = 'none';
+    document.getElementById('app-shell').style.display  = 'block';
+    renderTopbar(); renderNav();
+    const defaultPage = state.user.role !== 'technician' ? 'dashboard' : 'my-attendance';
+    navigate(sess.currentPage || defaultPage);
+    return;
+  }
+
+  document.getElementById('login-page').style.display = 'flex';
+}
+initApp();
+</script>
+</body>
+</html>
