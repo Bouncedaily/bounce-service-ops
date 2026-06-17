@@ -4650,6 +4650,20 @@ async function forceDownload(url, filename) {
   }
 }
 
+function showImgLightbox(url) {
+  // Show image fullscreen overlay inside the modal (doesn't exit native fullscreen)
+  const existing = document.getElementById('img-lightbox');
+  if (existing) existing.remove();
+  const lb = document.createElement('div');
+  lb.id = 'img-lightbox';
+  lb.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:pointer';
+  lb.innerHTML = '<img src="'+url+'" style="max-width:100%;max-height:100%;object-fit:contain"/>' +
+    '<button onclick="event.stopPropagation();document.getElementById('img-lightbox').remove()" style="position:absolute;top:16px;right:16px;background:rgba(255,255,255,.15);border:none;color:white;font-size:22px;width:40px;height:40px;border-radius:50%;cursor:pointer;line-height:1">&#10005;</button>' +
+    '<a href="'+url+'" download target="_blank" onclick="event.stopPropagation()" style="position:absolute;bottom:16px;right:16px;background:#2563eb;color:white;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none">&#11123; Download</a>';
+  lb.onclick = function() { lb.remove(); };
+  document.body.appendChild(lb);
+}
+
 async function smViewJob(woId, vehicleReg, techName) {
   // Open in native fullscreen
   const modalBackdrop = document.getElementById('modal');
@@ -4702,7 +4716,7 @@ async function smViewJob(woId, vehicleReg, techName) {
     if (startPhotos.length) {
       html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">';
       startPhotos.forEach(function(url, i) {
-        html += '<div style="position:relative;cursor:pointer" data-url="'+url+'" data-name="photo_'+vehicleReg+'.jpg" onclick="forceDownload(this.dataset.url,this.dataset.name)"><img src="'+url+'" style="width:100%;height:100px;object-fit:cover;border-radius:8px;border:1px solid var(--g100)"/><div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,.5);color:white;font-size:10px;padding:2px 6px;border-radius:4px">&#11123;</div></div>';
+        html += '<div style="position:relative;cursor:pointer" onclick="showImgLightbox(''+url+'')"><img src="'+url+'" style="width:100%;height:100px;object-fit:cover;border-radius:8px;border:1px solid var(--g100)"/></div>';
       });
       html += '</div>';
     } else {
@@ -4714,7 +4728,7 @@ async function smViewJob(woId, vehicleReg, techName) {
     if (endPhotos.length) {
       html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">';
       endPhotos.forEach(function(url) {
-        html += '<div style="position:relative;cursor:pointer" data-url="'+url+'" data-name="photo_'+vehicleReg+'.jpg" onclick="forceDownload(this.dataset.url,this.dataset.name)"><img src="'+url+'" style="width:100%;height:100px;object-fit:cover;border-radius:8px;border:1px solid var(--g100)"/><div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,.5);color:white;font-size:10px;padding:2px 6px;border-radius:4px">&#11123;</div></div>';
+        html += '<div style="position:relative;cursor:pointer" onclick="showImgLightbox(''+url+'')"><img src="'+url+'" style="width:100%;height:100px;object-fit:cover;border-radius:8px;border:1px solid var(--g100)"/></div>';
       });
       html += '</div>';
     } else {
@@ -4735,8 +4749,8 @@ async function smViewJob(woId, vehicleReg, techName) {
         if (p.status==='used') {
           html += '<div style="font-size:12px;color:var(--g500);margin-bottom:6px">Qty: '+(p.quantity||1)+'</div>';
           html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';
-          if (p.photo_before) html += '<div><div style="font-size:10px;color:var(--g400);margin-bottom:2px">Before</div><a href="'+p.photo_before+'" target="_blank" download><img src="'+p.photo_before+'" style="width:100%;height:70px;object-fit:cover;border-radius:6px"/></a></div>';
-          if (p.photo_after)  html += '<div><div style="font-size:10px;color:var(--g400);margin-bottom:2px">After</div><div style="cursor:pointer" data-url="'+p.photo_after+'" data-name="after.jpg" onclick="forceDownload(this.dataset.url,this.dataset.name)"><img src="'+p.photo_after+'" style="width:100%;height:70px;object-fit:cover;border-radius:6px"/></div></div>';
+          if (p.photo_before) html += '<div><div style="font-size:10px;color:var(--g400);margin-bottom:2px">Before</div><div style="cursor:pointer" onclick="showImgLightbox(''+p.photo_before+'')"><img src="'+p.photo_before+'" style="width:100%;height:70px;object-fit:cover;border-radius:6px"/></div></div>';
+          if (p.photo_after)  html += '<div><div style="font-size:10px;color:var(--g400);margin-bottom:2px">After</div><div style="cursor:pointer" onclick="showImgLightbox(''+p.photo_after+'')"><img src="'+p.photo_after+'" style="width:100%;height:70px;object-fit:cover;border-radius:6px"/></div></div>';
           html += '</div>';
         }
         html += '</div>';
