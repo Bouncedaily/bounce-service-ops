@@ -6080,44 +6080,57 @@ async function processCheckin(mode,lat,lng,accuracy,distanceM,withinFence){
 // ─ INIT ─
 async function initApp() {
   await bootstrap();
+  let sess = null;
   try {
     const saved = localStorage.getItem('bounce_session');
-    if (saved) {
-      const sess = JSON.parse(saved);
-      if (sess && sess.user) {
-        state.user       = sess.user;
-        state.hub        = sess.hub || (sess.user?.role==='hub_manager' ? sess.user?.assigned_hub_name : null) || null;
-        state.hubId      = sess.hubId      || null; // hubId resolved later after HUBS loads
-        // Only restore checkin state if it's from today
-        const isToday = sess.myCheckinDate === TODAY;
-        state.myCheckin  = (isToday && sess.myCheckin)  ? sess.myCheckin  : null;
-        state.myCheckout = (isToday && sess.myCheckout) ? sess.myCheckout : null;
-        state.myAttId    = (isToday && sess.myAttId)    ? sess.myAttId    : null;
-        if (sess.dashFilterCity) _dashFilterCity = sess.dashFilterCity;
-        if (sess.dashFilterHub)  _dashFilterHub  = sess.dashFilterHub;
-        // Only restore hub1/hub2 if session is from today
-        const sessDate = sess.myCheckinDate || '';
-        if (sess.hub1 && sessDate === TODAY) {
-          state.hub1=sess.hub1; state.hub1Id=sess.hub1Id;
-          state.hub1CheckIn=sess.hub1CheckIn; state.hub1CheckOut=sess.hub1CheckOut;
-        }
-        if (sess.hub2 && sessDate === TODAY) {
-          state.hub2=sess.hub2; state.hub2Id=sess.hub2Id; state.hub2CheckIn=sess.hub2CheckIn;
-        }
-        if (state.user.role === 'hub_manager' && state.hubId) {
-          await Promise.all([loadAttendanceForHub(state.hubId), loadJobsForHub(state.hubId), loadVehiclesForHub(state.hub)]);
-        } else if (state.user.role === 'technician') {
-          await loadMyAttendance(state.user.id); await loadMyJobs();
-        } else { await loadAllHubsData(); }
-        document.getElementById('login-page').style.display = 'none';
-        document.getElementById('app-shell').style.display  = 'block';
-        renderTopbar(); renderNav();
-        const defaultPage = state.user.role !== 'technician' ? 'dashboard' : 'my-attendance';
-        navigate(sess.currentPage || defaultPage);
-        return;
-      }
-    }
+    if (saved) sess = JSON.parse(saved);
   } catch(e) { localStorage.removeItem('bounce_session'); }
+
+  if (sess && sess.user) {
+    try {
+      state.user       = sess.user;
+      state.hub        = sess.hub || (sess.user?.role==='hub_manager' ? sess.user?.assigned_hub_name : null) || null;
+      state.hubId      = sess.hubId      || null;
+      const isToday = sess.myCheckinDate === TODAY;
+      state.myCheckin  = (isToday && sess.myCheckin)  ? sess.myCheckin  : null;
+      state.myCheckout = (isToday && sess.myCheckout) ? sess.myCheckout : null;
+      state.myAttId    = (isToday && sess.myAttId)    ? sess.myAttId    : null;
+      if (sess.dashFilterCity) _dashFilterCity = sess.dashFilterCity;
+      if (sess.dashFilterHub)  _dashFilterHub  = sess.dashFilterHub;
+      const sessDate = sess.myCheckinDate || '';
+      if (sess.hub1 && sessDate === TODAY) {
+        state.hub1=sess.hub1; state.hub1Id=sess.hub1Id;
+        state.hub1CheckIn=sess.hub1CheckIn; state.hub1CheckOut=sess.hub1CheckOut;
+      }
+      if (sess.hub2 && sessDate === TODAY) {
+        state.hub2=sess.hub2; state.hub2Id=sess.hub2Id; state.hub2CheckIn=sess.hub2CheckIn;
+      }
+    } catch(e) {
+      // Corrupt session object — wipe and show login
+      localStorage.removeItem('bounce_session');
+      document.getElementById('login-page').style.display = 'flex';
+      return;
+    }
+
+    // Load data separately — network errors here should NOT log the user out
+    try {
+      if (state.user.role === 'hub_manager' && state.hubId) {
+        await Promise.all([loadAttendanceForHub(state.hubId), loadJobsForHub(state.hubId), loadVehiclesForHub(state.hub)]);
+      } else if (state.user.role === 'technician') {
+        await loadMyAttendance(state.user.id); await loadMyJobs();
+      } else { await loadAllHubsData(); }
+    } catch(e) {
+      console.warn('[initApp] data load error (session kept):', e.message);
+    }
+
+    document.getElementById('login-page').style.display = 'none';
+    document.getElementById('app-shell').style.display  = 'block';
+    renderTopbar(); renderNav();
+    const defaultPage = state.user.role !== 'technician' ? 'dashboard' : 'my-attendance';
+    navigate(sess.currentPage || defaultPage);
+    return;
+  }
+
   document.getElementById('login-page').style.display = 'flex';
 }
 initApp();
