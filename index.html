@@ -984,7 +984,7 @@ function renderPartsHTML(woId, partsCsv, jobIdx) {
       h+='<button data-wo="'+woId+'" data-pi="'+i+'" data-ph="before" onclick="handlePartPhoto(this)" style="flex:1;padding:8px;font-size:12px;border-radius:8px;border:1px solid '+bbc+';cursor:pointer;font-weight:600;background:'+bbg+';color:'+btc+'">'+(p.photo_before?'&#10003; Before':'&#128247; Before')+'</button>';
       h+='<button data-wo="'+woId+'" data-pi="'+i+'" data-ph="after" onclick="handlePartPhoto(this)" style="flex:1;padding:8px;font-size:12px;border-radius:8px;border:1px solid '+abc_+';cursor:pointer;font-weight:600;background:'+abg+';color:'+atc+'">'+(p.photo_after?'&#10003; After':'&#128247; After')+'</button>';
       h+='</div>';
-      if(!p.photo_before||!p.photo_after) h+='<div style="font-size:13px;color:#dc2626;margin-top:4px">&#9888; Both photos required</div>';
+      // Photos optional — no warning shown
     }
     h+='</div>';
   }
@@ -1013,13 +1013,9 @@ function renderPartsSection(woId) {
   var complete = usedParts.every(function(p){return p.photo_before&&p.photo_after;});
   if (usedParts.length === 0) {
     statusEl.textContent = '';
-  } else if (complete) {
-    statusEl.textContent = '✓ All part photos captured';
-    statusEl.style.color = '#16a34a';
   } else {
-    var missing = usedParts.filter(function(p){return !p.photo_before||!p.photo_after;}).length;
-    statusEl.textContent = '⚠ '+missing+' part'+(missing>1?'s':'')+' still need photos';
-    statusEl.style.color = '#dc2626';
+    statusEl.textContent = '✓ '+usedParts.length+' part'+(usedParts.length>1?'s':'')+' marked used';
+    statusEl.style.color = '#16a34a';
   }
 }
 
@@ -1060,8 +1056,7 @@ async function savePartToDB(woId, part, jobIdx) {
 }
 
 function partsAllValid(woId) {
-  if(!_partsSession[woId]) return true;
-  return _partsSession[woId].parts.every(function(p){ return p.status!=='used'||(p.photo_before&&p.photo_after); });
+  return true; // Part photos are optional
 }
 
 
@@ -3348,28 +3343,22 @@ function renderMyJobs() {
 
     ${activeJob ? `<div class="alert al-info" style="margin-bottom:14px">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      Active: <strong>${activeJob.vehicle}</strong> — Complete it before starting another.
-    </div>` : openJobs.length>1 ? `<div class="alert al-warn" style="margin-bottom:14px">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      Priority order: Start <strong>${firstOpenJob?.vehicle||'first job'}</strong> (${firstOpenJob?.priority||'High'} priority) first. Other jobs are locked.
+      Active: <strong>${activeJob.vehicle}</strong>
     </div>` : ''}
     ${filteredJobs.length===0?`<div class="empty-state">No jobs found for ${fmtSel}.</div>`:''}
     ${(()=>{
       const p={High:0,Medium:1,Low:2};
       const active = filteredJobs.filter(j=>j.status==='In Progress');
       const openSorted = filteredJobs.filter(j=>j.status==='Open').sort((a,b)=>(p[a.priority]??1)-(p[b.priority]??1)||(new Date(a.assigned_at||0)-new Date(b.assigned_at||0)));
-      const firstOpen = openSorted.slice(0,1);
-      const blockedOpen = openSorted.slice(1);
       const done = filteredJobs.filter(j=>j.status==='Done');
-      return [...active, ...firstOpen, ...blockedOpen, ...done];
+      return [...active, ...openSorted, ...done];
     })().map(j=>{
       const gi=state.jobs.indexOf(j);
       const sc=j.status==='Done'?'b-done':j.status==='In Progress'?'b-inprog':'b-open';
       const pc=j.priority==='High'?'b-high':j.priority==='Low'?'b-low':'b-med';
       const tc=j.wo_type==='oos'?'b-absent':'b-open';
       const isActive = j.status==='In Progress';
-      const isFirstOpen = j.status==='Open' && j===firstOpenJob;
-      const isBlocked   = j.status==='Open' && (!isFirstOpen || !!activeJob);
+      const isBlocked = false;
       const startPhotos = j.start_photos||[];
       const endPhotos = j.end_photos||[];
       return `<div class="card" onclick="if(${isActive}&&event.target.tagName!=='BUTTON'&&event.target.tagName!=='SELECT'&&event.target.tagName!=='INPUT')openJobDetail(${gi})" style="cursor:${isActive?'pointer':'default'};${isActive?'border-color:var(--blue);border-width:2px':isBlocked?'opacity:0.6':''}">
@@ -3399,11 +3388,11 @@ function renderMyJobs() {
               const isOverdue = j.status==='Open' && hoursOld > 2;
               const isNew     = minsOld < 60;
               const missingVideo = j.status==='In Progress' && !j.video_url;
-              const noStartPhotos = j.status==='In Progress' && !(j.start_photos||[]).length;
+              const noStartPhotos = false; // photos optional
               const badges = [];
               if (isOverdue)     badges.push('<span class="notif-badge notif-critical">&#9201; Overdue '+Math.floor(hoursOld)+'h</span>');
               if (missingVideo)  badges.push('<span class="notif-badge notif-critical">&#127909; Video required</span>');
-              if (noStartPhotos) badges.push('<span class="notif-badge notif-warning">&#128247; Start photos</span>');
+              // Start photos optional — no badge
               if (isNew)         badges.push('<span class="notif-badge notif-info">&#128260; Just assigned</span>');
               return badges.length ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">'+badges.join('')+'</div>' : '';
             })()}
@@ -3460,22 +3449,6 @@ async function endJobWithPhotos(i) {
   if (!j.video_url) {
     alert('Please record a video before completing this job.');
     return;
-  }
-  // Load parts from DB and check validation
-  try {
-    const dbParts = await loadJobParts(j.db_id);
-    const bad = dbParts.filter(function(p){ return p.status==='used' && (!p.photo_before||!p.photo_after); });
-    if (bad.length) {
-      alert('Capture Before & After photos for: ' + bad.map(function(p){return p.part_name;}).join(', '));
-      return;
-    }
-  } catch(e) {
-    // If DB check fails, also check in-memory
-    const sess = _partsSession[j.db_id];
-    if (sess) {
-      const bad = sess.parts.filter(function(p){ return p.status==='used' && (!p.photo_before||!p.photo_after); });
-      if (bad.length) { alert('Capture Before & After photos for: ' + bad.map(function(p){return p.part_name;}).join(', ')); return; }
-    }
   }
   openPhotoCapture('end', i);
 }
