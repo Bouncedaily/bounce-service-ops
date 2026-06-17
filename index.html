@@ -754,15 +754,19 @@ async function assignJobsToTech(techName, techId, hubName, hubId, count) {
 
   const jcRows = await sb('draft_jc?hub_name=eq.'+encodeURIComponent(hubName)+'&current_jc_status=in.(Job Open,JC not opened in DMS)&select=job_card_number,reg_number,submission_type,labour_time_hours,parts_to_be_changed,overall_tat_days,bike_model,bike_status&limit=100') || [];
   // Only exclude JCs that have a real tech assigned (not null)
-  const assigned = await sb('work_orders?hub_name=eq.'+encodeURIComponent(hubName)+'&status=in.(Open,In Progress)&assigned_tech_id=not.is.null&select=job_card_number') || [];
-  const assignedSet = new Set(assigned.map(function(w){return w.job_card_number;}));
+  const assigned = await sb('work_orders?hub_name=eq.'+encodeURIComponent(hubName)+'&status=in.(Open,In Progress)&assigned_tech_id=not.is.null&select=job_card_number,vehicle_reg') || [];
+  const assignedJcSet  = new Set(assigned.map(function(w){return w.job_card_number;}).filter(Boolean));
+  const assignedVehSet = new Set(assigned.map(function(w){return w.vehicle_reg;}).filter(Boolean));
   // Exclude completed JC numbers to prevent reassigning finished jobs
-  var doneRows = await sb('work_orders?status=eq.Done&hub_name=eq.'+encodeURIComponent(hubName)+'&select=job_card_number&limit=500') || [];
-  var doneSet = new Set(doneRows.map(function(w){return w.job_card_number;}).filter(Boolean));
+  var doneRows = await sb('work_orders?status=eq.Done&hub_name=eq.'+encodeURIComponent(hubName)+'&select=job_card_number,vehicle_reg&limit=500') || [];
+  var doneSet    = new Set(doneRows.map(function(w){return w.job_card_number;}).filter(Boolean));
+  var doneVehSet = new Set(doneRows.map(function(w){return w.vehicle_reg;}).filter(Boolean));
   var unassigned = jcRows.filter(function(j){
     return j.reg_number
-      && !assignedSet.has(j.job_card_number)
+      && !assignedJcSet.has(j.job_card_number)
+      && !assignedVehSet.has(j.reg_number)   // also exclude by vehicle reg (handles null job_card_number)
       && !doneSet.has(j.job_card_number)
+      && !doneVehSet.has(j.reg_number)
       && (j.bike_status||'').toLowerCase() === 'oos'; // Only OOS vehicles
   });
   if (nearEnd) unassigned = unassigned.filter(function(j){var l=parseFloat(j.labour_time_hours)||0; return l===0||l<=1.5;});
@@ -5686,12 +5690,12 @@ async function renderWorkAssignedAsync() {
 
   // Get selected date from filter (default today)
   const todayISO = new Date().toISOString().slice(0,10);
-  const selDate  = window._waDate || todayISO;
+  const selDate  = (window._waDate !== undefined && window._waDate !== null) ? window._waDate : 'all';
 
   // Filter by selected date
   const filtered = selDate === 'all'
     ? allJobs
-    : allJobs.filter(j => j.assigned_at && j.assigned_at.slice(0,10) === selDate);
+    : allJobs.filter(j => (j.assigned_at && j.assigned_at.slice(0,10) === selDate) || j.status === 'Open' || j.status === 'In Progress');
 
   const fmtDate = d => d ? new Date(d).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:true}) : '—';
   const fmtDateOnly = d => d ? new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '—';
@@ -5742,7 +5746,7 @@ async function renderWorkAssignedAsync() {
           onchange="window._waDate=this.value;navigate('work-assigned')"/>
       </div>
       <div style="margin-top:18px">
-        <button class="btn btn-outline btn-sm" onclick="window._waDate='all';navigate('work-assigned')">All Time</button>
+        <button class="btn btn-outline btn-sm" style="font-weight:600" onclick="window._waDate='all';navigate('work-assigned')">All Days</button>
       </div>
       <div style="margin-top:18px">
         <button class="btn btn-outline btn-sm" onclick="window._waDate='${todayISO}';navigate('work-assigned')">Today</button>
@@ -5859,6 +5863,11 @@ async function confirmChangeHub() {
 }
 
 async function doGeoCheckin(mode){
+  // Auto-reload if date has changed since page was last loaded (stale TODAY fix)
+  if (new Date().toISOString().slice(0,10) !== TODAY) {
+    location.reload();
+    return;
+  }
   // Hard validation — must have hub selected
   if (!state.hub || !state.hubId) {
     setAttMsg('error','Please select a hub before marking attendance.');
