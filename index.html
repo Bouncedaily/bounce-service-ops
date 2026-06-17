@@ -5675,6 +5675,19 @@ async function renderWorkAssignedAsync() {
     }));
   }
 
+  // Fetch parts for all work orders in one query
+  let partsMap = {};
+  if (!_demoMode && allJobs.length) {
+    const woIds = allJobs.map(j=>j.id).filter(Boolean);
+    if (woIds.length) {
+      const partsRows = await sb(`job_parts?work_order_id=in.(${woIds.join(',')})&select=work_order_id,part_name,status,quantity&order=created_at.asc`) || [];
+      partsRows.forEach(p => {
+        if (!partsMap[p.work_order_id]) partsMap[p.work_order_id] = [];
+        partsMap[p.work_order_id].push(p);
+      });
+    }
+  }
+
   // Get selected date from filter (default today)
   const todayISO = new Date().toISOString().slice(0,10);
   const selDate  = (window._waDate !== undefined && window._waDate !== null) ? window._waDate : 'all';
@@ -5695,6 +5708,11 @@ async function renderWorkAssignedAsync() {
   const rows = filtered.map(j => {
     const sc = j.status==='Done'?'b-done':j.status==='In Progress'?'b-inprog':'b-open';
     const pc = j.priority==='High'?'b-high':j.priority==='Low'?'b-low':'b-med';
+    const jobParts = partsMap[j.id] || [];
+    const usedParts = jobParts.filter(p => p.status === 'used');
+    const partsHtml = usedParts.length
+      ? usedParts.map(p => `<span style="display:inline-block;font-size:12px;padding:2px 8px;background:var(--amber-lt);color:var(--amber);border-radius:20px;font-weight:500;margin:2px 2px 2px 0">${p.part_name}${p.quantity>1?' ×'+p.quantity:''}</span>`).join('')
+      : '<span style="color:var(--g300);font-size:12px">—</span>';
     return `<tr>
       
       <td><strong>${j.vehicle_reg||'—'}</strong></td>
@@ -5703,6 +5721,7 @@ async function renderWorkAssignedAsync() {
       <td style="font-size:12px">${j.assigned_tech_name||'—'}</td>
       <td><span class="badge ${pc}">${j.priority}</span></td>
       <td><span class="badge ${sc}">${j.status}</span></td>
+      <td style="font-size:13px;max-width:200px">${partsHtml}</td>
       <td style="font-size:13px;color:var(--g500)">${fmtDate(j.assigned_at)}</td>
       <td style="font-size:13px;color:var(--g500)">${j.completed_at ? fmtDate(j.completed_at) : '—'}</td>
       <td><button onclick="smViewJob('${j.id}','${(j.vehicle_reg||'').replace(/'/g,'')}','${(j.assigned_tech_name||'').replace(/'/g,'')}')" style="font-size:12px;padding:6px 12px;border:1px solid var(--blue);border-radius:6px;color:var(--blue);background:white;cursor:pointer">&#128065; View</button></td>
@@ -5753,7 +5772,7 @@ async function renderWorkAssignedAsync() {
           <thead><tr>
             <th>Vehicle</th><th>JC No.</th><th>Issue</th>
             <th>Technician</th><th>Priority</th><th>Status</th>
-            <th>Assigned At</th><th>Completed At</th>
+            <th>Parts Used</th><th>Assigned At</th><th>Completed At</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table></div>`}`;
