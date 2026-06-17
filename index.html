@@ -683,11 +683,25 @@ async function capturePartSnap() {
   c.width = v.videoWidth||1280; c.height = v.videoHeight||960;
   const ctx = c.getContext('2d');
   ctx.drawImage(v,0,0);
-  const lines=[j?.vehicle||'—',j?.jc_number||'—',new Date().toLocaleString('en-IN')];
-  const pad=10,lh=16,fs=12,maxW=Math.max(...lines.map(l=>l.length))*(fs*0.6)+pad*2,boxH=lines.length*lh+pad;
-  ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(c.width-maxW-pad,c.height-boxH-pad,maxW,boxH);
-  ctx.fillStyle='#fff'; ctx.font=fs+'px monospace'; ctx.textAlign='right';
-  lines.forEach((l,i)=>ctx.fillText(l,c.width-pad*2,c.height-boxH-pad+pad+(i+1)*lh-3));
+  // Watermark: reg · JC · hub · timestamp
+  (function drawPartWatermark() {
+    const lines = [
+      'Reg: '  + (j?.vehicle   || '—'),
+      'JC: '   + (j?.jc_number || '—'),
+      'Hub: '  + (state.hub    || '—'),
+      new Date().toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true})
+    ];
+    const fs = Math.max(12, Math.round(c.width / 50));
+    ctx.font = 'bold ' + fs + 'px monospace';
+    const pad = Math.round(fs * 0.75), lh = Math.round(fs * 1.5);
+    const boxH = lines.length * lh + pad;
+    const maxW = Math.max(...lines.map(l => ctx.measureText(l).width)) + pad * 2;
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.fillRect(0, c.height - boxH, maxW, boxH);
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'left';
+    lines.forEach((l, i) => ctx.fillText(l, pad / 2, c.height - boxH + pad + (i + 1) * lh - Math.round(lh * 0.25)));
+  })();
   v.style.display='none'; c.style.display='block';
   document.getElementById('ppm-snap-btn').style.display='none';
   document.getElementById('ppm-confirm-btn').style.display='block';
@@ -1248,31 +1262,25 @@ async function startVideoCapture(jobIdx) {
     _videoSession.canvasInt = setInterval(() => {
       if (!video.videoWidth) return;
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      // Draw overlay bottom-right
-      const pad = 12, lh = 20, fs = 16;
-      const lines = [
-        j.vehicle || j.reg || '—',
-        j.jc_number || '—',
-        new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true})
-      ];
-      ctx.font = `${fs}px monospace`;
-      const maxW = Math.max(...lines.map(l => ctx.measureText(l).width)) + pad*2;
-      const boxH  = lines.length * lh + pad;
-      const boxX  = canvas.width  - maxW - pad;
-      const boxY  = canvas.height - boxH - pad;
-      ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      // roundRect fallback for older browsers
-      if (ctx.roundRect) {
-        ctx.beginPath(); ctx.roundRect(boxX, boxY, maxW, boxH, 4); ctx.fill();
-      } else {
-        ctx.fillRect(boxX, boxY, maxW, boxH);
-      }
-      ctx.fillStyle = '#fff';
-      ctx.textAlign = 'right';
-      lines.forEach((line, i) => {
-        ctx.fillText(line, canvas.width - pad*2, boxY + pad + (i+1)*lh - 3);
-      });
-      ctx.textAlign = 'left';
+      // Watermark: reg · JC · hub · timestamp
+      (function drawVideoWatermark() {
+        const lines = [
+          'Reg: '  + (j.vehicle   || '—'),
+          'JC: '   + (j.jc_number || '—'),
+          'Hub: '  + (state.hub   || '—'),
+          new Date().toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true})
+        ];
+        const fs = Math.max(12, Math.round(canvas.width / 60));
+        ctx.font = 'bold ' + fs + 'px monospace';
+        const pad = Math.round(fs * 0.75), lh = Math.round(fs * 1.5);
+        const boxH = lines.length * lh + pad;
+        const maxW = Math.max(...lines.map(l => ctx.measureText(l).width)) + pad * 2;
+        ctx.fillStyle = 'rgba(0,0,0,0.65)';
+        ctx.fillRect(0, canvas.height - boxH, maxW, boxH);
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'left';
+        lines.forEach((l, i) => ctx.fillText(l, pad / 2, canvas.height - boxH + pad + (i + 1) * lh - Math.round(lh * 0.25)));
+      })();
     }, 33); // ~30fps
 
     document.getElementById('video-modal').style.display = 'flex';
@@ -3686,15 +3694,26 @@ function capturePhoto() {
   const ctx = canvas.getContext('2d');
   ctx.drawImage(video, 0, 0);
   // Add watermark
-  ctx.fillStyle = 'rgba(0,0,0,0.5)';
-  ctx.fillRect(0, canvas.height-36, canvas.width, 36);
-  ctx.fillStyle = '#fff';
   const job = state.jobs[_photoSession.jobIdx];
-  const wmText = (job.vehicle||'—') + ' · ' + side.toUpperCase() + ' · ' + _photoSession.phase.toUpperCase() + ' · ' + new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
-  ctx.font = 'bold 16px sans-serif';
-  const wmMetrics = ctx.measureText(wmText);
-  if (wmMetrics.width > canvas.width - 20) ctx.font = 'bold 12px sans-serif';
-  ctx.fillText(wmText, 10, canvas.height-12);
+  // Watermark: reg · JC · hub · timestamp
+  (function drawWatermark(cvs, cx) {
+    const lines = [
+      'Reg: '  + (job.vehicle    || '—'),
+      'JC: '   + (job.jc_number  || '—'),
+      'Hub: '  + (state.hub      || '—'),
+      new Date().toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true})
+    ];
+    const fs = Math.max(12, Math.round(cvs.width / 50));
+    cx.font = 'bold ' + fs + 'px monospace';
+    const pad = Math.round(fs * 0.75), lh = Math.round(fs * 1.5);
+    const boxH = lines.length * lh + pad;
+    const maxW = Math.max(...lines.map(l => cx.measureText(l).width)) + pad * 2;
+    cx.fillStyle = 'rgba(0,0,0,0.65)';
+    cx.fillRect(0, cvs.height - boxH, maxW, boxH);
+    cx.fillStyle = '#fff';
+    cx.textAlign = 'left';
+    lines.forEach((l, i) => cx.fillText(l, pad / 2, cvs.height - boxH + pad + (i + 1) * lh - Math.round(lh * 0.25)));
+  })(canvas, ctx);
   const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
   _photoSession.captured[side] = dataUrl;
   // Show preview
