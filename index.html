@@ -3891,7 +3891,11 @@ async function finishPhotoSession() {
   if (!_demoMode) {
     const patch = phase==='start'
       ? { status: 'In Progress', started_at: new Date().toISOString(), start_photos: uploaded, start_photos_done: true }
-      : { status: 'Done', completed_at: new Date().toISOString(), end_photos: uploaded, end_photos_done: true };
+      : (function() {
+          const now = new Date();
+          const tat = job.assigned_at ? Math.round((now - new Date(job.assigned_at)) / 60000) : null;
+          return { status: 'Done', completed_at: now.toISOString(), end_photos: uploaded, end_photos_done: true, tat };
+        })();
     try {
       await sb(`work_orders?id=eq.${job.db_id}`, { method: 'PATCH', body: JSON.stringify({...patch, updated_at: new Date().toISOString()}) });
     } catch(e) {
@@ -6173,6 +6177,4 @@ async function initApp() {
 
   if (sess && sess.user) {
     try {
-      state.user       = sess.user;
-      state.hub        = sess.hub || (sess.user?.role==='hub_manager' ? sess.user?.assigned_hub_name : null) || null;
-      state.hubId      = sess.hubId  
+      state.
