@@ -2186,7 +2186,7 @@ function refreshOosCount() {
   // Head with no city/hub filter → hubsToQuery = null = fetch all
 
   // Build query — use hub_name=in.(...) for multi-hub, =eq. for single
-  let query = 'vehicles?bike_status=eq.OOS&select=reg_number,hub_name';
+  let query = 'vehicles?bike_status=eq.oos&select=reg_number,hub_name';
   if (hubsToQuery === null) {
     // no filter — fetch all
   } else if (hubsToQuery.length === 0) {
