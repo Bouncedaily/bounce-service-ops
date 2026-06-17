@@ -3920,6 +3920,13 @@ function cancelPhotoSession() {
 }
 
 function stopScanner() { if(_scanner){_scanner.stop().catch(()=>{});_scanner=null;} }
+function smViewJobClose() {
+  const modalBackdrop = document.getElementById('modal');
+  const inner = document.getElementById('modal-inner');
+  modalBackdrop.style.padding = '';
+  inner.style.cssText = '';
+  closeModal();
+}
 function closeModal() { stopScanner(); document.getElementById('modal').style.display='none'; }
 function modalBackdropClick(e) { if(e.target===document.getElementById('modal')) closeModal(); }
 
@@ -4641,25 +4648,35 @@ async function forceDownload(url, filename) {
 }
 
 async function smViewJob(woId, vehicleReg, techName) {
+  // Make modal fullscreen
+  const modalBackdrop = document.getElementById('modal');
   const inner = document.getElementById('modal-inner');
-  inner.innerHTML = '<button class="modal-close" onclick="closeModal()">&#10005;</button>' +
+  modalBackdrop.style.padding = '0';
+  inner.style.cssText = 'width:100%;height:100%;max-width:100%;border-radius:0;overflow-y:auto;padding:20px 16px';
+  inner.innerHTML = '<button class="modal-close" onclick="smViewJobClose()">&#10005;</button>' +
     '<div class="modal-title">'+vehicleReg+'</div>' +
     '<div class="modal-sub" style="margin-bottom:16px">'+techName+'</div>' +
     '<div style="text-align:center;color:var(--g400);padding:20px">Loading...</div>';
-  document.getElementById('modal').style.display = 'flex';
+  modalBackdrop.style.display = 'flex';
 
   try {
-    // Load work order details including photos/video
-    const wo = await sb('work_orders?id=eq.'+woId+'&select=*&limit=1');
-    const parts = await sb('job_parts?work_order_id=eq.'+woId+'&select=*&order=created_at.asc') || [];
+    // Load work order + job_photos table (fallback when start_photos array is empty)
+    const [wo, parts, jobPhotosRows] = await Promise.all([
+      sb('work_orders?id=eq.'+woId+'&select=*&limit=1'),
+      sb('job_parts?work_order_id=eq.'+woId+'&select=*&order=created_at.asc') || [],
+      sb('job_photos?work_order_id=eq.'+woId+'&select=photo_url,phase,side&order=created_at.asc') || []
+    ]);
     const j = wo && wo[0] ? wo[0] : {};
 
-    const startPhotos = j.start_photos || [];
-    const endPhotos   = j.end_photos   || [];
+    // Use work_orders arrays if populated, else fall back to job_photos table
+    const jpStart = (jobPhotosRows||[]).filter(p=>p.phase==='start').map(p=>p.photo_url);
+    const jpEnd   = (jobPhotosRows||[]).filter(p=>p.phase==='end').map(p=>p.photo_url);
+    const startPhotos = (j.start_photos && j.start_photos.length) ? j.start_photos : jpStart;
+    const endPhotos   = (j.end_photos   && j.end_photos.length)   ? j.end_photos   : jpEnd;
     const videoUrl    = j.video_url    || null;
     const notes       = j.notes        || '';
 
-    let html = '<button class="modal-close" onclick="closeModal()">&#10005;</button>';
+    let html = '<button class="modal-close" onclick="smViewJobClose()">&#10005;</button>';
     html += '<div class="modal-title">'+vehicleReg+'</div>';
     html += '<div class="modal-sub" style="margin-bottom:16px">'+techName+' &nbsp;|&nbsp; '+j.status+'</div>';
 
