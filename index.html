@@ -2319,9 +2319,7 @@ function navigate(page) {
       c.innerHTML = renderMyAttendance();
       // Load real week attendance data async, then refresh
       if (state.user?.role === 'technician') {
-        loadMyWeekAttendance().then(function(){ c.innerHTML = renderMyAttendance(); renderTechCalendar(); }).catch(function(){});
-      } else {
-        renderTechCalendar();
+        loadMyWeekAttendance().then(function(){ c.innerHTML = renderMyAttendance(); injectSmTabBar('my-attendance'); }).catch(function(){});
       }
       injectSmTabBar('my-attendance');
       startDurationTimer(); startClock();
