@@ -2207,6 +2207,8 @@ function refreshOosCount() {
 }
 
 function navigate(page) {
+  if (page !== 'work-assigned') stopWaAutoRefresh();
+  if (page !== 'my-jobs') clearInterval(window._jobElapsedInt);
   currentPage = page;  // ← must set BEFORE async calls
   // Persist current page so browser refresh returns here
   try {
@@ -2224,7 +2226,7 @@ function navigate(page) {
   // Async pages
   if (page==='work-assigned' && role==='hub_manager') {
     c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading...</div>';
-    renderWorkAssignedAsync().then(html=>{ if(currentPage===page) c.innerHTML=html; });
+    renderWorkAssignedAsync().then(html=>{ if(currentPage===page) { c.innerHTML=html; startWaAutoRefresh(); } });
     return;
   }
   if (page==='workorders' && role==='hub_manager') {
@@ -2365,6 +2367,7 @@ function navigate(page) {
   };
   c.innerHTML = (fns[page]||(() => ''))();
   if (page==='qr-hub') generateManagerQR();
+  if (page==='my-jobs') startJobElapsedTimer();
   if (page==='dashboard') {
     refreshOosCount();
   }
@@ -3402,6 +3405,7 @@ function renderMyJobs() {
               ${j.priority==='High' ? '<div class="urgent-dot"></div>' : ''}
               <span class="badge ${sc}">${j.status}</span>
               <span class="badge ${pc}">${j.priority}</span>
+              ${isActive && j.started_at ? `<span style="font-size:12px;background:var(--blue-lt);color:var(--blue);padding:2px 8px;border-radius:20px;font-weight:600">⏱ <span id="job-elapsed-timer" data-started="${j.started_at}">${(()=>{const s=Math.floor((new Date()-new Date(j.started_at))/1000);const h=Math.floor(s/3600);const m=Math.floor((s%3600)/60);return h>0?h+'h '+m+'m':m+'m';})()}</span></span>` : ''}
             </div>
             ${startPhotos.length ? `<div style="margin-top:10px;font-size:13px;color:var(--green);font-weight:600;margin-bottom:4px">✓ START PHOTOS</div>
             <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -4634,6 +4638,40 @@ function debounceWaSearch(val) {
   window._waSearchTimer = setTimeout(()=>navigate('work-assigned'), 300);
 }
 
+// ─ Work Assigned: auto-refresh every 60s ─
+function startWaAutoRefresh() {
+  stopWaAutoRefresh();
+  window._waRefreshInt = setInterval(function() {
+    if (currentPage === 'work-assigned') navigate('work-assigned');
+  }, 60000);
+  // Tick the "last updated X ago" label every 15s
+  window._waTickInt = setInterval(function() {
+    const el = document.getElementById('wa-last-updated');
+    if (!el || !window._waLastUpdated) return;
+    const secs = Math.floor((new Date() - window._waLastUpdated) / 1000);
+    el.textContent = secs < 10 ? 'just now' : secs < 60 ? secs+'s ago' : Math.floor(secs/60)+'m ago';
+  }, 15000);
+}
+function stopWaAutoRefresh() {
+  clearInterval(window._waRefreshInt);
+  clearInterval(window._waTickInt);
+}
+
+// ─ Technician: elapsed timer for active job ─
+function startJobElapsedTimer() {
+  clearInterval(window._jobElapsedInt);
+  window._jobElapsedInt = setInterval(function() {
+    const el = document.getElementById('job-elapsed-timer');
+    if (!el) { clearInterval(window._jobElapsedInt); return; }
+    const started = el.dataset.started;
+    if (!started) return;
+    const secs = Math.floor((new Date() - new Date(started)) / 1000);
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    el.textContent = h > 0 ? h+'h '+m+'m' : m+'m';
+  }, 30000);
+}
+
 
 
 async function forceDownload(url, filename) {
@@ -5731,9 +5769,19 @@ async function renderWorkAssignedAsync() {
   const selDate  = (window._waDate !== undefined && window._waDate !== null) ? window._waDate : 'all';
 
   // Filter by selected date
-  const filtered = selDate === 'all'
+  const byDate = selDate === 'all'
     ? allJobs
     : allJobs.filter(j => (j.assigned_at && j.assigned_at.slice(0,10) === selDate) || j.status === 'Open' || j.status === 'In Progress');
+
+  // Apply search filter (vehicle reg or tech name)
+  const searchQ = (window._waSearch || '').trim().toLowerCase();
+  const filtered = searchQ
+    ? byDate.filter(j =>
+        (j.vehicle_reg || '').toLowerCase().includes(searchQ) ||
+        (j.assigned_tech_name || '').toLowerCase().includes(searchQ) ||
+        (j.job_card_number || '').toLowerCase().includes(searchQ) ||
+        (j.issue || '').toLowerCase().includes(searchQ))
+    : byDate;
 
   const fmtDate = d => d ? new Date(d).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:true}) : '—';
   const fmtDateOnly = d => d ? new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '—';
@@ -5742,6 +5790,8 @@ async function renderWorkAssignedAsync() {
   const open   = filtered.filter(j=>j.status==='Open').length;
   const inProg = filtered.filter(j=>j.status==='In Progress').length;
   const done   = filtered.filter(j=>j.status==='Done').length;
+
+  window._waLastUpdated = new Date();
 
   const rows = filtered.map(j => {
     const sc = j.status==='Done'?'b-done':j.status==='In Progress'?'b-inprog':'b-open';
@@ -5772,9 +5822,12 @@ async function renderWorkAssignedAsync() {
         <div class="page-title">Work Assigned</div>
         <div class="page-sub">${myHub}</div>
       </div>
-      <button class="btn-refresh" onclick="window._waDate=window._waDate;navigate('work-assigned')" title="Refresh">
-        <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
-      </button>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+        <button class="btn-refresh" onclick="navigate('work-assigned')" title="Refresh">
+          <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+        </button>
+        <span id="wa-last-updated" style="font-size:11px;color:var(--g400)">just now</span>
+      </div>
     </div>
 
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
@@ -6122,51 +6175,4 @@ async function initApp() {
     try {
       state.user       = sess.user;
       state.hub        = sess.hub || (sess.user?.role==='hub_manager' ? sess.user?.assigned_hub_name : null) || null;
-      state.hubId      = sess.hubId      || null;
-      const isToday = sess.myCheckinDate === TODAY;
-      state.myCheckin  = (isToday && sess.myCheckin)  ? sess.myCheckin  : null;
-      state.myCheckout = (isToday && sess.myCheckout) ? sess.myCheckout : null;
-      state.myAttId    = (isToday && sess.myAttId)    ? sess.myAttId    : null;
-      if (sess.dashFilterCity) _dashFilterCity = sess.dashFilterCity;
-      if (sess.dashFilterHub)  _dashFilterHub  = sess.dashFilterHub;
-      const sessDate = sess.myCheckinDate || '';
-      if (sess.hub1 && sessDate === TODAY) {
-        state.hub1=sess.hub1; state.hub1Id=sess.hub1Id;
-        state.hub1CheckIn=sess.hub1CheckIn; state.hub1CheckOut=sess.hub1CheckOut;
-      }
-      if (sess.hub2 && sessDate === TODAY) {
-        state.hub2=sess.hub2; state.hub2Id=sess.hub2Id; state.hub2CheckIn=sess.hub2CheckIn;
-      }
-    } catch(e) {
-      // Corrupt session object — wipe and show login
-      localStorage.removeItem('bounce_session');
-      document.getElementById('login-page').style.display = 'flex';
-      return;
-    }
-
-    // Load data separately — network errors here should NOT log the user out
-    try {
-      if (state.user.role === 'hub_manager' && state.hubId) {
-        await Promise.all([loadAttendanceForHub(state.hubId), loadJobsForHub(state.hubId), loadVehiclesForHub(state.hub)]);
-      } else if (state.user.role === 'technician') {
-        await loadMyAttendance(state.user.id); await loadMyJobs();
-      } else { await loadAllHubsData(); }
-    } catch(e) {
-      console.warn('[initApp] data load error (session kept):', e.message);
-    }
-
-    document.getElementById('login-page').style.display = 'none';
-    document.getElementById('app-shell').style.display  = 'block';
-    renderTopbar(); renderNav();
-    const defaultPage = state.user.role !== 'technician' ? 'dashboard' : 'my-attendance';
-    navigate(sess.currentPage || defaultPage);
-    return;
-  }
-
-  document.getElementById('login-page').style.display = 'flex';
-}
-initApp();
-</script>
-</body>
-</html>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
+      state.hubId      = sess.hubId  
