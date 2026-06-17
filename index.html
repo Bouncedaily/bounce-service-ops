@@ -3921,6 +3921,9 @@ function cancelPhotoSession() {
 
 function stopScanner() { if(_scanner){_scanner.stop().catch(()=>{});_scanner=null;} }
 function smViewJobClose() {
+  if (document.fullscreenElement || document.webkitFullscreenElement) {
+    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  }
   const modalBackdrop = document.getElementById('modal');
   const inner = document.getElementById('modal-inner');
   modalBackdrop.style.padding = '';
@@ -4648,11 +4651,14 @@ async function forceDownload(url, filename) {
 }
 
 async function smViewJob(woId, vehicleReg, techName) {
-  // Make modal fullscreen
+  // Open in native fullscreen
   const modalBackdrop = document.getElementById('modal');
   const inner = document.getElementById('modal-inner');
   modalBackdrop.style.padding = '0';
   inner.style.cssText = 'width:100%;height:100%;max-width:100%;border-radius:0;overflow-y:auto;padding:20px 16px';
+  modalBackdrop.style.display = 'flex';
+  if (inner.requestFullscreen) inner.requestFullscreen();
+  else if (inner.webkitRequestFullscreen) inner.webkitRequestFullscreen();
   inner.innerHTML = '<button class="modal-close" onclick="smViewJobClose()">&#10005;</button>' +
     '<div class="modal-title">'+vehicleReg+'</div>' +
     '<div class="modal-sub" style="margin-bottom:16px">'+techName+'</div>' +
