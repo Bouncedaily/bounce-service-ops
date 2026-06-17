@@ -4684,7 +4684,7 @@ async function smViewJob(woId, vehicleReg, techName) {
     const [wo, parts, jobPhotosRows] = await Promise.all([
       sb('work_orders?id=eq.'+woId+'&select=*&limit=1'),
       sb('job_parts?work_order_id=eq.'+woId+'&select=*&order=created_at.asc') || [],
-      sb('job_photos?work_order_id=eq.'+woId+'&select=photo_url,phase,side&order=created_at.asc') || []
+      sb('job_photos?work_order_id=eq.'+woId+'&select=photo_url,phase,side') || []
     ]);
     const j = wo && wo[0] ? wo[0] : {};
 
@@ -4744,13 +4744,7 @@ async function smViewJob(woId, vehicleReg, techName) {
         html += '<div style="display:flex;justify-content:space-between;align-items:center'+(used?';margin-bottom:10px':'')+'"><span style="font-size:14px;font-weight:600">'+p.part_name+'</span>';
         html += '<span style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;background:'+bc+';color:'+tc+'">'+(used?'Used':notUsed?'Not Used':'Pending')+'</span></div>';
         if (used) {
-          html += '<div style="font-size:12px;color:var(--g500);margin-bottom:8px">Qty: '+(p.quantity||1)+'</div>';
-          if (p.photo_before||p.photo_after) {
-            html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
-            if (p.photo_before) html += '<div><div style="font-size:11px;color:var(--g400);margin-bottom:4px">Before</div><img src="'+p.photo_before+'" onclick="showImgLightbox(\''+p.photo_before+'\')" style="width:100%;height:90px;object-fit:cover;border-radius:8px;cursor:pointer"/></div>';
-            if (p.photo_after)  html += '<div><div style="font-size:11px;color:var(--g400);margin-bottom:4px">After</div><img src="'+p.photo_after+'" onclick="showImgLightbox(\''+p.photo_after+'\')" style="width:100%;height:90px;object-fit:cover;border-radius:8px;cursor:pointer"/></div>';
-            html += '</div>';
-          }
+          html += '<div style="font-size:12px;color:var(--g500)">Qty: '+(p.quantity||1)+'</div>';
         }
         html += '</div>';
       });
@@ -6169,3 +6163,4 @@ initApp();
 </script>
 </body>
 </html>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
