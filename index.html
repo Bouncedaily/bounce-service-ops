@@ -3865,7 +3865,9 @@ async function finishPhotoSession() {
         }
         // Save record to job_photos table
         await sb(`job_photos`, { method: 'POST', body: JSON.stringify({
-          work_order_id: job.db_id, phase, side, photo_url: photoUrl, taken_by: state.user.id
+          work_order_id: job.db_id, phase, side, photo_url: photoUrl,
+          taken_by: state.user.id, taken_at: new Date().toISOString(),
+          job_card_number: job.jc_number || null
         })});
       } catch(e) {
         console.error(`Photo upload error for ${side}:`, e);
@@ -6173,8 +6175,4 @@ async function initApp() {
   try {
     const saved = localStorage.getItem('bounce_session');
     if (saved) sess = JSON.parse(saved);
-  } catch(e) { localStorage.removeItem('bounce_session'); }
-
-  if (sess && sess.user) {
-    try {
-      state.
+  } catch(e) {
