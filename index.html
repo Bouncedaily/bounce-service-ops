@@ -916,7 +916,7 @@ function renderJobDetail() {
     <!-- Actions -->
     ${isActive ? `
     <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:80px">
-      ${!(j.start_photos||[]).length ? `
+      ${!(j.start_photos_done || (j.start_photos||[]).length) ? `
         <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:10px;padding:12px;text-align:center;font-size:13px;color:#92400e;font-weight:600">
           &#9888; Take start photos before recording video
         </div>
@@ -1462,7 +1462,7 @@ async function loadMyJobs() {
   if (_demoMode) {
     rows = DEMO_JOBS.filter(j=>j.users?.name===state.user.name);
   } else {
-    rows = await sb(`work_orders?assigned_tech_id=eq.${state.user.id}&select=id,wo_number,vehicle_reg,issue,priority,status,wo_type,assigned_at,video_url,hubs(name)&order=assigned_at.desc`) || [];
+    rows = await sb(`work_orders?assigned_tech_id=eq.${state.user.id}&select=id,wo_number,vehicle_reg,issue,priority,status,wo_type,assigned_at,video_url,start_photos,start_photos_done,job_card_number,hubs(name)&order=assigned_at.desc`) || [];
   }
   state.jobs = [];
   // Collect all reg numbers to fetch JC details in one query
@@ -1493,6 +1493,8 @@ async function loadMyJobs() {
       parts_to_be_changed:jc.parts_to_be_changed || null,
       submission_type:    jc.submission_type || r.wo_type==='oos' ? 'OOS' : 'Running Repair',
       video_url:          r.video_url || null,
+      start_photos:       r.start_photos || [],
+      start_photos_done:  r.start_photos_done || false,
     });
   });
 }
