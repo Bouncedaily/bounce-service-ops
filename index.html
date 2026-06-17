@@ -4681,12 +4681,14 @@ async function smViewJob(woId, vehicleReg, techName) {
 
   try {
     // Load work order + job_photos table (fallback when start_photos array is empty)
-    const [wo, parts, jobPhotosRows] = await Promise.all([
+    const [woRaw, partsRaw, jobPhotosRaw] = await Promise.all([
       sb('work_orders?id=eq.'+woId+'&select=*&limit=1'),
-      sb('job_parts?work_order_id=eq.'+woId+'&select=*&order=created_at.asc') || [],
-      sb('job_photos?work_order_id=eq.'+woId+'&select=photo_url,phase,side') || []
+      sb('job_parts?work_order_id=eq.'+woId+'&select=*&order=created_at.asc'),
+      sb('job_photos?work_order_id=eq.'+woId+'&select=photo_url,phase,side')
     ]);
-    const j = wo && wo[0] ? wo[0] : {};
+    const j = (woRaw && woRaw[0]) ? woRaw[0] : {};
+    const parts = partsRaw || [];
+    const jobPhotosRows = jobPhotosRaw || [];
 
     // Use work_orders arrays if populated, else fall back to job_photos table
     const jpStart = (jobPhotosRows||[]).filter(p=>p.phase==='start').map(p=>p.photo_url);
@@ -4797,12 +4799,15 @@ async function loadTechProfile(techName, role) {
   const monthEnd   = todayISO;
 
   // Fetch in parallel
-  const [attRows, woRows, userRow, allAttRows] = await Promise.all([
-    sb(`attendance?technician_name=eq.${encodeURIComponent(techName)}&date=gte.${monthStart}&date=lte.${monthEnd}&select=date,status,hub_name,checkin_time,checkout_time,total_working_hours&order=date.asc`) || [],
-    sb(`work_orders?assigned_tech_name=eq.${encodeURIComponent(techName)}&assigned_at=gte.${from}T00:00:00&assigned_at=lte.${to}T23:59:59&select=id,vehicle_reg,issue,status,priority,wo_type,assigned_at,started_at,completed_at,time_taken_min,hub_name,job_card_number&order=assigned_at.desc&limit=500`) || [],
+  const [_attRows, _woRows, userRow, _allAttRows] = await Promise.all([
+    sb(`attendance?technician_name=eq.${encodeURIComponent(techName)}&date=gte.${monthStart}&date=lte.${monthEnd}&select=date,status,hub_name,checkin_time,checkout_time,total_working_hours&order=date.asc`),
+    sb(`work_orders?assigned_tech_name=eq.${encodeURIComponent(techName)}&assigned_at=gte.${from}T00:00:00&assigned_at=lte.${to}T23:59:59&select=id,vehicle_reg,issue,status,priority,wo_type,assigned_at,started_at,completed_at,time_taken_min,hub_name,job_card_number&order=assigned_at.desc&limit=500`),
     (async()=>{ return ALL_USERS.find(u=>u.name===techName)||null; })(),
-    sb(`work_orders?assigned_tech_name=eq.${encodeURIComponent(techName)}&select=id,vehicle_reg,issue,status,priority,wo_type,assigned_at,started_at,completed_at,time_taken_min&order=assigned_at.desc&limit=5`) || []
+    sb(`work_orders?assigned_tech_name=eq.${encodeURIComponent(techName)}&select=id,vehicle_reg,issue,status,priority,wo_type,assigned_at,started_at,completed_at,time_taken_min&order=assigned_at.desc&limit=5`)
   ]);
+  const attRows = _attRows || [];
+  const woRows = _woRows || [];
+  const allAttRows = _allAttRows || [];
 
   // Attendance stats this month
   const presentDays  = attRows.filter(r=>r.status==='present').length;
@@ -5178,7 +5183,8 @@ async function loadProductivity(role) {
   if (isTech)               attQuery += `&technician_name=eq.${encodeURIComponent(state.user.name)}`;
   else if (hubFilter)       attQuery += `&hub_name=eq.${encodeURIComponent(hubFilter)}`;
 
-  const [wos, atts] = await Promise.all([sb(woQuery)||[], sb(attQuery)||[]]);
+  const [_wos, _atts] = await Promise.all([sb(woQuery), sb(attQuery)]);
+  const wos = _wos || [], atts = _atts || [];
 
   // Filter by role scope
   let filtWOs  = wos;
@@ -6163,4 +6169,4 @@ initApp();
 </script>
 </body>
 </html>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
