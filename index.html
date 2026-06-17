@@ -752,23 +752,37 @@ async function assignJobsToTech(techName, techId, hubName, hubId, count) {
   var nearEnd = hoursWorked >= 7.5;
   var assignCount = nearEnd ? 1 : count;
 
-  const jcRows = await sb('draft_jc?hub_name=eq.'+encodeURIComponent(hubName)+'&current_jc_status=in.(Job Open,JC not opened in DMS)&select=job_card_number,reg_number,submission_type,labour_time_hours,parts_to_be_changed,overall_tat_days,bike_model,bike_status&limit=100') || [];
-  // Only exclude JCs that have a real tech assigned (not null)
-  const assigned = await sb('work_orders?hub_name=eq.'+encodeURIComponent(hubName)+'&status=in.(Open,In Progress)&assigned_tech_id=not.is.null&select=job_card_number,vehicle_reg') || [];
-  const assignedJcSet  = new Set(assigned.map(function(w){return w.job_card_number;}).filter(Boolean));
+  // Use vehicles table as source of truth — one row per bike, already OOS-filtered
+  const oosVehicles = await sb('vehicles?hub_name=eq.'+encodeURIComponent(hubName)+'&bike_status=eq.oos&reg_number=not.is.null&select=reg_number,job_card_number,submission_type,model_name&limit=200') || [];
+  // Get parts from draft_jc for each job card
+  var partsMap = {};
+  var jcNums = oosVehicles.map(function(v){return v.job_card_number;}).filter(Boolean);
+  if (jcNums.length > 0) {
+    var jcDetails = await sb('draft_jc?job_card_number=in.('+jcNums.map(encodeURIComponent).join(',')+')'+'&select=job_card_number,parts_to_be_changed,labour_time_hours,overall_tat_days') || [];
+    jcDetails.forEach(function(j){ partsMap[j.job_card_number] = j; });
+  }
+  // Only exclude vehicles that have a real tech assigned (not null)
+  const assigned = await sb('work_orders?hub_name=eq.'+encodeURIComponent(hubName)+'&status=in.(Open,In Progress)&assigned_tech_id=not.is.null&select=vehicle_reg') || [];
   const assignedVehSet = new Set(assigned.map(function(w){return w.vehicle_reg;}).filter(Boolean));
-  // Exclude completed JC numbers to prevent reassigning finished jobs
-  var doneRows = await sb('work_orders?status=eq.Done&hub_name=eq.'+encodeURIComponent(hubName)+'&select=job_card_number,vehicle_reg&limit=500') || [];
-  var doneSet    = new Set(doneRows.map(function(w){return w.job_card_number;}).filter(Boolean));
+  // Exclude vehicles that had a completed work order
+  var doneRows = await sb('work_orders?status=eq.Done&hub_name=eq.'+encodeURIComponent(hubName)+'&select=vehicle_reg&limit=500') || [];
   var doneVehSet = new Set(doneRows.map(function(w){return w.vehicle_reg;}).filter(Boolean));
-  var unassigned = jcRows.filter(function(j){
-    return j.reg_number
-      && !assignedJcSet.has(j.job_card_number)
-      && !assignedVehSet.has(j.reg_number)   // also exclude by vehicle reg (handles null job_card_number)
-      && !doneSet.has(j.job_card_number)
-      && !doneVehSet.has(j.reg_number)
-      && (j.bike_status||'').toLowerCase() === 'oos'; // Only OOS vehicles
-  });
+  var unassigned = oosVehicles
+    .filter(function(v){
+      return !assignedVehSet.has(v.reg_number) && !doneVehSet.has(v.reg_number);
+    })
+    .map(function(v){
+      var jc = partsMap[v.job_card_number] || {};
+      return {
+        reg_number: v.reg_number,
+        job_card_number: v.job_card_number,
+        submission_type: v.submission_type || 'OOS',
+        bike_model: v.model_name,
+        parts_to_be_changed: jc.parts_to_be_changed,
+        labour_time_hours: jc.labour_time_hours,
+        overall_tat_days: jc.overall_tat_days,
+      };
+    });
   if (nearEnd) unassigned = unassigned.filter(function(j){var l=parseFloat(j.labour_time_hours)||0; return l===0||l<=1.5;});
 
   if (!unassigned.length) return 0;
