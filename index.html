@@ -3634,8 +3634,12 @@ let _photoSession = { phase: null, jobIdx: null, sides: ['front','left','back','
   currentSide: 0, captured: {}, stream: null };
 
 function openPhotoCapture(phase, jobIdx) {
-  _photoSession = { phase, jobIdx, sides:['front','left','back','right'], currentSide:0, captured:{}, stream:null };
   const job = state.jobs[jobIdx];
+  if (!job || !job.db_id) { alert('Could not load this job. Please go back and reopen it.'); return; }
+  // Lock to the work-order id + a job snapshot so a later reload/reorder of state.jobs cannot retarget a different vehicle
+  _photoSession = { phase, jobIdx, dbId: job.db_id,
+    job: { db_id: job.db_id, vehicle: job.vehicle, jc_number: job.jc_number, assigned_at: job.assigned_at },
+    sides:['front','left','back','right'], currentSide:0, captured:{}, stream:null };
   document.getElementById('pm-title').textContent = phase==='start' ? '📷 Start Photos — '+job.vehicle : '📷 Completion Photos — '+job.vehicle;
   document.getElementById('pm-sub').textContent = 'Take 4 photos: Front, Left, Back, Right side of vehicle';
   renderPhotoThumbs();
@@ -3693,9 +3697,8 @@ function capturePhoto() {
   canvas.height = video.videoHeight || 480;
   const ctx = canvas.getContext('2d');
   ctx.drawImage(video, 0, 0);
-  // Add watermark
-  const job = state.jobs[_photoSession.jobIdx];
   // Watermark: reg · JC · hub · timestamp
+  const job = _photoSession.job || state.jobs[_photoSession.jobIdx] || {};
   (function drawWatermark(cvs, cx) {
     const lines = [
       'Reg: '  + (job.vehicle    || '—'),
@@ -3810,8 +3813,9 @@ function checkAllCaptured() {
 }
 
 async function finishPhotoSession() {
-  const { phase, jobIdx, captured } = _photoSession;
-  const job = state.jobs[jobIdx];
+  const { phase, jobIdx, dbId, captured } = _photoSession;
+  const job = _photoSession.job || state.jobs[jobIdx];
+  if (!job || !dbId) { alert('Session expired. Please reopen the job and try again.'); return; }
   const btn = document.getElementById('pm-done-btn');
   const sides = _photoSession.sides;
 
@@ -3905,9 +3909,12 @@ async function finishPhotoSession() {
   if (statusEl) statusEl.innerHTML = `<div style="color:#4ade80;font-size:13px;margin-top:8px">✓ All ${sides.length} photos uploaded successfully</div>`;
 
   const newStatus = phase==='start' ? 'In Progress' : 'Done';
-  state.jobs[jobIdx].status = newStatus;
-  if (phase==='start') state.jobs[jobIdx].start_photos = uploaded;
-  else state.jobs[jobIdx].end_photos = uploaded;
+  const liveIdx = state.jobs.findIndex(x => x.db_id === dbId);
+  if (liveIdx >= 0) {
+    state.jobs[liveIdx].status = newStatus;
+    if (phase==='start') state.jobs[liveIdx].start_photos = uploaded;
+    else state.jobs[liveIdx].end_photos = uploaded;
+  }
 
   if (!_demoMode) {
     const patch = phase==='start'
