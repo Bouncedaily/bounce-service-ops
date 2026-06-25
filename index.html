@@ -2967,14 +2967,14 @@ async function _doSaveWO_SM(v, iss, p, woType, techUser, hubObj, btn) {
   });
   if (btn) { btn.textContent='Assign Work Order'; btn.disabled=false; }
   if (saved) {
-    document.getElementById('wo-msg').innerHTML=`<div class="alert al-success">✓ ${v} assigned to ${techName}</div>`;
+    document.getElementById('sm_wo_msg').innerHTML=`<div class="alert al-success">✓ ${v} assigned to ${techName}</div>`;
     document.getElementById('veh-search').value='';
-    document.getElementById('wov').value='';
+    document.getElementById('sm_wov').value='';
     document.getElementById('veh-selected').style.display='none';
     await loadJobsForHub(state.hubId);
     setTimeout(()=>navigate('workorders'),900);
   } else {
-    document.getElementById('wo-msg').innerHTML='<div class="alert al-error">Failed to save. Please try again.</div>';
+    document.getElementById('sm_wo_msg').innerHTML='<div class="alert al-error">Failed to save. Please try again.</div>';
   }
 }
 async function updJob(i,val){
@@ -5996,6 +5996,11 @@ async function doGeoCheckin(mode){
   }
   const btn=document.getElementById(mode==='checkin'?'btn-checkin':'btn-checkout');
   if(btn){btn.disabled=true;btn.style.opacity='0.6';btn.dataset.origText=btn.textContent;btn.innerHTML='<span style="display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:white;border-radius:50%;animation:spin .7s linear infinite;margin-right:6px;vertical-align:middle"></span>Loading...';}
+  // Test/demo accounts: skip GPS acquisition entirely (no location needed)
+  if(_demoMode||TEST_MOBILES.includes(state.user?.mobile)){
+    setAttMsg('success','Marking attendance (test account)...');
+    await processCheckin(mode,null,null,null,null,true); return;
+  }
   setAttMsg('loading','Getting your location...');
   if (!navigator.geolocation) {
     setAttMsg('error','Location not supported on this device. Please use Chrome or Safari.');
