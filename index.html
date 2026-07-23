@@ -738,9 +738,13 @@ async function confirmPartSnap() {
         part.photo_before=d.secure_url;
         await savePartToDB(woId,part,_partsSession[woId].jobIdx);
         if (!part.sm_approval_status || part.sm_approval_status==='rejected') {
+          const wasRejected = part.sm_approval_status==='rejected';
           part.sm_approval_status = 'pending';
           part.sm_reject_reason = null;
-          if (part.id) await updatePartHandoff(part.id, {sm_approval_status:'pending', sm_reject_reason:null});
+          if (part.id) {
+            await updatePartHandoff(part.id, {sm_approval_status:'pending', sm_reject_reason:null});
+            await insertPartEvent(part.id, woId, wasRejected?'resubmitted_via_photo':'submitted_for_approval', {to_status:'pending'});
+          }
         }
       } else {
         part.photo_after=d.secure_url;
@@ -992,38 +996,58 @@ function renderPartsHTML(woId, partsCsv, jobIdx) {
   }
   for(var i=0;i<parts.length;i++){
     var p=parts[i], bc=p.status==='used'?'#16a34a':p.status==='not_used'?'#ef4444':'#e2e8f0';
+    var locked = p.status==='used' && p.sm_approval_status==='approved';
+    var cancelled = p.status==='used' && p.sm_approval_status==='cancelled';
     var usedBg=p.status==='used'?'#16a34a':'#f1f5f9', usedCo=p.status==='used'?'#fff':'#374151';
     var notBg=p.status==='not_used'?'#ef4444':'#f1f5f9', notCo=p.status==='not_used'?'#fff':'#374151';
     h+='<div style="background:#fff;border-radius:8px;padding:10px;margin-bottom:8px;border:1px solid '+bc+'">';
     h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:'+(p.status==='used'?'8':'0')+'px">';
     h+='<div style="font-size:13px;font-weight:600;color:#111;flex:1">'+p.part_name+'</div>';
     h+='<div style="display:flex;gap:6px">';
-    h+='<button data-wo="'+woId+'" data-pi="'+i+'" data-st="used" onclick="handlePartStatus(this)" style="padding:4px 10px;font-size:13px;border-radius:6px;border:none;cursor:pointer;font-weight:600;background:'+usedBg+';color:'+usedCo+'">Used</button>';
-    h+='<button data-wo="'+woId+'" data-pi="'+i+'" data-st="not_used" onclick="handlePartStatus(this)" style="padding:4px 10px;font-size:13px;border-radius:6px;border:none;cursor:pointer;font-weight:600;background:'+notBg+';color:'+notCo+'">Not Used</button>';
+    h+='<button data-wo="'+woId+'" data-pi="'+i+'" data-st="used" onclick="handlePartStatus(this)" '+((locked||cancelled)?'disabled':'')+' style="padding:4px 10px;font-size:13px;border-radius:6px;border:none;cursor:'+((locked||cancelled)?'not-allowed':'pointer')+';font-weight:600;background:'+usedBg+';color:'+usedCo+((locked||cancelled)?';opacity:.5':'')+'">Used</button>';
+    h+='<button data-wo="'+woId+'" data-pi="'+i+'" data-st="not_used" onclick="handlePartStatus(this)" '+((locked||cancelled)?'disabled':'')+' style="padding:4px 10px;font-size:13px;border-radius:6px;border:none;cursor:'+((locked||cancelled)?'not-allowed':'pointer')+';font-weight:600;background:'+notBg+';color:'+notCo+((locked||cancelled)?';opacity:.5':'')+'">Not Used</button>';
     h+='</div></div>';
     if(p.status==='used'){
       h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="font-size:13px;color:#6b7280">Qty:</span>';
-      h+='<select data-wo="'+woId+'" data-pi="'+i+'" onchange="handlePartQty(this)" style="background:#f8fafc;color:#111;border:1px solid #e2e8f0;border-radius:6px;padding:3px 8px;font-size:12px">';
+      h+='<select data-wo="'+woId+'" data-pi="'+i+'" onchange="handlePartQty(this)" '+((locked||cancelled)?'disabled':'')+' style="background:#f8fafc;color:#111;border:1px solid #e2e8f0;border-radius:6px;padding:3px 8px;font-size:12px'+((locked||cancelled)?';opacity:.5':'')+'">';
       h+='<option value="1"'+((p.quantity||1)===1?' selected':'')+'>1</option><option value="2"'+((p.quantity||1)===2?' selected':'')+'>2</option></select></div>';
       var bbg=p.photo_before?'#dcfce7':'#f8fafc', bbc=p.photo_before?'#16a34a':'#e2e8f0', btc=p.photo_before?'#15803d':'#374151';
       var abg=p.photo_after?'#dcfce7':'#f8fafc', abc_=p.photo_after?'#16a34a':'#e2e8f0', atc=p.photo_after?'#15803d':'#374151';
       // After-button gating: not_used/pending -> waiting; rejected -> banner; approved -> waiting on store; new_issued -> unlocked
       var afterUnlocked = p.photo_before && p.handoff_status==='new_issued';
+      var waitSince = (!p.sm_approval_status || p.sm_approval_status==='pending') ? p.updated_at
+                    : (p.sm_approval_status==='approved' && (!p.handoff_status || p.handoff_status==='awaiting_store')) ? p.sm_approved_at
+                    : p.handoff_status==='old_received' ? p.old_received_at
+                    : null;
+      var sla = (p.photo_before && waitSince) ? elapsedSLA(waitSince, 15, 30) : null;
+      var slaTxt = sla ? ' ('+sla.text+')' : '';
       var afterLabel = !p.photo_before ? ''
         : p.sm_approval_status==='rejected' ? ''
-        : (!p.sm_approval_status || p.sm_approval_status==='pending') ? 'Waiting on service manager approval'
-        : (p.sm_approval_status==='approved' && (!p.handoff_status || p.handoff_status==='awaiting_store')) ? 'Waiting on store — old part not yet collected'
-        : p.handoff_status==='old_received' ? 'Store has your part — waiting on new part issue'
+        : cancelled ? 'Cancelled — see note below'
+        : (!p.sm_approval_status || p.sm_approval_status==='pending') ? 'Waiting on service manager approval'+slaTxt
+        : (p.sm_approval_status==='approved' && (!p.handoff_status || p.handoff_status==='awaiting_store')) ? 'Waiting on store — old part not yet collected'+slaTxt
+        : p.handoff_status==='old_received' ? 'Store has your part — waiting on new part issue'+slaTxt
         : p.handoff_status==='new_issued' ? 'New part received — ready for After photo'
         : '';
+      if (cancelled) {
+        h+='<div style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12px;color:#475569">';
+        h+='<strong>Cancelled:</strong> '+(p.sm_cancel_reason||'—')+' — contact your service manager if this needs redoing.';
+        h+='</div>';
+      }
       if (p.sm_approval_status==='rejected') {
         h+='<div style="background:#fef2f2;border:1px solid #ef4444;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12px;color:#b91c1c">';
         h+='<strong>Rejected by service manager:</strong> '+(p.sm_reject_reason||'—');
         h+='<div style="margin-top:6px"><button data-wo="'+woId+'" data-pi="'+i+'" onclick="handleResubmitPart(this)" style="padding:5px 10px;font-size:12px;border-radius:6px;border:none;background:#ef4444;color:#fff;font-weight:600;cursor:pointer">Resubmit</button></div>';
         h+='</div>';
       }
+      if (locked) {
+        h+='<div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12px;color:#1e40af;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">';
+        h+='<span>&#10003; Approved — locked from editing</span>';
+        h+='<button data-wo="'+woId+'" data-pi="'+i+'" onclick="handleRequestMod(this)" style="padding:4px 9px;font-size:11px;border-radius:6px;border:1px solid #1e40af;background:#fff;color:#1e40af;font-weight:600;cursor:pointer;white-space:nowrap">Request Modification</button>';
+        h+='</div>';
+      }
       h+='<div style="display:flex;gap:8px">';
-      h+='<button data-wo="'+woId+'" data-pi="'+i+'" data-ph="before" onclick="handlePartPhoto(this)" style="flex:1;padding:8px;font-size:12px;border-radius:8px;border:1px solid '+bbc+';cursor:pointer;font-weight:600;background:'+bbg+';color:'+btc+'">'+(p.photo_before?'&#10003; Before':'&#128247; Before')+'</button>';
+      h+='<button data-wo="'+woId+'" data-pi="'+i+'" data-ph="before" onclick="handlePartPhoto(this)" '+((locked||cancelled)?'disabled':'')+' style="flex:1;padding:8px;font-size:12px;border-radius:8px;border:1px solid '+bbc+';cursor:'+((locked||cancelled)?'not-allowed':'pointer')+';font-weight:600;background:'+bbg+';color:'+btc+((locked||cancelled)?';opacity:.5':'')+'">'+(p.photo_before?'&#10003; Before':'&#128247; Before')+'</button>';
       if (afterUnlocked) {
         h+='<button data-wo="'+woId+'" data-pi="'+i+'" data-ph="after" onclick="handlePartPhoto(this)" style="flex:1;padding:8px;font-size:12px;border-radius:8px;border:1px solid '+abc_+';cursor:pointer;font-weight:600;background:'+abg+';color:'+atc+'">'+(p.photo_after?'&#10003; After':'&#128247; After')+'</button>';
       } else {
@@ -1040,14 +1064,33 @@ function renderPartsHTML(woId, partsCsv, jobIdx) {
   return h;
 }
 
-function handleResubmitPart(btn) { resubmitPart(btn.dataset.wo, parseInt(btn.dataset.pi)); }
-async function resubmitPart(woId, partIdx) {
+function handleResubmitPart(btn) { resubmitPart(btn.dataset.wo, parseInt(btn.dataset.pi), btn); }
+async function resubmitPart(woId, partIdx, btn) {
   var part = _partsSession[woId]?.parts[partIdx];
   if (!part || !part.id) return;
-  part.sm_approval_status = 'pending';
-  part.sm_reject_reason = null;
-  renderPartsSection(woId);
-  await updatePartHandoff(part.id, { sm_approval_status:'pending', sm_reject_reason:null });
+  const orig = lockBtn(btn, 'Resubmitting…');
+  try {
+    part.sm_approval_status = 'pending';
+    part.sm_reject_reason = null;
+    await updatePartHandoff(part.id, { sm_approval_status:'pending', sm_reject_reason:null });
+    await insertPartEvent(part.id, woId, 'resubmitted', {to_status:'pending'});
+    renderPartsSection(woId);
+  } catch(e) { unlockBtn(btn, orig); alert('Could not resubmit. Please try again.'); }
+}
+
+function handleRequestMod(btn) { requestModification(btn.dataset.wo, parseInt(btn.dataset.pi), btn); }
+async function requestModification(woId, partIdx, btn) {
+  if (!confirm('This sends the part back for re-approval and unlocks it for editing. Continue?')) return;
+  var part = _partsSession[woId]?.parts[partIdx];
+  if (!part || !part.id) return;
+  const orig = lockBtn(btn, 'Reopening…');
+  try {
+    part.sm_approval_status = 'pending';
+    part.handoff_status = null;
+    await updatePartHandoff(part.id, { sm_approval_status:'pending', handoff_status:null });
+    await insertPartEvent(part.id, woId, 'modification_requested', {to_status:'pending'});
+    renderPartsSection(woId);
+  } catch(e) { unlockBtn(btn, orig); alert('Could not reopen. Please try again.'); }
 }
 function handlePartStatus(btn) { setPartStatus(btn.dataset.wo, parseInt(btn.dataset.pi), btn.dataset.st); }
 function handlePartQty(sel) { setPartQty(sel.dataset.wo, parseInt(sel.dataset.pi), sel.value); }
@@ -1076,6 +1119,7 @@ function renderPartsSection(woId) {
 async function setPartStatus(woId, partIdx, status) {
   if(!_partsSession[woId]) return;
   var part = _partsSession[woId].parts[partIdx];
+  if (part.sm_approval_status==='approved' || part.sm_approval_status==='cancelled') return; // locked — use Request Modification
   part.status = status;
   var clearedHandoff = false;
   if (status === 'not_used' && (part.sm_approval_status || part.handoff_status)) {
@@ -1084,18 +1128,18 @@ async function setPartStatus(woId, partIdx, status) {
   }
   renderPartsSection(woId);
   await savePartToDB(woId, part, _partsSession[woId].jobIdx);
-  if (clearedHandoff && part.id) await updatePartHandoff(part.id, {sm_approval_status:null, handoff_status:null, sm_reject_reason:null});
+  if (clearedHandoff && part.id) {
+    await updatePartHandoff(part.id, {sm_approval_status:null, handoff_status:null, sm_reject_reason:null});
+    await insertPartEvent(part.id, woId, 'marked_not_used', {to_status:null});
+  }
 }
 
 async function setPartQty(woId, partIdx, qty) {
   if(!_partsSession[woId]) return;
   var part = _partsSession[woId].parts[partIdx];
+  if (part.sm_approval_status==='approved' || part.sm_approval_status==='cancelled') return; // locked — use Request Modification
   part.quantity = parseInt(qty)||1;
-  var reopenApproval = part.sm_approval_status === 'approved';
-  if (reopenApproval) { part.sm_approval_status = 'pending'; part.handoff_status = null; }
   await savePartToDB(woId, part, _partsSession[woId].jobIdx);
-  if (reopenApproval && part.id) await updatePartHandoff(part.id, {sm_approval_status:'pending', handoff_status:null});
-  if (reopenApproval) renderPartsSection(woId);
 }
 
 async function addExtraPart(woId) {
@@ -1112,7 +1156,7 @@ async function addExtraPart(woId) {
 
 async function savePartToDB(woId, part, jobIdx) {
   var j = state.jobs[jobIdx];
-  var payload = {work_order_id:woId,job_card_number:j?j.jc_number:null,reg_number:j?j.vehicle:null,hub_name:j?(j.hub||state.hub):state.hub,technician_name:state.user?state.user.name:null,technician_id:state.user?state.user.id:null,part_name:part.part_name,is_recommended:part.is_recommended,status:part.status,quantity:part.quantity||1,photo_before:part.photo_before||null,photo_after:part.photo_after||null,updated_at:new Date().toISOString()};
+  var payload = {work_order_id:woId,job_card_number:j?j.jc_number:null,reg_number:j?j.vehicle:null,hub_name:j?(j.hub||state.hub):state.hub,technician_name:state.user?state.user.name:null,technician_id:state.user?state.user.id:null,part_name:part.part_name,is_recommended:part.is_recommended,status:part.status,quantity:part.quantity||1,priority:j?(j.priority||null):null,photo_before:part.photo_before||null,photo_after:part.photo_after||null,updated_at:new Date().toISOString()};
   if(part.id){
     await sb('job_parts?id=eq.'+part.id,{method:'PATCH',body:JSON.stringify(payload)});
   } else {
@@ -1125,9 +1169,11 @@ function partsAllValid(woId) {
   return true; // Part photos are optional
 }
 
-// ── PARTS APPROVAL + STORE HANDOFF (savePartToDB never touches these fields, and
-//    this helper never touches photo/status/quantity — so technician / SM / store
-//    sessions on different devices don't clobber each other) ──
+// ── PARTS APPROVAL + STORE HANDOFF ──────────────────────────────────────────
+// savePartToDB never touches approval/handoff/event fields, updatePartHandoff
+// never touches photo/status/quantity — so technician / SM / store sessions on
+// different devices don't clobber each other.
+
 async function updatePartHandoff(partId, patch) {
   const body = JSON.stringify({...patch, updated_at:new Date().toISOString()});
   try {
@@ -1138,10 +1184,55 @@ async function updatePartHandoff(partId, patch) {
   }
 }
 
+// Event log — one row per transition, so "why did this take 45 min" has an answer.
+// Best-effort: a failed event insert never blocks the actual state transition.
+async function insertPartEvent(partId, woId, eventType, extra) {
+  const payload = Object.assign({
+    job_part_id: partId, work_order_id: woId||null, event_type: eventType,
+    actor_id: state.user?.id||null, actor_name: state.user?.name||null, actor_role: state.user?.role||null,
+    created_at: new Date().toISOString()
+  }, extra||{});
+  try { await sb('job_part_events', {method:'POST', body:JSON.stringify(payload)}); }
+  catch(e) { console.warn('[insertPartEvent] failed (non-fatal):', e.message); }
+}
+
+// Elapsed-time SLA badge — used on both queue cards and the technician's
+// "waiting on..." labels, so nothing sits in a silent black hole.
+function elapsedSLA(sinceIso, warnMin, dangerMin) {
+  if (!sinceIso) return {text:'', mins:0, color:'var(--g400)'};
+  var mins = Math.max(0, Math.round((Date.now() - new Date(sinceIso).getTime())/60000));
+  var color = mins >= (dangerMin||30) ? '#dc2626' : mins >= (warnMin||15) ? '#b45309' : '#16a34a';
+  var text  = mins < 60 ? mins+'m' : Math.floor(mins/60)+'h '+(mins%60)+'m';
+  return {text:text, mins:mins, color:color};
+}
+
+function priorityPill(priority) {
+  if (!priority) return '';
+  var cls = priority==='High' ? 'b-high' : priority==='Low' ? 'b-low' : 'b-med';
+  return '<span class="badge '+cls+'" style="margin-left:6px">'+priority+'</span>';
+}
+
 function partPhotoThumb(url, label) {
   if (!url) return '';
   return '<img src="'+url+'" alt="'+label+'" onclick="window.open(\''+url+'\',\'_blank\')" style="width:100%;max-width:220px;border-radius:8px;border:1px solid var(--g200);cursor:zoom-in;display:block;margin-top:6px">';
 }
+
+// Prevents duplicate submissions — disable + spinner on tap, restore only on error
+function lockBtn(btn, busyLabel) {
+  if (!btn) return null;
+  var orig = btn.innerHTML;
+  btn.disabled = true; btn.dataset.origHtml = orig;
+  btn.style.opacity = '.6'; btn.style.cursor = 'not-allowed';
+  btn.innerHTML = busyLabel || 'Saving…';
+  return orig;
+}
+function unlockBtn(btn, orig) {
+  if (!btn) return;
+  btn.disabled = false; btn.style.opacity = ''; btn.style.cursor = '';
+  if (orig!=null) btn.innerHTML = orig;
+}
+
+const REJECT_TEMPLATES = ['Photo unclear/blurry','Wrong part shown','Quantity mismatch','Duplicate submission','Not required for this job','Other'];
 
 // ── SCREEN 2 — SERVICE MANAGER: Parts Approval queue ──
 async function renderPartsApprovalAsync() {
@@ -1151,105 +1242,209 @@ async function renderPartsApprovalAsync() {
     return `<div class="page-hd"><div class="page-hd-text"><div class="page-title">Parts Approval</div><div class="page-sub">Nothing waiting on you</div></div></div>
       <div class="empty-state" style="padding:40px;text-align:center;color:var(--g400)">No parts pending approval</div>`;
   }
-  const cards = all.map(p => `
+  const templOptions = REJECT_TEMPLATES.map(t=>'<option value="'+t+'">'+t+'</option>').join('');
+  const cards = all.map(p => {
+    const sla = elapsedSLA(p.updated_at, 15, 30);
+    return `
     <div class="card" style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px">
         <div>
-          <div style="font-size:14px;font-weight:700;color:var(--g900)">${p.part_name}${p.quantity>1?' × '+p.quantity:''}</div>
+          <div style="font-size:14px;font-weight:700;color:var(--g900)">${p.part_name}${p.quantity>1?' × '+p.quantity:''}${priorityPill(p.priority)}</div>
           <div style="font-size:12px;color:var(--g400);margin-top:2px">JC ${p.job_card_number||'—'} · ${p.reg_number||'—'} · ${p.technician_name||'—'}</div>
         </div>
+        <div style="font-size:12px;font-weight:700;color:${sla.color};white-space:nowrap">&#9201; ${sla.text}</div>
       </div>
       ${partPhotoThumb(p.photo_before,'Before photo')}
       <div style="display:flex;gap:8px;margin-top:12px">
-        <button class="btn btn-green" style="flex:1" onclick="approvePart('${p.id}')">Approve</button>
+        <button class="btn btn-green" style="flex:1" onclick="approvePart('${p.id}','${p.work_order_id}',this)">Approve</button>
         <button class="btn btn-red" style="flex:1" onclick="promptRejectPart('${p.id}')">Reject</button>
       </div>
+      <button class="btn-ghost" style="font-size:12px;margin-top:6px" onclick="promptCancelPart('${p.id}')">Cancel this part</button>
       <div id="reject-box-${p.id}" style="display:none;margin-top:10px">
-        <textarea id="reject-reason-${p.id}" placeholder="Reason for rejection (required)" class="form-input" style="height:60px;resize:none;margin-bottom:8px"></textarea>
-        <button class="btn btn-red btn-full" onclick="rejectPart('${p.id}')">Confirm Reject</button>
+        <select id="reject-templ-${p.id}" class="form-select" style="margin-bottom:8px" onchange="onRejectTemplateChange('${p.id}')">
+          <option value="">Choose a reason…</option>${templOptions}
+        </select>
+        <textarea id="reject-reason-${p.id}" placeholder="Reason for rejection (required)" class="form-input" style="height:50px;resize:none;margin-bottom:8px"></textarea>
+        <button class="btn btn-red btn-full" onclick="rejectPart('${p.id}','${p.work_order_id}',this)">Confirm Reject</button>
       </div>
-    </div>`).join('');
+      <div id="cancel-box-${p.id}" style="display:none;margin-top:10px">
+        <textarea id="cancel-reason-${p.id}" placeholder="Reason for cancelling (required)" class="form-input" style="height:50px;resize:none;margin-bottom:8px"></textarea>
+        <button class="btn btn-outline btn-full" onclick="cancelPart('${p.id}','${p.work_order_id}',this)">Confirm Cancel</button>
+      </div>
+    </div>`;
+  }).join('');
   return `<div class="page-hd"><div class="page-hd-text"><div class="page-title">Parts Approval</div><div class="page-sub">${all.length} part${all.length>1?'s':''} waiting on you</div></div></div>${cards}`;
+}
+
+function onRejectTemplateChange(partId) {
+  const sel = document.getElementById('reject-templ-'+partId);
+  const ta  = document.getElementById('reject-reason-'+partId);
+  if (!sel || !ta) return;
+  if (sel.value && sel.value!=='Other') ta.value = sel.value;
+  if (sel.value==='Other') ta.value = '';
 }
 
 function promptRejectPart(partId) {
   const box = document.getElementById('reject-box-'+partId);
+  const cbox = document.getElementById('cancel-box-'+partId);
+  if (cbox) cbox.style.display = 'none';
   if (box) box.style.display = box.style.display==='none' ? 'block' : 'none';
 }
 
-async function approvePart(partId) {
-  await updatePartHandoff(partId, {
-    sm_approval_status: 'approved',
-    sm_approved_by: state.user?.id||null,
-    sm_approved_by_name: state.user?.name||null,
-    sm_approved_at: new Date().toISOString(),
-    sm_reject_reason: null,
-    handoff_status: 'awaiting_store'
-  });
-  navigate('parts-approval');
+function promptCancelPart(partId) {
+  const box = document.getElementById('cancel-box-'+partId);
+  const rbox = document.getElementById('reject-box-'+partId);
+  if (rbox) rbox.style.display = 'none';
+  if (box) box.style.display = box.style.display==='none' ? 'block' : 'none';
 }
 
-async function rejectPart(partId) {
+async function approvePart(partId, woId, btn) {
+  const orig = lockBtn(btn, 'Approving…');
+  try {
+    await updatePartHandoff(partId, {
+      sm_approval_status: 'approved',
+      sm_approved_by: state.user?.id||null,
+      sm_approved_by_name: state.user?.name||null,
+      sm_approved_at: new Date().toISOString(),
+      sm_reject_reason: null,
+      handoff_status: 'awaiting_store'
+    });
+    await insertPartEvent(partId, woId, 'approved', {to_status:'approved'});
+    navigate('parts-approval');
+  } catch(e) { unlockBtn(btn, orig); alert('Could not save approval. Please try again.'); }
+}
+
+async function rejectPart(partId, woId, btn) {
   const ta = document.getElementById('reject-reason-'+partId);
   const reason = ta ? ta.value.trim() : '';
   if (!reason) { if (ta) { ta.style.borderColor='var(--red)'; setTimeout(()=>{ta.style.borderColor='';},1500); } return; }
-  await updatePartHandoff(partId, {
-    sm_approval_status: 'rejected',
-    sm_reject_reason: reason,
-    sm_approved_by: state.user?.id||null,
-    sm_approved_by_name: state.user?.name||null,
-    sm_approved_at: new Date().toISOString()
-  });
-  navigate('parts-approval');
+  const orig = lockBtn(btn, 'Rejecting…');
+  try {
+    await updatePartHandoff(partId, {
+      sm_approval_status: 'rejected',
+      sm_reject_reason: reason,
+      sm_approved_by: state.user?.id||null,
+      sm_approved_by_name: state.user?.name||null,
+      sm_approved_at: new Date().toISOString()
+    });
+    await insertPartEvent(partId, woId, 'rejected', {to_status:'rejected', reason:reason});
+    navigate('parts-approval');
+  } catch(e) { unlockBtn(btn, orig); alert('Could not save rejection. Please try again.'); }
+}
+
+// Shared between SM + Store screens — pulls a part out of both queues entirely,
+// distinct from "Not Used" (technician-initiated, never entered workflow) and
+// "Rejected" (loops back to technician). Use for e.g. a job that's been dropped.
+async function cancelPart(partId, woId, btn) {
+  const ta = document.getElementById('cancel-reason-'+partId);
+  const reason = ta ? ta.value.trim() : '';
+  if (!reason) { if (ta) { ta.style.borderColor='var(--red)'; setTimeout(()=>{ta.style.borderColor='';},1500); } return; }
+  const orig = lockBtn(btn, 'Cancelling…');
+  try {
+    await updatePartHandoff(partId, {
+      sm_approval_status: 'cancelled',
+      sm_cancel_reason: reason,
+      handoff_status: null
+    });
+    await insertPartEvent(partId, woId, 'cancelled', {to_status:'cancelled', reason:reason});
+    navigate(currentPage);
+  } catch(e) { unlockBtn(btn, orig); alert('Could not cancel. Please try again.'); }
 }
 
 // ── SCREEN 3 — STORE IN-CHARGE: Parts Queue ──
+let _storeQueueTab = 'pending';
+function switchStoreQueueTab(tab) { _storeQueueTab = tab; navigate('store-queue'); }
+
 async function renderStoreQueueAsync() {
-  const rows = await sb('job_parts?sm_approval_status=eq.approved&handoff_status=neq.new_issued&hub_name=eq.'+
-    encodeURIComponent(state.hub||'')+'&select=*&order=sm_approved_at.asc') || [];
+  const tab = _storeQueueTab;
+  let rows;
+  if (tab === 'pending') {
+    rows = await sb('job_parts?sm_approval_status=eq.approved&handoff_status=neq.new_issued&hub_name=eq.'+
+      encodeURIComponent(state.hub||'')+'&select=*&order=sm_approved_at.asc') || [];
+  } else {
+    const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+    rows = await sb('job_parts?handoff_status=eq.new_issued&hub_name=eq.'+encodeURIComponent(state.hub||'')+
+      '&new_issued_at=gte.'+todayStart.toISOString()+'&select=*&order=new_issued_at.desc') || [];
+  }
+  const tabBar = `<div style="display:flex;gap:8px;margin-bottom:16px">
+    <button class="btn ${tab==='pending'?'btn-blue':'btn-outline'}" style="flex:1" onclick="switchStoreQueueTab('pending')">Pending</button>
+    <button class="btn ${tab==='completed'?'btn-blue':'btn-outline'}" style="flex:1" onclick="switchStoreQueueTab('completed')">Completed Today</button>
+  </div>`;
   if (!rows.length) {
-    return `<div class="page-hd"><div class="page-hd-text"><div class="page-title">Parts Queue</div><div class="page-sub">Nothing waiting on you</div></div></div>
-      <div class="empty-state" style="padding:40px;text-align:center;color:var(--g400)">No parts pending handoff</div>`;
+    return `<div class="page-hd"><div class="page-hd-text"><div class="page-title">Parts Queue</div><div class="page-sub">${tab==='pending'?'Nothing waiting on you':'Nothing completed yet today'}</div></div></div>${tabBar}
+      <div class="empty-state" style="padding:40px;text-align:center;color:var(--g400)">${tab==='pending'?'No parts pending handoff':'No handoffs completed today'}</div>`;
   }
   const cards = rows.map(p => {
+    if (tab==='completed') {
+      return `<div class="card" style="margin-bottom:12px">
+        <div style="font-size:14px;font-weight:700;color:var(--g900)">${p.part_name}${p.quantity>1?' × '+p.quantity:''}${priorityPill(p.priority)}</div>
+        <div style="font-size:12px;color:var(--g400);margin-top:2px">JC ${p.job_card_number||'—'} · ${p.reg_number||'—'} · ${p.technician_name||'—'}</div>
+        <div style="font-size:12px;color:var(--green);font-weight:600;margin-top:6px">&#10003; Issued at ${new Date(p.new_issued_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true})}${p.issued_quantity && p.issued_quantity!==p.quantity ? ' · qty issued: '+p.issued_quantity : ''}</div>
+      </div>`;
+    }
     const stage = p.handoff_status || 'awaiting_store';
     const oldBtnEnabled = stage === 'awaiting_store';
     const newBtnEnabled = stage === 'old_received';
+    const slaSince = stage==='old_received' ? p.old_received_at : p.sm_approved_at;
+    const sla = elapsedSLA(slaSince, 15, 30);
     return `
     <div class="card" style="margin-bottom:12px">
-      <div style="font-size:14px;font-weight:700;color:var(--g900)">${p.part_name}${p.quantity>1?' × '+p.quantity:''}</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div style="font-size:14px;font-weight:700;color:var(--g900)">${p.part_name}${p.quantity>1?' (requested × '+p.quantity+')':''}${priorityPill(p.priority)}</div>
+        <div style="font-size:12px;font-weight:700;color:${sla.color};white-space:nowrap">&#9201; ${sla.text}</div>
+      </div>
       <div style="font-size:12px;color:var(--g400);margin-top:2px;margin-bottom:12px">JC ${p.job_card_number||'—'} · ${p.reg_number||'—'} · ${p.technician_name||'—'}</div>
       <div style="display:flex;flex-direction:column;gap:8px">
-        <button class="btn ${oldBtnEnabled?'btn-blue':'btn-outline'}" ${oldBtnEnabled?'':'disabled style="opacity:.4;cursor:not-allowed"'} onclick="receiveOldPart('${p.id}')">
+        <button class="btn ${oldBtnEnabled?'btn-blue':'btn-outline'}" ${oldBtnEnabled?'':'disabled style="opacity:.4;cursor:not-allowed"'} onclick="receiveOldPart('${p.id}',this)">
           ${stage==='awaiting_store' ? 'Received Old Part' : '✓ Old Part Received'}
         </button>
-        <button class="btn ${newBtnEnabled?'btn-green':'btn-outline'}" ${newBtnEnabled?'':'disabled style="opacity:.4;cursor:not-allowed"'} onclick="issueNewPart('${p.id}')">
-          Issue New Part
-        </button>
+        ${newBtnEnabled ? `
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:12px;color:var(--g500)">Qty to issue:</span>
+          <input type="number" min="1" id="issue-qty-${p.id}" value="${p.quantity||1}" style="width:56px;padding:4px 6px;border:1px solid var(--g200);border-radius:6px;font-size:13px">
+        </div>
+        <button class="btn btn-green" onclick="issueNewPart('${p.id}',this)">Issue New Part</button>
+        ` : `<button class="btn btn-outline" disabled style="opacity:.4;cursor:not-allowed">Issue New Part</button>`}
+      </div>
+      <button class="btn-ghost" style="font-size:12px;margin-top:6px" onclick="promptCancelPart('${p.id}')">Cancel this part</button>
+      <div id="cancel-box-${p.id}" style="display:none;margin-top:10px">
+        <textarea id="cancel-reason-${p.id}" placeholder="Reason for cancelling (required)" class="form-input" style="height:50px;resize:none;margin-bottom:8px"></textarea>
+        <button class="btn btn-outline btn-full" onclick="cancelPart('${p.id}','${p.work_order_id}',this)">Confirm Cancel</button>
       </div>
     </div>`;
   }).join('');
-  return `<div class="page-hd"><div class="page-hd-text"><div class="page-title">Parts Queue</div><div class="page-sub">${rows.length} part${rows.length>1?'s':''} waiting on you</div></div></div>${cards}`;
+  return `<div class="page-hd"><div class="page-hd-text"><div class="page-title">Parts Queue</div><div class="page-sub">${rows.length} part${rows.length>1?'s':''}${tab==='pending'?' waiting on you':' completed today'}</div></div></div>${tabBar}${cards}`;
 }
 
-async function receiveOldPart(partId) {
-  await updatePartHandoff(partId, {
-    handoff_status: 'old_received',
-    old_received_by: state.user?.id||null,
-    old_received_by_name: state.user?.name||null,
-    old_received_at: new Date().toISOString()
-  });
-  navigate('store-queue');
+async function receiveOldPart(partId, btn) {
+  const orig = lockBtn(btn, 'Saving…');
+  try {
+    await updatePartHandoff(partId, {
+      handoff_status: 'old_received',
+      old_received_by: state.user?.id||null,
+      old_received_by_name: state.user?.name||null,
+      old_received_at: new Date().toISOString()
+    });
+    await insertPartEvent(partId, null, 'old_received', {to_status:'old_received'});
+    navigate('store-queue');
+  } catch(e) { unlockBtn(btn, orig); alert('Could not save. Please try again.'); }
 }
 
-async function issueNewPart(partId) {
-  await updatePartHandoff(partId, {
-    handoff_status: 'new_issued',
-    new_issued_by: state.user?.id||null,
-    new_issued_by_name: state.user?.name||null,
-    new_issued_at: new Date().toISOString()
-  });
-  navigate('store-queue');
+async function issueNewPart(partId, btn) {
+  const qtyEl = document.getElementById('issue-qty-'+partId);
+  const issuedQty = qtyEl ? (parseInt(qtyEl.value)||1) : null;
+  const orig = lockBtn(btn, 'Issuing…');
+  try {
+    await updatePartHandoff(partId, {
+      handoff_status: 'new_issued',
+      new_issued_by: state.user?.id||null,
+      new_issued_by_name: state.user?.name||null,
+      new_issued_at: new Date().toISOString(),
+      issued_quantity: issuedQty
+    });
+    await insertPartEvent(partId, null, 'new_issued', {to_status:'new_issued', note: issuedQty!=null?('issued_qty:'+issuedQty):null});
+    navigate('store-queue');
+  } catch(e) { unlockBtn(btn, orig); alert('Could not save. Please try again.'); }
 }
 
 // ── SCREEN 1 — TECHNICIAN: live poll while a job-detail screen is open ──
@@ -1257,7 +1452,6 @@ function startPartsLivePoll() {
   clearInterval(window._partsPollInt);
   window._partsPollInt = setInterval(async function() {
     if (currentPage !== 'job-detail') { clearInterval(window._partsPollInt); return; }
-    const woId = Object.keys(_partsSession)[Object.keys(_partsSession).length-1];
     for (const wid of Object.keys(_partsSession)) {
       const fresh = await loadJobParts(wid);
       if (!fresh || !fresh.length) continue;
@@ -1267,7 +1461,7 @@ function startPartsLivePoll() {
         const idx = sess.parts.findIndex(function(p){ return p.id===f.id; });
         if (idx>=0) {
           const p = sess.parts[idx];
-          if (p.sm_approval_status!==f.sm_approval_status || p.handoff_status!==f.handoff_status || p.sm_reject_reason!==f.sm_reject_reason) changed = true;
+          if (p.sm_approval_status!==f.sm_approval_status || p.handoff_status!==f.handoff_status || p.sm_reject_reason!==f.sm_reject_reason || p.sm_cancel_reason!==f.sm_cancel_reason) changed = true;
           sess.parts[idx] = f;
         }
       });
