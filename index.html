@@ -1021,7 +1021,7 @@ function renderJobDetail() {
   if (!j) return '<div class="empty-state" style="padding:40px;text-align:center"><button class="btn btn-blue" onclick="navigate(\'my-jobs\')">Back to My Jobs</button></div>';
 
   const statusColor = j.status==='In Progress'?'var(--blue)':j.status==='Done'?'var(--green)':'var(--amber)';
-  const isActive = j.status === 'In Progress';
+  const sid = j.db_id.replace(/-/g,'');
 
   return `
     <div class="page-hd">
@@ -1049,7 +1049,34 @@ function renderJobDetail() {
     </div>
 
     <!-- Actions -->
-    ${isActive ? `
+    <div id="job-actions-${sid}">${renderJobActionsHTML(jobIdx)}</div>
+  `;
+}
+
+// Every 'used' part must have its After photo before the job can be completed —
+// otherwise a job could close with a part still mid-approval/handoff and no
+// evidence it was ever actually fitted. Re-rendered from renderPartsSection()
+// so this updates live as parts move through approval/handoff, not just on
+// the initial page load.
+function usedPartsMissingAfterPhoto(woId) {
+  const sess = _partsSession[woId];
+  if (!sess) return [];
+  return sess.parts.filter(p => p.status==='used' && !p.photo_after).map(p => p.part_name);
+}
+
+function refreshJobActions(woId) {
+  const el = document.getElementById('job-actions-'+woId.replace(/-/g,''));
+  if (!el) return;
+  const jobIdx = _partsSession[woId]?.jobIdx;
+  if (jobIdx == null || jobIdx === undefined) return;
+  el.innerHTML = renderJobActionsHTML(jobIdx);
+}
+
+function renderJobActionsHTML(jobIdx) {
+  const j = state.jobs[jobIdx];
+  if (!j || j.status !== 'In Progress') return '';
+  const missingAfter = usedPartsMissingAfterPhoto(j.db_id);
+  return `
     <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:80px">
       ${!(j.start_photos_done || (j.start_photos||[]).length) ? `
         <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:10px;padding:12px;text-align:center;font-size:13px;color:#92400e;font-weight:600">
@@ -1066,12 +1093,18 @@ function renderJobDetail() {
         <button class="btn btn-green" style="width:100%;padding:14px;font-size:15px;font-weight:600;opacity:.4;cursor:not-allowed">
           Complete Job
         </button>` :
+      missingAfter.length ? `
+        <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:10px;padding:12px;text-align:center;font-size:13px;color:#92400e;font-weight:600">
+          &#9888; Take After photo for: ${missingAfter.join(', ')}
+        </div>
+        <button class="btn btn-green" style="width:100%;padding:14px;font-size:15px;font-weight:600;opacity:.4;cursor:not-allowed">
+          Complete Job
+        </button>` :
       `<div style="font-size:13px;color:var(--green);font-weight:600;text-align:center;padding:4px">&#9989; Start photos &amp; video done</div>
         <button class="btn btn-green" style="width:100%;padding:14px;font-size:15px;font-weight:700" onclick="endJobWithPhotos(${jobIdx})">
           &#9989; Complete Job
         </button>`}
-    </div>` : ''}
-  `;
+    </div>`;
 }
 
 
@@ -1205,6 +1238,7 @@ function renderPartsSection(woId) {
   var el = document.getElementById('ps_'+woId.replace(/-/g,''));
   if(!el) return;
   el.innerHTML = renderPartsHTML(woId, null, null);
+  refreshJobActions(woId);
   // Show real-time validation status
   var statusEl = document.getElementById('parts-status-'+woId.replace(/-/g,''));
   if (!statusEl) return;
