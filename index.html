@@ -288,6 +288,7 @@ tr:hover td{background:var(--g50)}
           <button class="btn btn-outline" id="tr-area_manager"  onclick="setTestRole('area_manager')"  style="font-size:13px;padding:8px">Area Manager</button>
           <button class="btn btn-outline" id="tr-head"          onclick="setTestRole('head')"          style="font-size:13px;padding:8px">Head</button>
           <button class="btn btn-outline" id="tr-technician"    onclick="setTestRole('technician')"    style="font-size:13px;padding:8px">Technician</button>
+          <button class="btn btn-outline" id="tr-store_incharge" onclick="setTestRole('store_incharge')" style="font-size:13px;padding:8px">Store In-charge</button>
         </div>
       </div>
       <button class="btn btn-blue btn-full" style="padding:13px;" onclick="checkMobile()">Next</button>
@@ -495,7 +496,8 @@ const ROLE_LABEL = {
   technician:   'Technician',
   hub_manager:  'Service Manager',
   area_manager: 'Area Service Manager',
-  head:         'Head'
+  head:         'Head',
+  store_incharge: 'Store In-charge'
 };
 
 let state = {
@@ -587,7 +589,7 @@ function setTestRole(role) {
   // Update demo user object
   if (DEMO_USERS[TEST_MOBILE]) DEMO_USERS[TEST_MOBILE].role = role;
   // Highlight active button
-  ['hub_manager','area_manager','head','technician'].forEach(r => {
+  ['hub_manager','area_manager','head','technician','store_incharge'].forEach(r => {
     const btn = document.getElementById('tr-'+r);
     if (btn) {
       btn.className = r===role ? 'btn btn-blue' : 'btn btn-outline';
@@ -605,6 +607,7 @@ const DEMO_USERS = {
   '9123456791': { id:'tech-3', name:'Dinesh P',   role:'technician',   mobile:'9123456791', city_id:'1784d900-6622-4095-a825-1dbd6a649b75' },
   '9123456792': { id:'tech-4', name:'Murugan T',  role:'technician',   mobile:'9123456792', city_id:'1784d900-6622-4095-a825-1dbd6a649b75' },
   '9123456793': { id:'tech-5', name:'Selvam V',   role:'technician',   mobile:'9123456793', city_id:'1784d900-6622-4095-a825-1dbd6a649b75' },
+  '9200000001': { id:'store-1', name:'Manoj Store', role:'store_incharge', mobile:'9200000001', city_id:'1784d900-6622-4095-a825-1dbd6a649b75' },
   // Test number — role switches based on what's selected on login
   '9043207769': { id:'test-1', name:'Test User',  role:'hub_manager',  mobile:'9043207769', city_id:'1784d900-6622-4095-a825-1dbd6a649b75' },
 };
@@ -731,8 +734,18 @@ async function confirmPartSnap() {
     const d = await r.json();
     if (d.secure_url) {
       const part = _partsSession[woId].parts[partIdx];
-      if (phase==='before') part.photo_before=d.secure_url; else part.photo_after=d.secure_url;
-      await savePartToDB(woId,part,_partsSession[woId].jobIdx);
+      if (phase==='before') {
+        part.photo_before=d.secure_url;
+        await savePartToDB(woId,part,_partsSession[woId].jobIdx);
+        if (!part.sm_approval_status || part.sm_approval_status==='rejected') {
+          part.sm_approval_status = 'pending';
+          part.sm_reject_reason = null;
+          if (part.id) await updatePartHandoff(part.id, {sm_approval_status:'pending', sm_reject_reason:null});
+        }
+      } else {
+        part.photo_after=d.secure_url;
+        await savePartToDB(woId,part,_partsSession[woId].jobIdx);
+      }
       closePartPhotoModal();
       renderPartsSection(woId);
     } else { alert('Upload failed: '+(d.error?.message||'Unknown')); btn.textContent='Save Photo'; }
@@ -994,11 +1007,29 @@ function renderPartsHTML(woId, partsCsv, jobIdx) {
       h+='<option value="1"'+((p.quantity||1)===1?' selected':'')+'>1</option><option value="2"'+((p.quantity||1)===2?' selected':'')+'>2</option></select></div>';
       var bbg=p.photo_before?'#dcfce7':'#f8fafc', bbc=p.photo_before?'#16a34a':'#e2e8f0', btc=p.photo_before?'#15803d':'#374151';
       var abg=p.photo_after?'#dcfce7':'#f8fafc', abc_=p.photo_after?'#16a34a':'#e2e8f0', atc=p.photo_after?'#15803d':'#374151';
+      // After-button gating: not_used/pending -> waiting; rejected -> banner; approved -> waiting on store; new_issued -> unlocked
+      var afterUnlocked = p.photo_before && p.handoff_status==='new_issued';
+      var afterLabel = !p.photo_before ? ''
+        : p.sm_approval_status==='rejected' ? ''
+        : (!p.sm_approval_status || p.sm_approval_status==='pending') ? 'Waiting on service manager approval'
+        : (p.sm_approval_status==='approved' && (!p.handoff_status || p.handoff_status==='awaiting_store')) ? 'Waiting on store — old part not yet collected'
+        : p.handoff_status==='old_received' ? 'Store has your part — waiting on new part issue'
+        : p.handoff_status==='new_issued' ? 'New part received — ready for After photo'
+        : '';
+      if (p.sm_approval_status==='rejected') {
+        h+='<div style="background:#fef2f2;border:1px solid #ef4444;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12px;color:#b91c1c">';
+        h+='<strong>Rejected by service manager:</strong> '+(p.sm_reject_reason||'—');
+        h+='<div style="margin-top:6px"><button data-wo="'+woId+'" data-pi="'+i+'" onclick="handleResubmitPart(this)" style="padding:5px 10px;font-size:12px;border-radius:6px;border:none;background:#ef4444;color:#fff;font-weight:600;cursor:pointer">Resubmit</button></div>';
+        h+='</div>';
+      }
       h+='<div style="display:flex;gap:8px">';
       h+='<button data-wo="'+woId+'" data-pi="'+i+'" data-ph="before" onclick="handlePartPhoto(this)" style="flex:1;padding:8px;font-size:12px;border-radius:8px;border:1px solid '+bbc+';cursor:pointer;font-weight:600;background:'+bbg+';color:'+btc+'">'+(p.photo_before?'&#10003; Before':'&#128247; Before')+'</button>';
-      h+='<button data-wo="'+woId+'" data-pi="'+i+'" data-ph="after" onclick="handlePartPhoto(this)" style="flex:1;padding:8px;font-size:12px;border-radius:8px;border:1px solid '+abc_+';cursor:pointer;font-weight:600;background:'+abg+';color:'+atc+'">'+(p.photo_after?'&#10003; After':'&#128247; After')+'</button>';
+      if (afterUnlocked) {
+        h+='<button data-wo="'+woId+'" data-pi="'+i+'" data-ph="after" onclick="handlePartPhoto(this)" style="flex:1;padding:8px;font-size:12px;border-radius:8px;border:1px solid '+abc_+';cursor:pointer;font-weight:600;background:'+abg+';color:'+atc+'">'+(p.photo_after?'&#10003; After':'&#128247; After')+'</button>';
+      } else {
+        h+='<button disabled style="flex:1;padding:8px;font-size:11px;border-radius:8px;border:1px solid #e2e8f0;font-weight:600;background:#f1f5f9;color:#9ca3af;cursor:not-allowed">'+(afterLabel||'&#128247; After')+'</button>';
+      }
       h+='</div>';
-      // Photos optional — no warning shown
     }
     h+='</div>';
   }
@@ -1009,6 +1040,15 @@ function renderPartsHTML(woId, partsCsv, jobIdx) {
   return h;
 }
 
+function handleResubmitPart(btn) { resubmitPart(btn.dataset.wo, parseInt(btn.dataset.pi)); }
+async function resubmitPart(woId, partIdx) {
+  var part = _partsSession[woId]?.parts[partIdx];
+  if (!part || !part.id) return;
+  part.sm_approval_status = 'pending';
+  part.sm_reject_reason = null;
+  renderPartsSection(woId);
+  await updatePartHandoff(part.id, { sm_approval_status:'pending', sm_reject_reason:null });
+}
 function handlePartStatus(btn) { setPartStatus(btn.dataset.wo, parseInt(btn.dataset.pi), btn.dataset.st); }
 function handlePartQty(sel) { setPartQty(sel.dataset.wo, parseInt(sel.dataset.pi), sel.value); }
 function handlePartPhoto(btn) { capturePartPhoto(btn.dataset.wo, parseInt(btn.dataset.pi), btn.dataset.ph); }
@@ -1035,15 +1075,27 @@ function renderPartsSection(woId) {
 
 async function setPartStatus(woId, partIdx, status) {
   if(!_partsSession[woId]) return;
-  _partsSession[woId].parts[partIdx].status = status;
+  var part = _partsSession[woId].parts[partIdx];
+  part.status = status;
+  var clearedHandoff = false;
+  if (status === 'not_used' && (part.sm_approval_status || part.handoff_status)) {
+    part.sm_approval_status = null; part.handoff_status = null; part.sm_reject_reason = null;
+    clearedHandoff = true;
+  }
   renderPartsSection(woId);
-  await savePartToDB(woId, _partsSession[woId].parts[partIdx], _partsSession[woId].jobIdx);
+  await savePartToDB(woId, part, _partsSession[woId].jobIdx);
+  if (clearedHandoff && part.id) await updatePartHandoff(part.id, {sm_approval_status:null, handoff_status:null, sm_reject_reason:null});
 }
 
 async function setPartQty(woId, partIdx, qty) {
   if(!_partsSession[woId]) return;
-  _partsSession[woId].parts[partIdx].quantity = parseInt(qty)||1;
-  await savePartToDB(woId, _partsSession[woId].parts[partIdx], _partsSession[woId].jobIdx);
+  var part = _partsSession[woId].parts[partIdx];
+  part.quantity = parseInt(qty)||1;
+  var reopenApproval = part.sm_approval_status === 'approved';
+  if (reopenApproval) { part.sm_approval_status = 'pending'; part.handoff_status = null; }
+  await savePartToDB(woId, part, _partsSession[woId].jobIdx);
+  if (reopenApproval && part.id) await updatePartHandoff(part.id, {sm_approval_status:'pending', handoff_status:null});
+  if (reopenApproval) renderPartsSection(woId);
 }
 
 async function addExtraPart(woId) {
@@ -1071,6 +1123,157 @@ async function savePartToDB(woId, part, jobIdx) {
 
 function partsAllValid(woId) {
   return true; // Part photos are optional
+}
+
+// ── PARTS APPROVAL + STORE HANDOFF (savePartToDB never touches these fields, and
+//    this helper never touches photo/status/quantity — so technician / SM / store
+//    sessions on different devices don't clobber each other) ──
+async function updatePartHandoff(partId, patch) {
+  const body = JSON.stringify({...patch, updated_at:new Date().toISOString()});
+  try {
+    return await sb('job_parts?id=eq.'+partId, {method:'PATCH', body});
+  } catch(saveErr) {
+    await new Promise(r=>setTimeout(r,1000));
+    return await sb('job_parts?id=eq.'+partId, {method:'PATCH', body});
+  }
+}
+
+function partPhotoThumb(url, label) {
+  if (!url) return '';
+  return '<img src="'+url+'" alt="'+label+'" onclick="window.open(\''+url+'\',\'_blank\')" style="width:100%;max-width:220px;border-radius:8px;border:1px solid var(--g200);cursor:zoom-in;display:block;margin-top:6px">';
+}
+
+// ── SCREEN 2 — SERVICE MANAGER: Parts Approval queue ──
+async function renderPartsApprovalAsync() {
+  const all = await sb('job_parts?status=eq.used&hub_name=eq.'+encodeURIComponent(state.hub||'')+
+    '&photo_before=not.is.null&or=(sm_approval_status.is.null,sm_approval_status.eq.pending)&select=*&order=created_at.asc') || [];
+  if (!all.length) {
+    return `<div class="page-hd"><div class="page-hd-text"><div class="page-title">Parts Approval</div><div class="page-sub">Nothing waiting on you</div></div></div>
+      <div class="empty-state" style="padding:40px;text-align:center;color:var(--g400)">No parts pending approval</div>`;
+  }
+  const cards = all.map(p => `
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px">
+        <div>
+          <div style="font-size:14px;font-weight:700;color:var(--g900)">${p.part_name}${p.quantity>1?' × '+p.quantity:''}</div>
+          <div style="font-size:12px;color:var(--g400);margin-top:2px">JC ${p.job_card_number||'—'} · ${p.reg_number||'—'} · ${p.technician_name||'—'}</div>
+        </div>
+      </div>
+      ${partPhotoThumb(p.photo_before,'Before photo')}
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn btn-green" style="flex:1" onclick="approvePart('${p.id}')">Approve</button>
+        <button class="btn btn-red" style="flex:1" onclick="promptRejectPart('${p.id}')">Reject</button>
+      </div>
+      <div id="reject-box-${p.id}" style="display:none;margin-top:10px">
+        <textarea id="reject-reason-${p.id}" placeholder="Reason for rejection (required)" class="form-input" style="height:60px;resize:none;margin-bottom:8px"></textarea>
+        <button class="btn btn-red btn-full" onclick="rejectPart('${p.id}')">Confirm Reject</button>
+      </div>
+    </div>`).join('');
+  return `<div class="page-hd"><div class="page-hd-text"><div class="page-title">Parts Approval</div><div class="page-sub">${all.length} part${all.length>1?'s':''} waiting on you</div></div></div>${cards}`;
+}
+
+function promptRejectPart(partId) {
+  const box = document.getElementById('reject-box-'+partId);
+  if (box) box.style.display = box.style.display==='none' ? 'block' : 'none';
+}
+
+async function approvePart(partId) {
+  await updatePartHandoff(partId, {
+    sm_approval_status: 'approved',
+    sm_approved_by: state.user?.id||null,
+    sm_approved_by_name: state.user?.name||null,
+    sm_approved_at: new Date().toISOString(),
+    sm_reject_reason: null,
+    handoff_status: 'awaiting_store'
+  });
+  navigate('parts-approval');
+}
+
+async function rejectPart(partId) {
+  const ta = document.getElementById('reject-reason-'+partId);
+  const reason = ta ? ta.value.trim() : '';
+  if (!reason) { if (ta) { ta.style.borderColor='var(--red)'; setTimeout(()=>{ta.style.borderColor='';},1500); } return; }
+  await updatePartHandoff(partId, {
+    sm_approval_status: 'rejected',
+    sm_reject_reason: reason,
+    sm_approved_by: state.user?.id||null,
+    sm_approved_by_name: state.user?.name||null,
+    sm_approved_at: new Date().toISOString()
+  });
+  navigate('parts-approval');
+}
+
+// ── SCREEN 3 — STORE IN-CHARGE: Parts Queue ──
+async function renderStoreQueueAsync() {
+  const rows = await sb('job_parts?sm_approval_status=eq.approved&handoff_status=neq.new_issued&hub_name=eq.'+
+    encodeURIComponent(state.hub||'')+'&select=*&order=sm_approved_at.asc') || [];
+  if (!rows.length) {
+    return `<div class="page-hd"><div class="page-hd-text"><div class="page-title">Parts Queue</div><div class="page-sub">Nothing waiting on you</div></div></div>
+      <div class="empty-state" style="padding:40px;text-align:center;color:var(--g400)">No parts pending handoff</div>`;
+  }
+  const cards = rows.map(p => {
+    const stage = p.handoff_status || 'awaiting_store';
+    const oldBtnEnabled = stage === 'awaiting_store';
+    const newBtnEnabled = stage === 'old_received';
+    return `
+    <div class="card" style="margin-bottom:12px">
+      <div style="font-size:14px;font-weight:700;color:var(--g900)">${p.part_name}${p.quantity>1?' × '+p.quantity:''}</div>
+      <div style="font-size:12px;color:var(--g400);margin-top:2px;margin-bottom:12px">JC ${p.job_card_number||'—'} · ${p.reg_number||'—'} · ${p.technician_name||'—'}</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn ${oldBtnEnabled?'btn-blue':'btn-outline'}" ${oldBtnEnabled?'':'disabled style="opacity:.4;cursor:not-allowed"'} onclick="receiveOldPart('${p.id}')">
+          ${stage==='awaiting_store' ? 'Received Old Part' : '✓ Old Part Received'}
+        </button>
+        <button class="btn ${newBtnEnabled?'btn-green':'btn-outline'}" ${newBtnEnabled?'':'disabled style="opacity:.4;cursor:not-allowed"'} onclick="issueNewPart('${p.id}')">
+          Issue New Part
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="page-hd"><div class="page-hd-text"><div class="page-title">Parts Queue</div><div class="page-sub">${rows.length} part${rows.length>1?'s':''} waiting on you</div></div></div>${cards}`;
+}
+
+async function receiveOldPart(partId) {
+  await updatePartHandoff(partId, {
+    handoff_status: 'old_received',
+    old_received_by: state.user?.id||null,
+    old_received_by_name: state.user?.name||null,
+    old_received_at: new Date().toISOString()
+  });
+  navigate('store-queue');
+}
+
+async function issueNewPart(partId) {
+  await updatePartHandoff(partId, {
+    handoff_status: 'new_issued',
+    new_issued_by: state.user?.id||null,
+    new_issued_by_name: state.user?.name||null,
+    new_issued_at: new Date().toISOString()
+  });
+  navigate('store-queue');
+}
+
+// ── SCREEN 1 — TECHNICIAN: live poll while a job-detail screen is open ──
+function startPartsLivePoll() {
+  clearInterval(window._partsPollInt);
+  window._partsPollInt = setInterval(async function() {
+    if (currentPage !== 'job-detail') { clearInterval(window._partsPollInt); return; }
+    const woId = Object.keys(_partsSession)[Object.keys(_partsSession).length-1];
+    for (const wid of Object.keys(_partsSession)) {
+      const fresh = await loadJobParts(wid);
+      if (!fresh || !fresh.length) continue;
+      const sess = _partsSession[wid];
+      let changed = false;
+      fresh.forEach(function(f) {
+        const idx = sess.parts.findIndex(function(p){ return p.id===f.id; });
+        if (idx>=0) {
+          const p = sess.parts[idx];
+          if (p.sm_approval_status!==f.sm_approval_status || p.handoff_status!==f.handoff_status || p.sm_reject_reason!==f.sm_reject_reason) changed = true;
+          sess.parts[idx] = f;
+        }
+      });
+      if (changed) renderPartsSection(wid);
+    }
+  }, 6000);
 }
 
 
@@ -1912,7 +2115,20 @@ async function proceedAfterAuth(u) {
     const btnEl    = document.getElementById('tech-ready-btn');
     const picker   = document.getElementById('tech-hub-picker');
     const roleNote = document.getElementById('tech-role-note');
-    if (u.role === 'technician') {
+    if (u.role === 'store_incharge') {
+      // Store in-charge: same "select your hub for today" pattern as technician, no attendance tracking
+      picker.style.display   = 'block';
+      roleNote.style.display = 'none';
+      btnEl.textContent      = 'Continue';
+      const sel = document.getElementById('tech-hub-select');
+      sel.innerHTML = '<option value="">Select your hub for today...</option>';
+      const cityHubs = u.city_id ? HUBS.filter(h=>h.city_id===u.city_id) : HUBS;
+      (cityHubs.length ? cityHubs : HUBS).forEach(h=>{
+        const o=document.createElement('option'); o.value=h.name; o.textContent=h.name;
+        if (u.assigned_hub_name && h.name===u.assigned_hub_name) o.selected=true;
+        sel.appendChild(o);
+      });
+    } else if (u.role === 'technician') {
       // Check if technician already has attendance today → lock to that hub
       const todayAtt = await sb(`attendance?user_id=eq.${u.id}&date=eq.${TODAY}&select=id,hub_id,hub_name,checkin_time,checkout_time,hubs(name)&order=checkin_time.asc&limit=1`);
       if (todayAtt && todayAtt.length) {
@@ -2021,6 +2237,26 @@ async function finishLogin() {
       await loadMyJobs();
       btn.textContent = 'Continue'; btn.disabled = false;
     }
+  } else if (state.user.role === 'store_incharge') {
+    const techSel = document.getElementById('tech-hub-select');
+    const selectedHub = techSel ? techSel.value : '';
+    if (!selectedHub) {
+      const existing = document.getElementById('tech-hub-err');
+      if (!existing) {
+        const err = document.createElement('div');
+        err.id='tech-hub-err'; err.className='alert al-error'; err.style.marginBottom='8px';
+        err.textContent='Please select your hub for today.';
+        if (techSel) techSel.parentElement.insertAdjacentElement('afterend', err);
+      }
+      return;
+    }
+    const existing = document.getElementById('tech-hub-err');
+    if (existing) existing.remove();
+    const hubObj = HUBS.find(h=>h.name===selectedHub);
+    state.hub   = selectedHub;
+    state.hubId = hubObj?.id || null;
+    const btn = document.querySelector('#step-tech-ready .btn-blue');
+    btn.textContent = 'Continue'; btn.disabled = false;
   } else {
     // area_manager / head — no hub filter, load all hubs data
     state.hub = null; state.hubId = null;
@@ -2041,7 +2277,11 @@ async function finishLogin() {
   document.getElementById('login-page').style.display='none';
   document.getElementById('app-shell').style.display='block';
   renderTopbar(); renderNav();
-  navigate(state.user.role!=='technician' ? 'dashboard' : 'my-attendance');
+  navigate(
+    state.user.role==='technician'     ? 'my-attendance' :
+    state.user.role==='store_incharge' ? 'store-queue'   :
+    'dashboard'
+  );
 }
 
 async function refreshPage(page) {
@@ -2091,6 +2331,7 @@ const MGR_NAV = [
   {id:'productivity',   lbl:'Productivity',   ic:'bar-chart'},
   {id:'workorders',     lbl:'Work Orders',    ic:'clipboard'},
   {id:'work-assigned',  lbl:'Work Assigned',  ic:'tool'},
+  {id:'parts-approval', lbl:'Parts Approval', ic:'clipboard'},
 ];
 const AREA_NAV = [
   {id:'dashboard', lbl:'Home',   ic:'grid'},
@@ -2108,6 +2349,9 @@ const TECH_NAV = [
   {id:'my-attendance',lbl:'My Attendance',ic:'clock'},
   {id:'my-jobs',      lbl:'My Jobs',      ic:'tool'},
   {id:'tech-profile', lbl:'My Profile',   ic:'user'},
+];
+const STORE_NAV = [
+  {id:'store-queue', lbl:'Parts Queue', ic:'clipboard'},
 ];
 const IC = {
   calendar: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
@@ -2128,7 +2372,7 @@ function renderTopbar() {
   document.getElementById('top-role').textContent = ROLE_LABEL[state.user.role] || state.user.role;
   const role = state.user.role;
   const hubEl = document.getElementById('top-hub');
-  if (role==='technician' || role==='hub_manager') {
+  if (role==='technician' || role==='hub_manager' || role==='store_incharge') {
     hubEl.textContent = state.hub || 'Select Hub';
     hubEl.style.display = '';
   } else {
@@ -2140,6 +2384,7 @@ function renderNav() {
   const nav = state.user.role==='hub_manager' ? MGR_NAV
             : state.user.role==='area_manager' ? AREA_NAV
             : state.user.role==='head'         ? HEAD_NAV
+            : state.user.role==='store_incharge' ? STORE_NAV
             : TECH_NAV;
   document.getElementById('sidebar').innerHTML = nav.map(n=>
     `<div class="si" id="si-${n.id}" onclick="navigate('${n.id}')">${ico(n.ic)} ${n.lbl}</div>`
@@ -2217,6 +2462,7 @@ function refreshOosCount() {
 function navigate(page) {
   if (page !== 'work-assigned') stopWaAutoRefresh();
   if (page !== 'my-jobs') clearInterval(window._jobElapsedInt);
+  if (page !== 'job-detail') clearInterval(window._partsPollInt);
   currentPage = page;  // ← must set BEFORE async calls
   // Persist current page so browser refresh returns here
   try {
@@ -2368,6 +2614,16 @@ function navigate(page) {
     })();
     return;
   }
+  if (page==='parts-approval' && role==='hub_manager') {
+    c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading parts approval queue...</div>';
+    renderPartsApprovalAsync().then(html=>{ if(currentPage===page) c.innerHTML=html; });
+    return;
+  }
+  if (page==='store-queue' && role==='store_incharge') {
+    c.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Loading parts queue...</div>';
+    renderStoreQueueAsync().then(html=>{ if(currentPage===page) c.innerHTML=html; });
+    return;
+  }
   const fns = {
     dashboard:renderDashboard, attendance:renderAttendance, 'job-detail':renderJobDetail,
     'qr-hub':renderQRHub,
@@ -2376,6 +2632,7 @@ function navigate(page) {
   c.innerHTML = (fns[page]||(() => ''))();
   if (page==='qr-hub') generateManagerQR();
   if (page==='my-jobs') startJobElapsedTimer();
+  if (page==='job-detail') startPartsLivePoll();
   if (page==='dashboard') {
     refreshOosCount();
   }
@@ -2399,6 +2656,22 @@ function navigate(page) {
         c.scrollTop = scrollTop;
         injectSmTabBar(_smAttTab||'today');
       }
+    }, 30000);
+  }
+  if (state.user && state.user.role==='hub_manager' && page==='parts-approval') {
+    window._refreshT = setInterval(async ()=>{
+      if (currentPage !== page) { clearInterval(window._refreshT); return; }
+      const c = document.getElementById('content');
+      const html = await renderPartsApprovalAsync();
+      if (currentPage===page && c) c.innerHTML = html;
+    }, 30000);
+  }
+  if (state.user && state.user.role==='store_incharge' && page==='store-queue') {
+    window._refreshT = setInterval(async ()=>{
+      if (currentPage !== page) { clearInterval(window._refreshT); return; }
+      const c = document.getElementById('content');
+      const html = await renderStoreQueueAsync();
+      if (currentPage===page && c) c.innerHTML = html;
     }, 30000);
   }
   if (state.user && page==='dashboard') {
@@ -6231,6 +6504,8 @@ async function initApp() {
         await Promise.all([loadAttendanceForHub(state.hubId), loadJobsForHub(state.hubId), loadVehiclesForHub(state.hub)]);
       } else if (state.user.role === 'technician') {
         await loadMyAttendance(state.user.id); await loadMyJobs();
+      } else if (state.user.role === 'store_incharge') {
+        // Store In-charge queue is loaded on-demand by renderStoreQueueAsync() — nothing to prefetch
       } else { await loadAllHubsData(); }
     } catch(e) {
       console.warn('[initApp] data load error (session kept):', e.message);
@@ -6239,7 +6514,9 @@ async function initApp() {
     document.getElementById('login-page').style.display = 'none';
     document.getElementById('app-shell').style.display  = 'block';
     renderTopbar(); renderNav();
-    const defaultPage = state.user.role !== 'technician' ? 'dashboard' : 'my-attendance';
+    const defaultPage = state.user.role==='technician'     ? 'my-attendance'
+                       : state.user.role==='store_incharge' ? 'store-queue'
+                       : 'dashboard';
     navigate(sess.currentPage || defaultPage);
     return;
   }
