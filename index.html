@@ -256,6 +256,11 @@ tr:hover td{background:var(--g50)}
 .notif-warning  { background:#fef3c7;color:#b45309; }
 .notif-info     { background:#dbeafe;color:#1d4ed8; }
 .urgent-dot { width:10px;height:10px;background:#ef4444;border-radius:50%;animation:pulse-ring 2s infinite;flex-shrink:0; }
+.pm-dot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.3);display:inline-block}
+.pm-dot.done{background:#4ade80}
+.pm-dot.active{background:#fff;box-shadow:0 0 0 4px rgba(255,255,255,.25)}
+.pm-info-grid{display:flex;justify-content:center;flex-wrap:wrap;gap:2px 14px;font-family:'DM Mono',monospace;font-size:10.5px;color:#fff;font-weight:500}
+.pm-info-grid i{font-style:normal;display:block;font-size:8.5px;color:rgba(255,255,255,.45);text-transform:uppercase;letter-spacing:.05em;font-weight:500}
 </style>
 </head>
 <body>
@@ -387,22 +392,31 @@ tr:hover td{background:var(--g50)}
 <!-- Video capture modal -->
   <!-- Part Photo Modal -->
   <div id="part-photo-modal" style="display:none;position:fixed;inset:0;background:#000;z-index:4000;flex-direction:column">
-    <div style="position:absolute;top:0;left:0;right:0;z-index:2;padding:16px;background:linear-gradient(rgba(0,0,0,.7),transparent)">
-      <div id="ppm-title" style="font-size:15px;font-weight:700;color:white;text-align:center">Before Photo</div>
-      <div style="font-size:13px;color:rgba(255,255,255,.5);text-align:center;margin-top:2px">Position part clearly and capture</div>
-    </div>
     <video id="ppm-video" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></video>
     <canvas id="ppm-canvas" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none"></canvas>
-    <div style="position:absolute;bottom:0;left:0;right:0;padding:16px 20px;padding-bottom:max(20px,env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(0,0,0,.85));z-index:2">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <button onclick="closePartPhotoModal()" style="width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.3);color:white;font-size:16px;cursor:pointer">&#10005;</button>
-        <button id="ppm-snap-btn" onclick="capturePartSnap()" style="width:72px;height:72px;border-radius:50%;background:white;border:4px solid rgba(255,255,255,.4);cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 20px rgba(255,255,255,.3)">
-          <div style="width:58px;height:58px;border-radius:50%;background:white;border:3px solid #ddd"></div>
-        </button>
-        <button id="ppm-retake-btn" onclick="retakePartSnap()" style="display:none;width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.3);color:white;font-size:18px;cursor:pointer">&#8617;</button>
-        <div id="ppm-placeholder" style="width:48px"></div>
+
+    <div style="position:absolute;top:16px;left:16px;right:16px;z-index:2;text-align:center">
+      <div id="ppm-title" style="color:rgba(255,255,255,.6);font-size:10.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase">Before Photo</div>
+    </div>
+
+    <div style="position:absolute;left:16px;right:16px;bottom:16px;bottom:max(16px,env(safe-area-inset-bottom));z-index:2">
+      <div style="background:rgba(20,20,22,.6);backdrop-filter:blur(14px);border-radius:20px;padding:14px 16px 12px">
+        <div style="text-align:center;padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid rgba(255,255,255,.12)">
+          <div id="ppm-info-grid" class="pm-info-grid"></div>
+          <div id="ppm-info-sub" style="margin-top:6px;font-size:10.5px;color:rgba(255,255,255,.55)"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center">
+          <button onclick="closePartPhotoModal()" style="justify-self:start;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.3);color:white;font-size:15px;cursor:pointer">&#10005;</button>
+          <button id="ppm-snap-btn" onclick="capturePartSnap()" style="justify-self:center;width:64px;height:64px;border-radius:50%;background:white;border:4px solid rgba(255,255,255,.4);cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 20px rgba(255,255,255,.3)">
+            <div style="width:50px;height:50px;border-radius:50%;background:white;border:3px solid #ddd"></div>
+          </button>
+          <div style="justify-self:end">
+            <button id="ppm-retake-btn" onclick="retakePartSnap()" style="display:none;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.3);color:white;font-size:16px;cursor:pointer">&#8617;</button>
+            <div id="ppm-placeholder" style="width:44px;height:44px"></div>
+          </div>
+        </div>
+        <button id="ppm-confirm-btn" onclick="confirmPartSnap()" style="display:none;width:100%;margin-top:10px;padding:14px;font-size:15px;font-weight:700;border-radius:12px;background:#16a34a;color:white;border:none;cursor:pointer">Save Photo</button>
       </div>
-      <button id="ppm-confirm-btn" onclick="confirmPartSnap()" style="display:none;width:100%;padding:15px;font-size:16px;font-weight:700;border-radius:12px;background:#16a34a;color:white;border:none;cursor:pointer">Save Photo</button>
     </div>
   </div>
 
@@ -441,39 +455,48 @@ tr:hover td{background:var(--g50)}
   </div>
 
   <div id="photo-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:#000;flex-direction:column">
-    <!-- Top: title + progress dots -->
-    <div style="position:absolute;top:0;left:0;right:0;z-index:2;padding:16px;background:linear-gradient(rgba(0,0,0,.6),transparent)">
-      <div style="font-size:15px;font-weight:700;color:white;text-align:center" id="pm-title">Start Photos</div>
-      <div style="font-size:12px;color:rgba(255,255,255,.6);text-align:center;margin-top:2px" id="pm-sub">Front · Left · Back · Right</div>
-      <!-- Progress dots -->
-      <div id="pm-thumbs" style="display:flex;gap:8px;justify-content:center;margin-top:10px"></div>
-    </div>
     <!-- Fullscreen camera -->
     <video id="pm-video" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></video>
     <canvas id="pm-canvas" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none"></canvas>
-    <!-- Side label -->
-    <div id="pm-side-label" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.45);color:white;font-size:22px;font-weight:800;padding:10px 24px;border-radius:12px;letter-spacing:.1em;pointer-events:none">FRONT</div>
-    <!-- Bottom controls -->
-    <div style="position:absolute;bottom:0;left:0;right:0;padding:16px 20px;padding-bottom:max(20px,env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(0,0,0,.85));z-index:2">
-      <div id="pm-upload-status" style="text-align:center;font-size:13px;color:rgba(255,255,255,.7);margin-bottom:10px;min-height:18px"></div>
+
+    <!-- Alignment frame — helps frame the vehicle consistently -->
+    <div style="position:absolute;inset:64px 24px 220px;border:1.5px solid rgba(255,255,255,.35);border-radius:16px;pointer-events:none;z-index:1"></div>
+
+    <!-- Top: phase tag + progress dots + side label -->
+    <div style="position:absolute;top:0;left:0;right:0;z-index:2;padding:16px;display:flex;flex-direction:column;align-items:center;gap:10px">
+      <div id="pm-phase-tag" style="color:rgba(255,255,255,.55);font-size:10.5px;font-weight:700;letter-spacing:.12em;align-self:flex-start">START PHOTOS</div>
+      <div id="pm-thumbs" style="display:flex;gap:7px;margin-top:-4px"></div>
+      <div id="pm-side-label" style="background:rgba(0,0,0,.4);color:#fff;font-size:11px;font-weight:700;letter-spacing:.1em;padding:5px 14px;border-radius:20px;pointer-events:none">FRONT</div>
+    </div>
+
+    <!-- Bottom: frosted info + controls bar -->
+    <div style="position:absolute;left:16px;right:16px;bottom:16px;bottom:max(16px,env(safe-area-inset-bottom));z-index:2">
+      <div id="pm-upload-status" style="text-align:center;font-size:13px;color:rgba(255,255,255,.85);margin-bottom:8px;min-height:18px"></div>
       <div id="pm-notes-wrap" style="display:none;margin-bottom:10px">
         <textarea id="pm-notes" placeholder="Completion notes (optional)..."
           style="width:100%;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:rgba(0,0,0,.5);color:white;font-size:13px;resize:none;height:60px;font-family:inherit;box-sizing:border-box"></textarea>
       </div>
-      <!-- Shutter row -->
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-        <button onclick="cancelPhotoSession()" style="width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.3);color:white;font-size:16px;cursor:pointer">✕</button>
-        <!-- Shutter button -->
-        <button id="pm-capture-btn" onclick="capturePhoto()" style="width:72px;height:72px;border-radius:50%;background:white;border:4px solid rgba(255,255,255,.4);cursor:pointer;box-shadow:0 2px 20px rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center">
-          <div style="width:58px;height:58px;border-radius:50%;background:white;border:3px solid #ddd"></div>
+      <div style="background:rgba(20,20,22,.6);backdrop-filter:blur(14px);border-radius:20px;padding:14px 16px 12px">
+        <div style="text-align:center;padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid rgba(255,255,255,.12)">
+          <div id="pm-info-grid" class="pm-info-grid"></div>
+          <div id="pm-info-sub" style="margin-top:6px;font-size:10.5px;color:rgba(255,255,255,.55);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+        </div>
+        <!-- Controls row — 3-col grid keeps the shutter dead-center regardless of side content -->
+        <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;margin-bottom:6px">
+          <button onclick="cancelPhotoSession()" style="justify-self:start;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.3);color:white;font-size:15px;cursor:pointer">✕</button>
+          <button id="pm-capture-btn" onclick="capturePhoto()" style="justify-self:center;width:64px;height:64px;border-radius:50%;background:white;border:4px solid rgba(255,255,255,.4);cursor:pointer;box-shadow:0 2px 20px rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center">
+            <div style="width:50px;height:50px;border-radius:50%;background:white;border:3px solid #ddd"></div>
+          </button>
+          <div style="justify-self:end">
+            <button id="pm-retake-btn" onclick="retakePhoto()" style="display:none;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.3);color:white;font-size:16px;cursor:pointer">↩</button>
+            <div id="pm-retake-placeholder" style="width:44px;height:44px"></div>
+          </div>
+        </div>
+        <!-- Upload done button — appears only when all 4 done -->
+        <button id="pm-done-btn" onclick="finishPhotoSession()" style="display:none;width:100%;padding:14px;font-size:15px;font-weight:700;border-radius:12px;background:#16a34a;color:white;border:none;cursor:pointer;font-family:inherit">
+          ✓ Upload &amp; Start
         </button>
-        <button id="pm-retake-btn" onclick="retakePhoto()" style="display:none;width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.3);color:white;font-size:18px;cursor:pointer">↩</button>
-        <div id="pm-retake-placeholder" style="width:48px"></div>
       </div>
-      <!-- Upload done button — appears only when all 4 done -->
-      <button id="pm-done-btn" onclick="finishPhotoSession()" style="display:none;width:100%;padding:15px;font-size:16px;font-weight:700;border-radius:12px;background:#16a34a;color:white;border:none;cursor:pointer;font-family:inherit">
-        ✓ Upload &amp; Start
-      </button>
     </div>
   </div>
 
@@ -654,11 +677,33 @@ let _partPhotoSession = { mode:'technician', woId:null, partIdx:null, phase:null
 
 async function capturePartPhoto(woId, partIdx, phase) {
   _partPhotoSession = { mode:'technician', woId, partIdx, phase, stream:null };
-  const part = _partsSession[woId]?.parts[partIdx];
   const title = document.getElementById('ppm-title');
-  if (title) title.textContent = (phase==='before'?'Before':'After') + ' — ' + (part?.part_name||'');
+  if (title) title.textContent = phase==='before' ? 'Before Photo' : 'After Photo';
+  updatePartPhotoInfoBar();
   document.getElementById('part-photo-modal').style.display = 'flex';
   await startPartPhotoCamera();
+}
+
+function updatePartPhotoInfoBar() {
+  const grid = document.getElementById('ppm-info-grid');
+  const sub  = document.getElementById('ppm-info-sub');
+  if (!grid || !sub) return;
+  if (_partPhotoSession.mode === 'store') {
+    grid.innerHTML =
+      '<span><i>Reg</i>'+(_partPhotoSession.storeReg||'—')+'</span>'+
+      '<span><i>JC</i>'+(_partPhotoSession.storeJc||'—')+'</span>'+
+      '<span><i>Hub</i>'+(state.hub||'—')+'</span>';
+    sub.textContent = _partPhotoSession.storePartName || '';
+  } else {
+    const { woId, partIdx } = _partPhotoSession;
+    const j = state.jobs[_partsSession[woId]?.jobIdx] || {};
+    const part = _partsSession[woId]?.parts?.[partIdx];
+    grid.innerHTML =
+      '<span><i>Reg</i>'+(j.vehicle||'—')+'</span>'+
+      '<span><i>JC</i>'+(j.jc_number||'—')+'</span>'+
+      '<span><i>Hub</i>'+(state.hub||'—')+'</span>';
+    sub.textContent = part?.part_name || '';
+  }
 }
 
 // ── SCREEN 3 — STORE IN-CHARGE: photo required for both Received Old Part and
@@ -672,10 +717,12 @@ async function captureStorePhoto(partId, phase, btn) {
   _partPhotoSession = {
     mode:'store', woId:null, partIdx:null, phase:null, stream:null,
     storePartId: partId, storePhase: phase, storeIssuedQty: issuedQty,
-    storeReg: btn?.dataset?.reg || '—', storeJc: btn?.dataset?.jc || '—'
+    storeReg: btn?.dataset?.reg || '—', storeJc: btn?.dataset?.jc || '—',
+    storePartName: btn?.dataset?.part || ''
   };
   const title = document.getElementById('ppm-title');
-  if (title) title.textContent = phase==='old_received' ? 'Photo — Old Part Received' : 'Photo — New Part Issued';
+  if (title) title.textContent = phase==='old_received' ? 'Old Part Received' : 'New Part Issued';
+  updatePartPhotoInfoBar();
   document.getElementById('part-photo-modal').style.display = 'flex';
   await startPartPhotoCamera();
 }
@@ -1541,6 +1588,7 @@ async function renderStoreQueueAsync() {
     const sla = elapsedSLA(slaSince, 15, 30);
     const regAttr = (p.reg_number||'').replace(/"/g,'');
     const jcAttr  = (p.job_card_number||'').replace(/"/g,'');
+    const partAttr = (p.part_name||'').replace(/"/g,'');
     const oldLabel = stage==='awaiting_store' ? '&#128247; Received Old Part' : '&#10003; Old Part Received';
     return `
     <div class="card" style="margin-bottom:12px">
@@ -1551,7 +1599,7 @@ async function renderStoreQueueAsync() {
       <div style="font-size:12px;color:var(--g400);margin-top:2px;margin-bottom:12px">JC ${p.job_card_number||'—'} · ${p.reg_number||'—'} · ${p.technician_name||'—'}</div>
       ${partPhotoThumb(p.old_part_photo,'Old part photo')}
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
-        <button class="btn ${oldBtnEnabled?'btn-blue':'btn-outline'}" data-reg="${regAttr}" data-jc="${jcAttr}" ${oldBtnEnabled?'':'disabled style="opacity:.4;cursor:not-allowed"'} onclick="captureStorePhoto('${p.id}','old_received',this)">
+        <button class="btn ${oldBtnEnabled?'btn-blue':'btn-outline'}" data-reg="${regAttr}" data-jc="${jcAttr}" data-part="${partAttr}" ${oldBtnEnabled?'':'disabled style="opacity:.4;cursor:not-allowed"'} onclick="captureStorePhoto('${p.id}','old_received',this)">
           ${oldLabel}
         </button>
         ${newBtnEnabled ? `
@@ -1559,7 +1607,7 @@ async function renderStoreQueueAsync() {
           <span style="font-size:12px;color:var(--g500)">Qty to issue:</span>
           <input type="number" min="1" id="issue-qty-${p.id}" value="${p.quantity||1}" style="width:56px;padding:4px 6px;border:1px solid var(--g200);border-radius:6px;font-size:13px">
         </div>
-        <button class="btn btn-green" data-reg="${regAttr}" data-jc="${jcAttr}" onclick="captureStorePhoto('${p.id}','new_issued',this)">&#128247; Issue New Part</button>
+        <button class="btn btn-green" data-reg="${regAttr}" data-jc="${jcAttr}" data-part="${partAttr}" onclick="captureStorePhoto('${p.id}','new_issued',this)">&#128247; Issue New Part</button>
         ` : `<button class="btn btn-outline" disabled style="opacity:.4;cursor:not-allowed">Issue New Part</button>`}
       </div>
       <button class="btn-ghost" style="font-size:12px;margin-top:6px" onclick="promptCancelPart('${p.id}')">Cancel this part</button>
@@ -4232,10 +4280,12 @@ function openPhotoCapture(phase, jobIdx) {
   if (!job || !job.db_id) { alert('Could not load this job. Please go back and reopen it.'); return; }
   // Lock to the work-order id + a job snapshot so a later reload/reorder of state.jobs cannot retarget a different vehicle
   _photoSession = { phase, jobIdx, dbId: job.db_id,
-    job: { db_id: job.db_id, vehicle: job.vehicle, jc_number: job.jc_number, assigned_at: job.assigned_at },
+    job: { db_id: job.db_id, vehicle: job.vehicle, jc_number: job.jc_number, assigned_at: job.assigned_at,
+           hub: job.hub, issue: job.issue, tech: job.tech, wo_type: job.wo_type },
     sides:['front','left','back','right'], currentSide:0, captured:{}, stream:null };
-  document.getElementById('pm-title').textContent = phase==='start' ? '📷 Start Photos — '+job.vehicle : '📷 Completion Photos — '+job.vehicle;
-  document.getElementById('pm-sub').textContent = 'Take 4 photos: Front, Left, Back, Right side of vehicle';
+  const phaseTag = document.getElementById('pm-phase-tag');
+  if (phaseTag) phaseTag.textContent = phase==='start' ? 'START PHOTOS' : 'COMPLETION PHOTOS';
+  updatePhotoInfoBar();
   renderPhotoThumbs();
   updatePhotoSideLabel();
   document.getElementById('photo-modal').style.display='flex';
@@ -4245,6 +4295,17 @@ function openPhotoCapture(phase, jobIdx) {
   document.getElementById('pm-capture-btn').querySelector('div').style.background = 'white';
   document.getElementById('pm-capture-btn').onclick = capturePhoto;
   startCamera();
+}
+
+function updatePhotoInfoBar() {
+  const job = _photoSession.job || {};
+  const grid = document.getElementById('pm-info-grid');
+  const sub  = document.getElementById('pm-info-sub');
+  if (grid) grid.innerHTML =
+    '<span><i>Reg</i>'+(job.vehicle||'—')+'</span>'+
+    '<span><i>JC</i>'+(job.jc_number||'—')+'</span>'+
+    '<span><i>Hub</i>'+(job.hub||'—')+'</span>';
+  if (sub) sub.textContent = (job.issue||'—') + '  ·  ' + (job.tech||'—');
 }
 
 function startCamera() {
@@ -4324,9 +4385,6 @@ function capturePhoto() {
   captBtn.querySelector('div').style.background = isLast ? '#16a34a' : '#2563eb';
   document.getElementById('pm-retake-btn').style.display = 'flex';
   document.getElementById('pm-retake-placeholder').style.display = 'none';
-  // Move side label to corner after capture
-  const lbl = document.getElementById('pm-side-label');
-  lbl.style.cssText = 'position:absolute;top:auto;left:50%;bottom:180px;transform:translateX(-50%);background:rgba(0,0,0,.45);color:white;font-size:22px;font-weight:800;padding:10px 24px;border-radius:12px;letter-spacing:.1em;pointer-events:none';
   renderPhotoThumbs();
   checkAllCaptured();
 }
@@ -4372,20 +4430,15 @@ function updatePhotoSideLabel() {
   const side = _photoSession.sides[_photoSession.currentSide];
   const lbl = document.getElementById('pm-side-label');
   lbl.textContent = side.toUpperCase();
-  lbl.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.45);color:white;font-size:22px;font-weight:800;padding:10px 24px;border-radius:12px;letter-spacing:.1em;pointer-events:none';
 }
 
 function renderPhotoThumbs() {
   const sides = _photoSession.sides;
   document.getElementById('pm-thumbs').innerHTML = sides.map((s,i) => {
-    const img = _photoSession.captured[s];
+    const done = !!_photoSession.captured[s];
     const isCurrent = i === _photoSession.currentSide;
-    if (img) {
-      return '<div style="text-align:center"><img src="'+img+'" style="width:52px;height:52px;object-fit:cover;border-radius:8px;border:2px solid #4ade80"/><div style="font-size:9px;color:rgba(255,255,255,.6);margin-top:2px">'+s+'</div></div>';
-    }
-    const borderCol = isCurrent ? 'white' : 'rgba(255,255,255,.3)';
-    const dotCol = isCurrent ? 'white' : 'rgba(255,255,255,.3)';
-    return '<div style="text-align:center"><div style="width:52px;height:52px;border-radius:8px;border:2px solid '+borderCol+';background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center"><div style="width:8px;height:8px;border-radius:50%;background:'+dotCol+'"></div></div><div style="font-size:9px;color:rgba(255,255,255,.6);margin-top:2px">'+s+'</div></div>';
+    const cls = done ? 'pm-dot done' : isCurrent ? 'pm-dot active' : 'pm-dot';
+    return '<span class="'+cls+'"></span>';
   }).join('');
 }
 
