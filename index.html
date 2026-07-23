@@ -768,6 +768,37 @@ function closePartPhotoModal() {
 }
 
 
+// A technician who checked into hub A yesterday and left a job unfinished could,
+// under the old logic, still see that job today after checking into hub B —
+// loadMyJobs() filters only by assigned_tech_id, with no hub or date scoping.
+// On check-in, release anything still assigned to them at a *different* hub so
+// it drops back into that hub's own Open pool for the SM there to reassign.
+async function releaseStaleHubJobs(techId, techName, newHubName) {
+  if (_demoMode || !techId || !newHubName) return;
+  try {
+    const stale = await sb(`work_orders?assigned_tech_id=eq.${techId}&status=in.(Open,In Progress)&hub_name=neq.${encodeURIComponent(newHubName)}&select=id,wo_number,hub_name,status`);
+    if (!stale || !stale.length) return;
+    for (const wo of stale) {
+      await sb(`work_orders?id=eq.${wo.id}`, {method:'PATCH', body: JSON.stringify({
+        assigned_tech_id: null, assigned_tech_name: null,
+        status: 'Open', started_at: null,
+        updated_at: new Date().toISOString()
+      })});
+      try {
+        await sb('work_order_audit', {method:'POST', body: JSON.stringify({
+          wo_id: wo.id, wo_number: wo.wo_number, action: 'unassigned_hub_change',
+          old_value: {assigned_tech_id: techId, assigned_tech_name: techName, hub_name: wo.hub_name, status: wo.status},
+          new_value: {assigned_tech_id: null, assigned_tech_name: null, status: 'Open'},
+          changed_by_id: techId, changed_by: techName
+        })});
+      } catch(auditErr) { /* audit is best-effort, never blocks the release */ }
+    }
+    if (_DEBUG) console.log('[releaseStaleHubJobs] released', stale.length, 'job(s) from', techName, '— now checked into', newHubName);
+  } catch(e) {
+    console.warn('[releaseStaleHubJobs] failed (non-fatal):', e.message);
+  }
+}
+
 async function assignJobsToTech(techName, techId, hubName, hubId, count) {
   const runwayRows = await sb('runway?hub_name=eq.'+encodeURIComponent(hubName)+'&select=bike_model_name,runway_days') || [];
   const criticalModels = runwayRows.filter(function(r){return (r.runway_days||0)<2;}).map(function(r){return r.bike_model_name;});
@@ -4084,6 +4115,8 @@ async function markAtt(scannedHub) {
     state.myCheckin = t12;
     renderTopbar();
     state.attendance[state.user.name]={status:'checked_in',checkin:t12,checkout:null,hub:scannedHub,hub_id:hubId,att_id:attId};
+    // Release any open/in-progress jobs still tied to a different hub before assigning new ones
+    await releaseStaleHubJobs(state.user.id, state.user.name, scannedHub);
     // Auto-assign jobs on check-in
     autoAssignOnCheckin(state.user.name, state.user.id, scannedHub, hubId);
   } else {
@@ -6601,6 +6634,7 @@ async function processCheckin(mode,lat,lng,accuracy,distanceM,withinFence){
       }
       attId = res?.[0]?.id || null;
       if(_DEBUG)console.log('[checkin] saved att:', attId, 'hub:', hubName, 'hub_id:', hubId);
+      await releaseStaleHubJobs(state.user.id, state.user.name, hubName);
     }
     state.myCheckin=t12; state.myAttId=attId||'demo-att';
     if (state.hub2 && !state.hub2CheckIn) state.hub2CheckIn = t12;
