@@ -482,14 +482,16 @@ tr:hover td{background:var(--g50)}
           <div id="pm-info-sub" style="margin-top:6px;font-size:10.5px;color:rgba(255,255,255,.55);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
         </div>
         <!-- Controls row — 3-col grid keeps the shutter dead-center regardless of side content -->
+        <div id="pm-action-hint" style="text-align:center;font-size:11px;color:rgba(255,255,255,.65);min-height:14px;margin-bottom:8px"></div>
         <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;margin-bottom:6px">
           <button onclick="cancelPhotoSession()" style="justify-self:start;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.3);color:white;font-size:15px;cursor:pointer">✕</button>
           <button id="pm-capture-btn" onclick="capturePhoto()" style="justify-self:center;width:64px;height:64px;border-radius:50%;background:white;border:4px solid rgba(255,255,255,.4);cursor:pointer;box-shadow:0 2px 20px rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center">
-            <div style="width:50px;height:50px;border-radius:50%;background:white;border:3px solid #ddd"></div>
+            <div style="width:50px;height:50px;border-radius:50%;background:white;border:3px solid #ddd;display:flex;align-items:center;justify-content:center"></div>
           </button>
-          <div style="justify-self:end">
+          <div style="justify-self:end;text-align:center">
             <button id="pm-retake-btn" onclick="retakePhoto()" style="display:none;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.3);color:white;font-size:16px;cursor:pointer">↩</button>
             <div id="pm-retake-placeholder" style="width:44px;height:44px"></div>
+            <div id="pm-retake-label" style="display:none;font-size:9px;color:rgba(255,255,255,.5);margin-top:3px">Retake</div>
           </div>
         </div>
         <!-- Upload done button — appears only when all 4 done -->
@@ -4285,6 +4287,10 @@ function openPhotoCapture(phase, jobIdx) {
     sides:['front','left','back','right'], currentSide:0, captured:{}, stream:null };
   const phaseTag = document.getElementById('pm-phase-tag');
   if (phaseTag) phaseTag.textContent = phase==='start' ? 'START PHOTOS' : 'COMPLETION PHOTOS';
+  const hint = document.getElementById('pm-action-hint');
+  if (hint) hint.textContent = '';
+  const retakeLabel = document.getElementById('pm-retake-label');
+  if (retakeLabel) retakeLabel.style.display = 'none';
   updatePhotoInfoBar();
   renderPhotoThumbs();
   updatePhotoSideLabel();
@@ -4379,12 +4385,17 @@ function capturePhoto() {
   canvas.style.display='block';
   document.getElementById('pm-retake-btn').style.display='block';
   const isLast = side === _photoSession.sides[_photoSession.sides.length-1];
+  const nextSide = _photoSession.sides[_photoSession.currentSide+1];
   const captBtn = document.getElementById('pm-capture-btn');
-  // Keep shutter style — change inner circle color to indicate captured
   captBtn.onclick = confirmPhoto;
-  captBtn.querySelector('div').style.background = isLast ? '#16a34a' : '#2563eb';
+  const inner = captBtn.querySelector('div');
+  inner.style.background = isLast ? '#16a34a' : '#2563eb';
+  inner.innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+  const hint = document.getElementById('pm-action-hint');
+  if (hint) hint.textContent = isLast ? 'Tap ✓ to finish' : 'Tap ✓ for next: '+(nextSide||'').toUpperCase();
   document.getElementById('pm-retake-btn').style.display = 'flex';
   document.getElementById('pm-retake-placeholder').style.display = 'none';
+  document.getElementById('pm-retake-label').style.display = 'block';
   renderPhotoThumbs();
   checkAllCaptured();
 }
@@ -4398,10 +4409,15 @@ function retakePhoto() {
   canvas.style.display='none';
   document.getElementById('pm-retake-btn').style.display='none';
   const captBtnR = document.getElementById('pm-capture-btn');
-  captBtnR.querySelector('div').style.background = 'white';
+  const innerR = captBtnR.querySelector('div');
+  innerR.style.background = 'white';
+  innerR.innerHTML = '';
   captBtnR.onclick = capturePhoto;
   document.getElementById('pm-retake-btn').style.display = 'none';
   document.getElementById('pm-retake-placeholder').style.display = 'block';
+  document.getElementById('pm-retake-label').style.display = 'none';
+  const hint = document.getElementById('pm-action-hint');
+  if (hint) hint.textContent = '';
 }
 
 function confirmPhoto() {
