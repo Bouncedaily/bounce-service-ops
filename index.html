@@ -1207,12 +1207,25 @@ function partsAllValid(woId) {
 
 async function updatePartHandoff(partId, patch) {
   const body = JSON.stringify({...patch, updated_at:new Date().toISOString()});
-  try {
-    return await sb('job_parts?id=eq.'+partId, {method:'PATCH', body});
-  } catch(saveErr) {
+  let res = await sb('job_parts?id=eq.'+partId, {method:'PATCH', body});
+  if (res === null) {
+    // sb() swallows HTTP/network errors and returns null rather than throwing —
+    // retry once, then surface a real error so callers' try/catch actually fires
+    // instead of silently re-rendering the unchanged state.
     await new Promise(r=>setTimeout(r,1000));
-    return await sb('job_parts?id=eq.'+partId, {method:'PATCH', body});
+    res = await sb('job_parts?id=eq.'+partId, {method:'PATCH', body});
   }
+  if (res === null) throw new Error('Save failed — check your connection and try again.');
+  return res;
+}
+
+// Only a handful of demo/test logins (e.g. the store_incharge test number) aren't
+// backed by a real users row yet, so state.user.id is a placeholder like 'store-1'
+// rather than a uuid. Sending that into a uuid column (sm_approved_by,
+// old_received_by, new_issued_by, actor_id) makes Postgres reject the whole
+// PATCH — silently, since sb() swallows it. Guard every actor-id write with this.
+function safeUuid(id) {
+  return (typeof id==='string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) ? id : null;
 }
 
 // Event log — one row per transition, so "why did this take 45 min" has an answer.
@@ -1220,7 +1233,7 @@ async function updatePartHandoff(partId, patch) {
 async function insertPartEvent(partId, woId, eventType, extra) {
   const payload = Object.assign({
     job_part_id: partId, work_order_id: woId||null, event_type: eventType,
-    actor_id: state.user?.id||null, actor_name: state.user?.name||null, actor_role: state.user?.role||null,
+    actor_id: safeUuid(state.user?.id), actor_name: state.user?.name||null, actor_role: state.user?.role||null,
     created_at: new Date().toISOString()
   }, extra||{});
   try { await sb('job_part_events', {method:'POST', body:JSON.stringify(payload)}); }
@@ -1334,7 +1347,7 @@ async function approvePart(partId, woId, btn) {
   try {
     await updatePartHandoff(partId, {
       sm_approval_status: 'approved',
-      sm_approved_by: state.user?.id||null,
+      sm_approved_by: safeUuid(state.user?.id),
       sm_approved_by_name: state.user?.name||null,
       sm_approved_at: new Date().toISOString(),
       sm_reject_reason: null,
@@ -1354,7 +1367,7 @@ async function rejectPart(partId, woId, btn) {
     await updatePartHandoff(partId, {
       sm_approval_status: 'rejected',
       sm_reject_reason: reason,
-      sm_approved_by: state.user?.id||null,
+      sm_approved_by: safeUuid(state.user?.id),
       sm_approved_by_name: state.user?.name||null,
       sm_approved_at: new Date().toISOString()
     });
@@ -1452,7 +1465,7 @@ async function receiveOldPart(partId, btn) {
   try {
     await updatePartHandoff(partId, {
       handoff_status: 'old_received',
-      old_received_by: state.user?.id||null,
+      old_received_by: safeUuid(state.user?.id),
       old_received_by_name: state.user?.name||null,
       old_received_at: new Date().toISOString()
     });
@@ -1468,7 +1481,7 @@ async function issueNewPart(partId, btn) {
   try {
     await updatePartHandoff(partId, {
       handoff_status: 'new_issued',
-      new_issued_by: state.user?.id||null,
+      new_issued_by: safeUuid(state.user?.id),
       new_issued_by_name: state.user?.name||null,
       new_issued_at: new Date().toISOString(),
       issued_quantity: issuedQty
