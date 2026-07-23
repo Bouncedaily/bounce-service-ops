@@ -4484,9 +4484,18 @@ async function finishPhotoSession() {
           var tat = job.assigned_at ? Math.round((now - new Date(job.assigned_at)) / 60000) : null;
           return { status: 'Done', completed_at: now.toISOString(), end_photos: uploaded, end_photos_done: true, tat: tat };
         })();
+    const patchBody = JSON.stringify({...patch, updated_at: new Date().toISOString()});
+    let saveRes = null;
     try {
-      await sb(`work_orders?id=eq.${job.db_id}`, { method: 'PATCH', body: JSON.stringify({...patch, updated_at: new Date().toISOString()}) });
-    } catch(e) {
+      saveRes = await sb(`work_orders?id=eq.${job.db_id}`, { method: 'PATCH', body: patchBody });
+      if (saveRes === null) {
+        // sb() swallows HTTP/network errors and returns null rather than throwing —
+        // this is why a flaky connection used to look like success. Retry once.
+        await new Promise(r=>setTimeout(r,1000));
+        saveRes = await sb(`work_orders?id=eq.${job.db_id}`, { method: 'PATCH', body: patchBody });
+      }
+    } catch(e) { saveRes = null; }
+    if (saveRes === null) {
       if (statusEl) statusEl.innerHTML = '<div style="color:#f87171;font-size:13px">⚠️ Failed to save job status. Please try again.</div>';
       if (btn) { btn.disabled=false; btn.textContent='Retry'; }
       return;
