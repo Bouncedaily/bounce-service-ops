@@ -649,14 +649,38 @@ let _demoMode = false;
 let _partsSession = {};
 
 
-let _partPhotoSession = { woId:null, partIdx:null, phase:null, stream:null };
+let _partPhotoSession = { mode:'technician', woId:null, partIdx:null, phase:null, stream:null,
+  storePartId:null, storePhase:null, storeIssuedQty:null, storeReg:null, storeJc:null };
 
 async function capturePartPhoto(woId, partIdx, phase) {
-  _partPhotoSession = { woId, partIdx, phase, stream:null };
+  _partPhotoSession = { mode:'technician', woId, partIdx, phase, stream:null };
   const part = _partsSession[woId]?.parts[partIdx];
   const title = document.getElementById('ppm-title');
   if (title) title.textContent = (phase==='before'?'Before':'After') + ' — ' + (part?.part_name||'');
   document.getElementById('part-photo-modal').style.display = 'flex';
+  await startPartPhotoCamera();
+}
+
+// ── SCREEN 3 — STORE IN-CHARGE: photo required for both Received Old Part and
+// Issue New Part, same camera/watermark flow as the technician's Before/After ──
+async function captureStorePhoto(partId, phase, btn) {
+  let issuedQty = null;
+  if (phase === 'new_issued') {
+    const qtyEl = document.getElementById('issue-qty-'+partId);
+    issuedQty = qtyEl ? (parseInt(qtyEl.value)||1) : null;
+  }
+  _partPhotoSession = {
+    mode:'store', woId:null, partIdx:null, phase:null, stream:null,
+    storePartId: partId, storePhase: phase, storeIssuedQty: issuedQty,
+    storeReg: btn?.dataset?.reg || '—', storeJc: btn?.dataset?.jc || '—'
+  };
+  const title = document.getElementById('ppm-title');
+  if (title) title.textContent = phase==='old_received' ? 'Photo — Old Part Received' : 'Photo — New Part Issued';
+  document.getElementById('part-photo-modal').style.display = 'flex';
+  await startPartPhotoCamera();
+}
+
+async function startPartPhotoCamera() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     const title = document.getElementById('ppm-title');
     if(title) title.textContent = '⚠ Camera not supported on this device';
@@ -681,16 +705,25 @@ async function capturePartPhoto(woId, partIdx, phase) {
 async function capturePartSnap() {
   const v = document.getElementById('ppm-video');
   const c = document.getElementById('ppm-canvas');
-  const {woId,partIdx,phase} = _partPhotoSession;
-  const j = state.jobs[_partsSession[woId]?.jobIdx];
+  const isStore = _partPhotoSession.mode === 'store';
+  let regLine, jcLine;
+  if (isStore) {
+    regLine = 'Reg: ' + (_partPhotoSession.storeReg || '—');
+    jcLine  = 'JC: '  + (_partPhotoSession.storeJc  || '—');
+  } else {
+    const {woId} = _partPhotoSession;
+    const j = state.jobs[_partsSession[woId]?.jobIdx];
+    regLine = 'Reg: ' + (j?.vehicle   || '—');
+    jcLine  = 'JC: '  + (j?.jc_number || '—');
+  }
   c.width = v.videoWidth||1280; c.height = v.videoHeight||960;
   const ctx = c.getContext('2d');
   ctx.drawImage(v,0,0);
   // Watermark: reg · JC · hub · timestamp
   (function drawPartWatermark() {
     const lines = [
-      'Reg: '  + (j?.vehicle   || '—'),
-      'JC: '   + (j?.jc_number || '—'),
+      regLine,
+      jcLine,
       'Hub: '  + (state.hub    || '—'),
       new Date().toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true})
     ];
@@ -722,38 +755,78 @@ function retakePartSnap() {
 async function confirmPartSnap() {
   const c = document.getElementById('ppm-canvas');
   const btn = document.getElementById('ppm-confirm-btn');
-  const {woId,partIdx,phase} = _partPhotoSession;
+  const isStore = _partPhotoSession.mode === 'store';
   btn.textContent='Uploading...';
   const blob = await new Promise(res=>c.toBlob(res,'image/jpeg',0.92));
   const fd = new FormData();
-  fd.append('file',blob,'part_'+phase+'_'+Date.now()+'.jpg');
+  fd.append('file',blob,(isStore?'store_'+_partPhotoSession.storePhase:'part_'+_partPhotoSession.phase)+'_'+Date.now()+'.jpg');
   fd.append('upload_preset',CLOUDINARY_PRESET);
-  fd.append('folder','part_photos');
+  fd.append('folder', isStore ? 'store_handoff_photos' : 'part_photos');
   try {
     const r = await fetch('https://api.cloudinary.com/v1_1/'+CLOUDINARY_CLOUD+'/image/upload',{method:'POST',body:fd});
     const d = await r.json();
     if (d.secure_url) {
-      const part = _partsSession[woId].parts[partIdx];
-      if (phase==='before') {
-        part.photo_before=d.secure_url;
-        await savePartToDB(woId,part,_partsSession[woId].jobIdx);
-        if (!part.sm_approval_status || part.sm_approval_status==='rejected') {
-          const wasRejected = part.sm_approval_status==='rejected';
-          part.sm_approval_status = 'pending';
-          part.sm_reject_reason = null;
-          if (part.id) {
-            await updatePartHandoff(part.id, {sm_approval_status:'pending', sm_reject_reason:null});
-            await insertPartEvent(part.id, woId, wasRejected?'resubmitted_via_photo':'submitted_for_approval', {to_status:'pending'});
-          }
-        }
+      if (isStore) {
+        await finalizeStoreHandoffPhoto(d.secure_url);
       } else {
-        part.photo_after=d.secure_url;
-        await savePartToDB(woId,part,_partsSession[woId].jobIdx);
+        const {woId,partIdx,phase} = _partPhotoSession;
+        const part = _partsSession[woId].parts[partIdx];
+        if (phase==='before') {
+          part.photo_before=d.secure_url;
+          await savePartToDB(woId,part,_partsSession[woId].jobIdx);
+          if (!part.sm_approval_status || part.sm_approval_status==='rejected') {
+            const wasRejected = part.sm_approval_status==='rejected';
+            part.sm_approval_status = 'pending';
+            part.sm_reject_reason = null;
+            if (part.id) {
+              await updatePartHandoff(part.id, {sm_approval_status:'pending', sm_reject_reason:null});
+              await insertPartEvent(part.id, woId, wasRejected?'resubmitted_via_photo':'submitted_for_approval', {to_status:'pending'});
+            }
+          }
+        } else {
+          part.photo_after=d.secure_url;
+          await savePartToDB(woId,part,_partsSession[woId].jobIdx);
+        }
+        closePartPhotoModal();
+        renderPartsSection(woId);
       }
-      closePartPhotoModal();
-      renderPartsSection(woId);
     } else { alert('Upload failed: '+(d.error?.message||'Unknown')); btn.textContent='Save Photo'; }
   } catch(e) { alert('Upload error: '+e.message); btn.textContent='Save Photo'; }
+}
+
+// Called after a store handoff photo (old-part-received or new-part-issued)
+// uploads successfully — performs the same transition the old direct-click
+// buttons used to, now gated behind a mandatory photo.
+async function finalizeStoreHandoffPhoto(photoUrl) {
+  const btn = document.getElementById('ppm-confirm-btn');
+  const { storePartId, storePhase, storeIssuedQty } = _partPhotoSession;
+  try {
+    if (storePhase === 'old_received') {
+      await updatePartHandoff(storePartId, {
+        handoff_status: 'old_received',
+        old_received_by: safeUuid(state.user?.id),
+        old_received_by_name: state.user?.name||null,
+        old_received_at: new Date().toISOString(),
+        old_part_photo: photoUrl
+      });
+      await insertPartEvent(storePartId, null, 'old_received', {to_status:'old_received', note:'photo_captured'});
+    } else {
+      await updatePartHandoff(storePartId, {
+        handoff_status: 'new_issued',
+        new_issued_by: safeUuid(state.user?.id),
+        new_issued_by_name: state.user?.name||null,
+        new_issued_at: new Date().toISOString(),
+        issued_quantity: storeIssuedQty,
+        new_part_photo: photoUrl
+      });
+      await insertPartEvent(storePartId, null, 'new_issued', {to_status:'new_issued', note: storeIssuedQty!=null?('issued_qty:'+storeIssuedQty):null});
+    }
+    closePartPhotoModal();
+    navigate('store-queue');
+  } catch(e) {
+    if (btn) btn.textContent = 'Save Photo';
+    alert('Could not save. Please try again.');
+  }
 }
 
 function closePartPhotoModal() {
@@ -1424,6 +1497,7 @@ async function renderStoreQueueAsync() {
         <div style="font-size:14px;font-weight:700;color:var(--g900)">${p.part_name}${p.quantity>1?' × '+p.quantity:''}${priorityPill(p.priority)}</div>
         <div style="font-size:12px;color:var(--g400);margin-top:2px">JC ${p.job_card_number||'—'} · ${p.reg_number||'—'} · ${p.technician_name||'—'}</div>
         <div style="font-size:12px;color:var(--green);font-weight:600;margin-top:6px">&#10003; Issued at ${new Date(p.new_issued_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true})}${p.issued_quantity && p.issued_quantity!==p.quantity ? ' · qty issued: '+p.issued_quantity : ''}</div>
+        <div style="display:flex;gap:10px;margin-top:8px">${partPhotoThumb(p.old_part_photo,'Old part photo')}${partPhotoThumb(p.new_part_photo,'New part photo')}</div>
       </div>`;
     }
     const stage = p.handoff_status || 'awaiting_store';
@@ -1431,6 +1505,9 @@ async function renderStoreQueueAsync() {
     const newBtnEnabled = stage === 'old_received';
     const slaSince = stage==='old_received' ? p.old_received_at : p.sm_approved_at;
     const sla = elapsedSLA(slaSince, 15, 30);
+    const regAttr = (p.reg_number||'').replace(/"/g,'');
+    const jcAttr  = (p.job_card_number||'').replace(/"/g,'');
+    const oldLabel = stage==='awaiting_store' ? '&#128247; Received Old Part' : '&#10003; Old Part Received';
     return `
     <div class="card" style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
@@ -1438,16 +1515,17 @@ async function renderStoreQueueAsync() {
         <div style="font-size:12px;font-weight:700;color:${sla.color};white-space:nowrap">&#9201; ${sla.text}</div>
       </div>
       <div style="font-size:12px;color:var(--g400);margin-top:2px;margin-bottom:12px">JC ${p.job_card_number||'—'} · ${p.reg_number||'—'} · ${p.technician_name||'—'}</div>
-      <div style="display:flex;flex-direction:column;gap:8px">
-        <button class="btn ${oldBtnEnabled?'btn-blue':'btn-outline'}" ${oldBtnEnabled?'':'disabled style="opacity:.4;cursor:not-allowed"'} onclick="receiveOldPart('${p.id}',this)">
-          ${stage==='awaiting_store' ? 'Received Old Part' : '✓ Old Part Received'}
+      ${partPhotoThumb(p.old_part_photo,'Old part photo')}
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+        <button class="btn ${oldBtnEnabled?'btn-blue':'btn-outline'}" data-reg="${regAttr}" data-jc="${jcAttr}" ${oldBtnEnabled?'':'disabled style="opacity:.4;cursor:not-allowed"'} onclick="captureStorePhoto('${p.id}','old_received',this)">
+          ${oldLabel}
         </button>
         ${newBtnEnabled ? `
         <div style="display:flex;align-items:center;gap:8px">
           <span style="font-size:12px;color:var(--g500)">Qty to issue:</span>
           <input type="number" min="1" id="issue-qty-${p.id}" value="${p.quantity||1}" style="width:56px;padding:4px 6px;border:1px solid var(--g200);border-radius:6px;font-size:13px">
         </div>
-        <button class="btn btn-green" onclick="issueNewPart('${p.id}',this)">Issue New Part</button>
+        <button class="btn btn-green" data-reg="${regAttr}" data-jc="${jcAttr}" onclick="captureStorePhoto('${p.id}','new_issued',this)">&#128247; Issue New Part</button>
         ` : `<button class="btn btn-outline" disabled style="opacity:.4;cursor:not-allowed">Issue New Part</button>`}
       </div>
       <button class="btn-ghost" style="font-size:12px;margin-top:6px" onclick="promptCancelPart('${p.id}')">Cancel this part</button>
@@ -1458,37 +1536,6 @@ async function renderStoreQueueAsync() {
     </div>`;
   }).join('');
   return `<div class="page-hd"><div class="page-hd-text"><div class="page-title">Parts Queue</div><div class="page-sub">${rows.length} part${rows.length>1?'s':''}${tab==='pending'?' waiting on you':' completed today'}</div></div></div>${tabBar}${cards}`;
-}
-
-async function receiveOldPart(partId, btn) {
-  const orig = lockBtn(btn, 'Saving…');
-  try {
-    await updatePartHandoff(partId, {
-      handoff_status: 'old_received',
-      old_received_by: safeUuid(state.user?.id),
-      old_received_by_name: state.user?.name||null,
-      old_received_at: new Date().toISOString()
-    });
-    await insertPartEvent(partId, null, 'old_received', {to_status:'old_received'});
-    navigate('store-queue');
-  } catch(e) { unlockBtn(btn, orig); alert('Could not save. Please try again.'); }
-}
-
-async function issueNewPart(partId, btn) {
-  const qtyEl = document.getElementById('issue-qty-'+partId);
-  const issuedQty = qtyEl ? (parseInt(qtyEl.value)||1) : null;
-  const orig = lockBtn(btn, 'Issuing…');
-  try {
-    await updatePartHandoff(partId, {
-      handoff_status: 'new_issued',
-      new_issued_by: safeUuid(state.user?.id),
-      new_issued_by_name: state.user?.name||null,
-      new_issued_at: new Date().toISOString(),
-      issued_quantity: issuedQty
-    });
-    await insertPartEvent(partId, null, 'new_issued', {to_status:'new_issued', note: issuedQty!=null?('issued_qty:'+issuedQty):null});
-    navigate('store-queue');
-  } catch(e) { unlockBtn(btn, orig); alert('Could not save. Please try again.'); }
 }
 
 // ── SCREEN 1 — TECHNICIAN: live poll while a job-detail screen is open ──
