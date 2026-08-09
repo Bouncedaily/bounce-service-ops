@@ -504,6 +504,9 @@ tr:hover td{background:var(--g50)}
     </div>
   </div>
 
+  <!-- Shared parts-catalog autocomplete source for every "+Add part" input -->
+  <datalist id="parts-catalog-list"></datalist>
+
 <script>
 // ─ CONFIG ─
 const SUPABASE_URL = 'https://jpypnrrjiagscqrucslw.supabase.co';
@@ -674,6 +677,50 @@ const DEMO_JOBS = [
 let _demoMode = false;
 
 let _partsSession = {};
+
+// ── PARTS CATALOG — stops free-text drift on the technician's "+Add part"
+// field (the exact "Rear tyre" vs "Tyre" vs "brake pad"/"Brake pad" problem
+// already visible in job_parts). DMS-recommended parts are left alone since
+// those come from an external system; this only governs manually-typed adds.
+let PARTS_CATALOG = [];
+let _partsCatalogPromise = null;
+function ensurePartsCatalogLoaded() {
+  if (!_partsCatalogPromise) {
+    _partsCatalogPromise = sb('parts_catalog?select=id,canonical_name&order=canonical_name.asc')
+      .then(rows => { PARTS_CATALOG = rows || []; renderPartsCatalogDatalist(); })
+      .catch(() => { PARTS_CATALOG = []; });
+  }
+  return _partsCatalogPromise;
+}
+function renderPartsCatalogDatalist() {
+  const dl = document.getElementById('parts-catalog-list');
+  if (!dl) return;
+  dl.innerHTML = PARTS_CATALOG.map(p => '<option value="'+p.canonical_name.replace(/"/g,'')+'">').join('');
+}
+// Resolves a technician's typed part name against the catalog (case/whitespace
+// insensitive). Match -> reuse canonical name + id. No match -> add it to the
+// catalog as unreviewed, so it's captured centrally instead of drifting as a
+// one-off string only this job_parts row knows about.
+async function resolvePartCatalogEntry(typedName) {
+  const norm = typedName.trim().toLowerCase();
+  const existing = PARTS_CATALOG.find(p => p.canonical_name.trim().toLowerCase() === norm);
+  if (existing) return existing;
+  try {
+    const res = await sb('parts_catalog', {method:'POST', prefer:'return=representation',
+      body: JSON.stringify({canonical_name: typedName.trim(), source:'manual', is_reviewed:false})});
+    if (res && res[0]) {
+      PARTS_CATALOG.push(res[0]);
+      renderPartsCatalogDatalist();
+      return res[0];
+    }
+  } catch(e) { /* unique-violation race with another tech adding the same new part — refetch and retry once */
+    try {
+      const retry = await sb('parts_catalog?canonical_name=eq.'+encodeURIComponent(typedName.trim())+'&select=id,canonical_name');
+      if (retry && retry[0]) { PARTS_CATALOG.push(retry[0]); renderPartsCatalogDatalist(); return retry[0]; }
+    } catch(e2) {}
+  }
+  return null; // catalog write failed — caller still proceeds with free text, just uncatalogued
+}
 
 
 let _partPhotoSession = { mode:'technician', woId:null, partIdx:null, phase:null, stream:null,
@@ -874,6 +921,15 @@ async function finalizeStoreHandoffPhoto(photoUrl) {
         new_part_photo: photoUrl
       });
       await insertPartEvent(storePartId, null, 'new_issued', {to_status:'new_issued', note: storeIssuedQty!=null?('issued_qty:'+storeIssuedQty):null});
+      // Best-effort stock decrement — no-ops server-side if this hub/part has
+      // no tracked stock row, so issuing an untracked part never blocks or errors.
+      if (_partPhotoSession.storePartName) {
+        try {
+          await sb('rpc/decrement_hub_part_stock', {method:'POST', body: JSON.stringify({
+            p_hub: state.hub||'', p_part: _partPhotoSession.storePartName, p_qty: storeIssuedQty||1
+          })});
+        } catch(e) { console.warn('[stock decrement] failed (non-fatal):', e.message); }
+      }
     }
     closePartPhotoModal();
     navigate('store-queue');
@@ -1171,6 +1227,7 @@ function showJobCompleteAnimation() {
 }
 
 function renderPartsHTML(woId, partsCsv, jobIdx) {
+  ensurePartsCatalogLoaded(); // fire-and-forget — datalist populates once it resolves, no need to block render
   if (!_partsSession[woId]) {
     var pts = (partsCsv||'').split(',').map(function(p){return p.trim();}).filter(Boolean);
     _partsSession[woId] = { parts: pts.map(function(pName){ return {id:null,work_order_id:woId,part_name:pName,is_recommended:true,status:'pending',quantity:1,photo_before:null,photo_after:null}; }), jobIdx:jobIdx };
@@ -1181,7 +1238,7 @@ function renderPartsHTML(woId, partsCsv, jobIdx) {
     var sid0 = woId.replace(/-/g,'');
     return '<div style="font-size:12px;color:#9ca3af;margin-bottom:8px">No recommended parts</div>' +
       '<div style="display:flex;gap:8px;margin-top:4px">' +
-      '<input id="epi_'+sid0+'" placeholder="Add part name..." style="flex:1;padding:9px 12px;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;color:#111;font-size:13px;font-family:inherit">' +
+      '<input id="epi_'+sid0+'" list="parts-catalog-list" placeholder="Add part name..." style="flex:1;padding:9px 12px;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;color:#111;font-size:13px;font-family:inherit">' +
       '<button data-wo="'+woId+'" onclick="handleAddPart(this)" style="padding:9px 14px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-size:13px;font-weight:600;cursor:pointer">+ Add</button>' +
       '</div>';
   }
@@ -1252,7 +1309,7 @@ function renderPartsHTML(woId, partsCsv, jobIdx) {
     h+='</div>';
   }
   h+='<div style="display:flex;gap:8px;margin-top:4px">';
-  h+='<input id="epi_'+sid+'" placeholder="Add part name..." style="flex:1;padding:9px 12px;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;color:#111;font-size:13px;font-family:inherit">';
+  h+='<input id="epi_'+sid+'" list="parts-catalog-list" placeholder="Add part name..." style="flex:1;padding:9px 12px;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;color:#111;font-size:13px;font-family:inherit">';
   h+='<button data-wo="'+woId+'" onclick="handleAddPart(this)" style="padding:9px 14px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-size:13px;font-weight:600;cursor:pointer">+ Add</button>';
   h+='</div>';
   return h;
@@ -1331,7 +1388,12 @@ async function addExtraPart(woId) {
   var name = input ? input.value.trim() : '';
   if(!name){if(input){input.style.borderColor='#ef4444';setTimeout(function(){input.style.borderColor='';},1500);}return;}
   if(!_partsSession[woId]) return;
-  var newPart = {id:null,work_order_id:woId,part_name:name,is_recommended:false,status:'pending',quantity:1,photo_before:null,photo_after:null};
+  await ensurePartsCatalogLoaded();
+  var catEntry = await resolvePartCatalogEntry(name);
+  // Use the catalog's canonical spelling/casing if matched, so "brake pad" and
+  // "Brake Pad" collapse to one name instead of sitting as two separate strings.
+  var finalName = catEntry ? catEntry.canonical_name : name;
+  var newPart = {id:null,work_order_id:woId,part_name:finalName,is_recommended:false,status:'pending',quantity:1,photo_before:null,photo_after:null,catalog_id:catEntry?catEntry.id:null};
   _partsSession[woId].parts.push(newPart);
   await savePartToDB(woId, newPart, _partsSession[woId].jobIdx);
   if(input) input.value='';
@@ -1340,7 +1402,7 @@ async function addExtraPart(woId) {
 
 async function savePartToDB(woId, part, jobIdx) {
   var j = state.jobs[jobIdx];
-  var payload = {work_order_id:woId,job_card_number:j?j.jc_number:null,reg_number:j?j.vehicle:null,hub_name:j?(j.hub||state.hub):state.hub,technician_name:state.user?state.user.name:null,technician_id:state.user?state.user.id:null,part_name:part.part_name,is_recommended:part.is_recommended,status:part.status,quantity:part.quantity||1,priority:j?(j.priority||null):null,photo_before:part.photo_before||null,photo_after:part.photo_after||null,updated_at:new Date().toISOString()};
+  var payload = {work_order_id:woId,job_card_number:j?j.jc_number:null,reg_number:j?j.vehicle:null,hub_name:j?(j.hub||state.hub):state.hub,technician_name:state.user?state.user.name:null,technician_id:state.user?state.user.id:null,part_name:part.part_name,is_recommended:part.is_recommended,status:part.status,quantity:part.quantity||1,priority:j?(j.priority||null):null,photo_before:part.photo_before||null,photo_after:part.photo_after||null,catalog_id:part.catalog_id||null,updated_at:new Date().toISOString()};
   if(part.id){
     await sb('job_parts?id=eq.'+part.id,{method:'PATCH',body:JSON.stringify(payload)});
   } else {
@@ -1598,12 +1660,33 @@ async function cancelPart(partId, woId, btn) {
 let _storeQueueTab = 'pending';
 function switchStoreQueueTab(tab) { _storeQueueTab = tab; navigate('store-queue'); }
 
+function promptSetStock(partId) {
+  const box = document.getElementById('stock-box-'+partId);
+  if (box) box.style.display = box.style.display==='none' ? 'flex' : 'none';
+}
+async function saveStock(partName, partId, btn) {
+  const qtyEl = document.getElementById('stock-qty-'+partId);
+  const qty = qtyEl ? Math.max(0, parseInt(qtyEl.value)||0) : 0;
+  const orig = lockBtn(btn, 'Saving…');
+  try {
+    await sb('rpc/set_hub_part_stock', {method:'POST', body: JSON.stringify({
+      p_hub: state.hub||'', p_part: partName, p_qty: qty, p_by: state.user?.name||null
+    })});
+    navigate('store-queue');
+  } catch(e) { unlockBtn(btn, orig); alert('Could not save stock count. Please try again.'); }
+}
+
 async function renderStoreQueueAsync() {
   const tab = _storeQueueTab;
   let rows;
+  let stockMap = {};
   if (tab === 'pending') {
     rows = await sb('job_parts?sm_approval_status=eq.approved&handoff_status=neq.new_issued&hub_name=eq.'+
       encodeURIComponent(state.hub||'')+'&select=*&order=sm_approved_at.asc') || [];
+    // One query for all stock at this hub rather than per-card, then matched
+    // by part_name in JS below.
+    const stockRows = await sb('hub_part_stock?hub_name=eq.'+encodeURIComponent(state.hub||'')+'&select=*') || [];
+    stockRows.forEach(s => { stockMap[s.part_name.trim().toLowerCase()] = s; });
   } else {
     const todayStart = new Date(); todayStart.setHours(0,0,0,0);
     rows = await sb('job_parts?handoff_status=eq.new_issued&hub_name=eq.'+encodeURIComponent(state.hub||'')+
@@ -1635,13 +1718,30 @@ async function renderStoreQueueAsync() {
     const jcAttr  = (p.job_card_number||'').replace(/"/g,'');
     const partAttr = (p.part_name||'').replace(/"/g,'');
     const oldLabel = stage==='awaiting_store' ? '&#128247; Received Old Part' : '&#10003; Old Part Received';
+    const stock = stockMap[(p.part_name||'').trim().toLowerCase()];
+    const stockBadge = !stock
+      ? '<span style="font-size:11px;color:var(--g400)">Stock not tracked</span>'
+      : stock.qty_on_hand === 0
+        ? '<span style="font-size:11px;font-weight:700;color:#dc2626">&#9888; Out of stock</span>'
+        : stock.qty_on_hand <= stock.low_stock_threshold
+          ? '<span style="font-size:11px;font-weight:700;color:#b45309">&#9888; Low stock: '+stock.qty_on_hand+'</span>'
+          : '<span style="font-size:11px;font-weight:600;color:#16a34a">In stock: '+stock.qty_on_hand+'</span>';
     return `
     <div class="card" style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
         <div style="font-size:14px;font-weight:700;color:var(--g900)">${p.part_name}${p.quantity>1?' (requested × '+p.quantity+')':''}${priorityPill(p.priority)}</div>
         <div style="font-size:12px;font-weight:700;color:${sla.color};white-space:nowrap">&#9201; ${sla.text}</div>
       </div>
-      <div style="font-size:12px;color:var(--g400);margin-top:2px;margin-bottom:12px">JC ${p.job_card_number||'—'} · ${p.reg_number||'—'} · ${p.technician_name||'—'}</div>
+      <div style="font-size:12px;color:var(--g400);margin-top:2px">JC ${p.job_card_number||'—'} · ${p.reg_number||'—'} · ${p.technician_name||'—'}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px;margin-bottom:6px">
+        ${stockBadge}
+        <span style="font-size:11px;color:var(--blue);font-weight:600;cursor:pointer" onclick="promptSetStock('${p.id}')">Update stock</span>
+      </div>
+      <div id="stock-box-${p.id}" style="display:none;margin-bottom:10px;background:var(--g50);border-radius:8px;padding:8px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:12px;color:var(--g500)">Set count:</span>
+        <input type="number" min="0" id="stock-qty-${p.id}" value="${stock?stock.qty_on_hand:0}" style="width:60px;padding:4px 6px;border:1px solid var(--g200);border-radius:6px;font-size:13px">
+        <button class="btn btn-blue btn-sm" onclick="saveStock('${partAttr}','${p.id}',this)">Save</button>
+      </div>
       ${partPhotoThumb(p.old_part_photo,'Old part photo')}
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
         <button class="btn ${oldBtnEnabled?'btn-blue':'btn-outline'}" data-reg="${regAttr}" data-jc="${jcAttr}" data-part="${partAttr}" ${oldBtnEnabled?'':'disabled style="opacity:.4;cursor:not-allowed"'} onclick="captureStorePhoto('${p.id}','old_received',this)">
