@@ -1227,9 +1227,12 @@ function renderPartsHTML(woId, partsCsv, jobIdx) {
         h+='</div>';
       }
       if (locked) {
-        h+='<div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12px;color:#1e40af;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">';
-        h+='<span>&#10003; Approved — locked from editing</span>';
-        h+='<button data-wo="'+woId+'" data-pi="'+i+'" onclick="handleRequestMod(this)" style="padding:4px 9px;font-size:11px;border-radius:6px;border:1px solid #1e40af;background:#fff;color:#1e40af;font-weight:600;cursor:pointer;white-space:nowrap">Request Modification</button>';
+        // Request Modification used to live here too — moved to the SM's own
+        // "Approved" tab on the Parts Approval screen so technicians can't
+        // unilaterally unlock their own approved part. If this needs reopening,
+        // ask your service manager.
+        h+='<div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12px;color:#1e40af">';
+        h+='&#10003; Approved — locked from editing. Contact your service manager if this needs changing.';
         h+='</div>';
       }
       h+='<div style="display:flex;gap:8px">';
@@ -1264,20 +1267,9 @@ async function resubmitPart(woId, partIdx, btn) {
   } catch(e) { unlockBtn(btn, orig); alert('Could not resubmit. Please try again.'); }
 }
 
-function handleRequestMod(btn) { requestModification(btn.dataset.wo, parseInt(btn.dataset.pi), btn); }
-async function requestModification(woId, partIdx, btn) {
-  if (!confirm('This sends the part back for re-approval and unlocks it for editing. Continue?')) return;
-  var part = _partsSession[woId]?.parts[partIdx];
-  if (!part || !part.id) return;
-  const orig = lockBtn(btn, 'Reopening…');
-  try {
-    part.sm_approval_status = 'pending';
-    part.handoff_status = null;
-    await updatePartHandoff(part.id, { sm_approval_status:'pending', handoff_status:null });
-    await insertPartEvent(part.id, woId, 'modification_requested', {to_status:'pending'});
-    renderPartsSection(woId);
-  } catch(e) { unlockBtn(btn, orig); alert('Could not reopen. Please try again.'); }
-}
+// Request Modification moved to requestModificationFromApproval() on the SM's
+// Approved tab (Parts Approval screen) — see PARTS APPROVAL + STORE HANDOFF
+// section below. Removed from here so technicians can't self-unlock.
 function handlePartStatus(btn) { setPartStatus(btn.dataset.wo, parseInt(btn.dataset.pi), btn.dataset.st); }
 function handlePartQty(sel) { setPartQty(sel.dataset.wo, parseInt(sel.dataset.pi), sel.value); }
 function handlePartPhoto(btn) { capturePartPhoto(btn.dataset.wo, parseInt(btn.dataset.pi), btn.dataset.ph); }
@@ -1435,11 +1427,44 @@ function unlockBtn(btn, orig) {
 const REJECT_TEMPLATES = ['Photo unclear/blurry','Wrong part shown','Quantity mismatch','Duplicate submission','Not required for this job','Other'];
 
 // ── SCREEN 2 — SERVICE MANAGER: Parts Approval queue ──
+// SM's own two-tab view: "Pending" (needs approve/reject) and "Approved" (already
+// approved, in flight through store handoff — the ONLY place Request Modification
+// lives now; it used to also render on the technician's Job Detail card, letting
+// technicians unlock their own approved parts unsupervised. Moved here so only the
+// SM who approved it can reopen it.
+let _approvalTab = 'pending';
+function switchApprovalTab(tab) { _approvalTab = tab; navigate('parts-approval'); }
+
 async function renderPartsApprovalAsync() {
+  const tab = _approvalTab;
+  const tabBar = `<div style="display:flex;gap:8px;margin-bottom:16px">
+    <button class="btn ${tab==='pending'?'btn-blue':'btn-outline'}" style="flex:1" onclick="switchApprovalTab('pending')">Pending</button>
+    <button class="btn ${tab==='approved'?'btn-blue':'btn-outline'}" style="flex:1" onclick="switchApprovalTab('approved')">Approved</button>
+  </div>`;
+
+  if (tab === 'approved') {
+    const rows = await sb('job_parts?sm_approval_status=eq.approved&hub_name=eq.'+encodeURIComponent(state.hub||'')+
+      '&select=*&order=sm_approved_at.desc') || [];
+    if (!rows.length) {
+      return `<div class="page-hd"><div class="page-hd-text"><div class="page-title">Parts Approval</div><div class="page-sub">No approved parts</div></div></div>${tabBar}
+        <div class="empty-state" style="padding:40px;text-align:center;color:var(--g400)">Nothing approved yet</div>`;
+    }
+    const stageLabel = h => h==='new_issued' ? 'New part issued' : h==='old_received' ? 'Old part received — awaiting new part' : 'Awaiting store';
+    const cards = rows.map(p => `
+      <div class="card" style="margin-bottom:12px">
+        <div style="font-size:14px;font-weight:700;color:var(--g900)">${p.part_name}${p.quantity>1?' × '+p.quantity:''}${priorityPill(p.priority)}</div>
+        <div style="font-size:12px;color:var(--g400);margin-top:2px">JC ${p.job_card_number||'—'} · ${p.reg_number||'—'} · ${p.technician_name||'—'}</div>
+        <div style="font-size:12px;color:var(--blue);font-weight:600;margin-top:6px">${stageLabel(p.handoff_status)}</div>
+        ${partPhotoThumb(p.photo_before,'Before photo')}
+        <button class="btn btn-outline btn-full" style="margin-top:10px" onclick="requestModificationFromApproval('${p.id}','${p.work_order_id}',this)">Request Modification</button>
+      </div>`).join('');
+    return `<div class="page-hd"><div class="page-hd-text"><div class="page-title">Parts Approval</div><div class="page-sub">${rows.length} approved</div></div></div>${tabBar}${cards}`;
+  }
+
   const all = await sb('job_parts?status=eq.used&hub_name=eq.'+encodeURIComponent(state.hub||'')+
     '&photo_before=not.is.null&or=(sm_approval_status.is.null,sm_approval_status.eq.pending)&select=*&order=created_at.asc') || [];
   if (!all.length) {
-    return `<div class="page-hd"><div class="page-hd-text"><div class="page-title">Parts Approval</div><div class="page-sub">Nothing waiting on you</div></div></div>
+    return `<div class="page-hd"><div class="page-hd-text"><div class="page-title">Parts Approval</div><div class="page-sub">Nothing waiting on you</div></div></div>${tabBar}
       <div class="empty-state" style="padding:40px;text-align:center;color:var(--g400)">No parts pending approval</div>`;
   }
   const templOptions = REJECT_TEMPLATES.map(t=>'<option value="'+t+'">'+t+'</option>').join('');
@@ -1473,7 +1498,20 @@ async function renderPartsApprovalAsync() {
       </div>
     </div>`;
   }).join('');
-  return `<div class="page-hd"><div class="page-hd-text"><div class="page-title">Parts Approval</div><div class="page-sub">${all.length} part${all.length>1?'s':''} waiting on you</div></div></div>${cards}`;
+  return `<div class="page-hd"><div class="page-hd-text"><div class="page-title">Parts Approval</div><div class="page-sub">${all.length} part${all.length>1?'s':''} waiting on you</div></div></div>${tabBar}${cards}`;
+}
+
+// SM-initiated unlock from the Approved tab: sends the part back to pending and
+// clears handoff_status so it re-enters the Pending queue and the store queue
+// drops it (until re-approved).
+async function requestModificationFromApproval(partId, woId, btn) {
+  if (!confirm('This sends the part back for re-approval and unlocks it for editing. Continue?')) return;
+  const orig = lockBtn(btn, 'Reopening…');
+  try {
+    await updatePartHandoff(partId, { sm_approval_status:'pending', handoff_status:null });
+    await insertPartEvent(partId, woId, 'modification_requested', {to_status:'pending'});
+    navigate('parts-approval');
+  } catch(e) { unlockBtn(btn, orig); alert('Could not reopen. Please try again.'); }
 }
 
 function onRejectTemplateChange(partId) {
