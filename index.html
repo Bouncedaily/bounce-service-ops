@@ -424,6 +424,8 @@ tr:hover td{background:var(--g50)}
     <!-- Fullscreen canvas -->
     <div style="position:absolute;inset:0">
       <canvas id="video-canvas" style="width:100%;height:100%;object-fit:contain;display:block;background:#000"></canvas>
+      <!-- Playback of the just-recorded clip so the technician can check it came out OK before uploading -->
+      <video id="video-preview" controls playsinline style="width:100%;height:100%;object-fit:contain;display:none;background:#000"></video>
       <!-- REC badge -->
       <div id="video-rec-dot" style="display:none;position:absolute;top:20px;left:16px;display:none;align-items:center;gap:6px;background:rgba(0,0,0,.5);padding:5px 12px;border-radius:20px">
         <div style="width:8px;height:8px;border-radius:50%;background:#ef4444;animation:blink 1s infinite"></div>
@@ -714,7 +716,10 @@ async function captureStorePhoto(partId, phase, btn) {
   let issuedQty = null;
   if (phase === 'new_issued') {
     const qtyEl = document.getElementById('issue-qty-'+partId);
-    issuedQty = qtyEl ? (parseInt(qtyEl.value)||1) : null;
+    // Clamp client-side too — the input's min/max can be bypassed (devtools,
+    // manual entry on some mobile keyboards), and issued_quantity has no DB
+    // check constraint like quantity does.
+    issuedQty = qtyEl ? Math.min(2, Math.max(1, parseInt(qtyEl.value)||1)) : null;
   }
   _partPhotoSession = {
     mode:'store', woId:null, partIdx:null, phase:null, stream:null,
@@ -1645,7 +1650,7 @@ async function renderStoreQueueAsync() {
         ${newBtnEnabled ? `
         <div style="display:flex;align-items:center;gap:8px">
           <span style="font-size:12px;color:var(--g500)">Qty to issue:</span>
-          <input type="number" min="1" id="issue-qty-${p.id}" value="${p.quantity||1}" style="width:56px;padding:4px 6px;border:1px solid var(--g200);border-radius:6px;font-size:13px">
+          <input type="number" min="1" max="2" id="issue-qty-${p.id}" value="${p.quantity||1}" style="width:56px;padding:4px 6px;border:1px solid var(--g200);border-radius:6px;font-size:13px">
         </div>
         <button class="btn btn-green" data-reg="${regAttr}" data-jc="${jcAttr}" data-part="${partAttr}" onclick="captureStorePhoto('${p.id}','new_issued',this)">&#128247; Issue New Part</button>
         ` : `<button class="btn btn-outline" disabled style="opacity:.4;cursor:not-allowed">Issue New Part</button>`}
@@ -1865,9 +1870,12 @@ async function startVideoCapture(jobIdx) {
       canvas.height = video.videoHeight || 720;
     };
 
-    // iOS Safari: must add video to DOM
+    // iOS Safari: must add video to DOM. Tracked on the session so
+    // closeVideoModal() can remove it — otherwise one gets orphaned in the
+    // DOM every time a technician records a video and is never cleaned up.
     video.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none';
     document.body.appendChild(video);
+    _videoSession.injectedVideoEl = video;
 
     _videoSession.canvasInt = setInterval(() => {
       if (!video.videoWidth) return;
@@ -1949,13 +1957,26 @@ function toggleVideoRecording() {
       if (_videoSession.elapsed >= 60) toggleVideoRecording(); // auto stop
     }, 1000);
   } else {
-    // Stop recording
+    // Stop recording. Wait for onstop (fires once the last chunk has flushed)
+    // before building the preview — building it off _videoSession.chunks
+    // immediately after calling stop() can race the final ondataavailable.
     clearInterval(_videoSession.timerInt);
-    _videoSession.recorder.stop();
+    const rec = _videoSession.recorder;
+    rec.onstop = () => {
+      const blob = new Blob(_videoSession.chunks, { type: 'video/webm' });
+      if (_videoSession.previewUrl) URL.revokeObjectURL(_videoSession.previewUrl);
+      _videoSession.previewUrl = URL.createObjectURL(blob);
+      const preview = document.getElementById('video-preview');
+      preview.src = _videoSession.previewUrl;
+      document.getElementById('video-canvas').style.display = 'none';
+      preview.style.display = 'block';
+      preview.play().catch(()=>{});
+    };
+    rec.stop();
     _videoSession.recorder = null;
     document.getElementById('video-rec-dot').style.display = 'none';
     document.getElementById('video-timer').style.display = 'none';
-    document.getElementById('video-status').textContent = 'Video captured';
+    document.getElementById('video-status').textContent = 'Review your video below, then upload';
     document.getElementById('video-pre-controls').style.display = 'none';
     document.getElementById('video-post-controls').style.display = 'flex';
   }
@@ -1965,6 +1986,13 @@ function retakeVideo() {
   // Reset for re-recording
   _videoSession.chunks = [];
   _videoSession.elapsed = 0;
+  const preview = document.getElementById('video-preview');
+  preview.pause();
+  preview.style.display = 'none';
+  preview.removeAttribute('src');
+  preview.load();
+  if (_videoSession.previewUrl) { URL.revokeObjectURL(_videoSession.previewUrl); _videoSession.previewUrl = null; }
+  document.getElementById('video-canvas').style.display = 'block';
   document.getElementById('video-pre-controls').style.display = 'flex';
   document.getElementById('video-post-controls').style.display = 'none';
   document.getElementById('video-rec-btn').innerHTML = '<div style="width:26px;height:26px;border-radius:50%;background:white"></div>';
@@ -2017,6 +2045,11 @@ function closeVideoModal() {
   clearInterval(_videoSession.canvasInt);
   if (_videoSession.recorder) { try { _videoSession.recorder.stop(); } catch(e){} _videoSession.recorder = null; }
   if (_videoSession.stream)   { _videoSession.stream.getTracks().forEach(t=>t.stop()); _videoSession.stream = null; }
+  if (_videoSession.injectedVideoEl) { _videoSession.injectedVideoEl.remove(); _videoSession.injectedVideoEl = null; }
+  if (_videoSession.previewUrl) { URL.revokeObjectURL(_videoSession.previewUrl); _videoSession.previewUrl = null; }
+  const preview = document.getElementById('video-preview');
+  preview.pause(); preview.style.display = 'none'; preview.removeAttribute('src'); preview.load();
+  document.getElementById('video-canvas').style.display = 'block';
   document.getElementById('video-modal').style.display = 'none';
   document.getElementById('video-rec-btn').innerHTML = '<div style="width:26px;height:26px;border-radius:50%;background:white"></div>';
   document.getElementById('video-rec-btn').disabled = false;
@@ -4313,7 +4346,7 @@ async function markAtt(scannedHub) {
 
 // ── PHOTO CAPTURE ENGINE ──
 let _photoSession = { phase: null, jobIdx: null, sides: ['front','left','back','right'],
-  currentSide: 0, captured: {}, stream: null };
+  currentSide: 0, captured: {}, stream: null, uploadedUrls: {} };
 
 function openPhotoCapture(phase, jobIdx) {
   const job = state.jobs[jobIdx];
@@ -4322,7 +4355,7 @@ function openPhotoCapture(phase, jobIdx) {
   _photoSession = { phase, jobIdx, dbId: job.db_id,
     job: { db_id: job.db_id, vehicle: job.vehicle, jc_number: job.jc_number, assigned_at: job.assigned_at,
            hub: job.hub, issue: job.issue, tech: job.tech, wo_type: job.wo_type },
-    sides:['front','left','back','right'], currentSide:0, captured:{}, stream:null };
+    sides:['front','left','back','right'], currentSide:0, captured:{}, stream:null, uploadedUrls:{} };
   const phaseTag = document.getElementById('pm-phase-tag');
   if (phaseTag) phaseTag.textContent = phase==='start' ? 'START PHOTOS' : 'COMPLETION PHOTOS';
   const hint = document.getElementById('pm-action-hint');
@@ -4492,7 +4525,11 @@ function renderPhotoThumbs() {
     const done = !!_photoSession.captured[s];
     const isCurrent = i === _photoSession.currentSide;
     const cls = done ? 'pm-dot done' : isCurrent ? 'pm-dot active' : 'pm-dot';
-    return '<span class="'+cls+'"></span>';
+    // Only already-captured sides are clickable — lets a tech jump back and
+    // retake one without having to finish all 4 first. Not-yet-reached sides
+    // stay non-interactive since there's nothing to retake yet.
+    const clickable = done && !isCurrent;
+    return '<span class="'+cls+'"'+(clickable?' onclick="jumpToSide('+i+')" style="cursor:pointer"':'')+'></span>';
   }).join('');
 }
 
@@ -4500,6 +4537,7 @@ function jumpToSide(i) {
   _photoSession.currentSide = i;
   updatePhotoSideLabel();
   retakePhoto();
+  renderPhotoThumbs();
 }
 
 function checkAllCaptured() {
@@ -4555,13 +4593,24 @@ async function finishPhotoSession() {
 
   updateProgress(0, sides.length, sides[0]);
 
-  // Upload all 4 photos — one at a time with progress, validate each
+  // Upload all 4 photos — one at a time with progress, validate each.
+  // uploadedUrls persists on _photoSession across retries, so a failed side
+  // doesn't cause already-succeeded sides to be re-uploaded (which used to
+  // create duplicate Storage objects + duplicate job_photos rows every retry).
   const uploaded = [];
   let uploadFailed = false;
 
   for (let i = 0; i < sides.length; i++) {
     const side = sides[i];
     updateProgress(i, sides.length, side);
+
+    if (_photoSession.uploadedUrls[side]) {
+      // Already uploaded on a prior attempt — reuse it, don't re-upload
+      uploaded.push(_photoSession.uploadedUrls[side]);
+      updateProgress(i + 1, sides.length, sides[i+1] || 'done');
+      continue;
+    }
+
     const dataUrl = captured[side];
 
     // Convert base64 to blob
@@ -4593,6 +4642,11 @@ async function finishPhotoSession() {
           taken_by: state.user.id, taken_at: new Date().toISOString(),
           job_card_number: job.jc_number || null
         })});
+        // Only mark this side as done once both the storage upload AND the
+        // job_photos row succeeded — if we marked it right after the storage
+        // upload, a DB-insert failure on retry would skip re-uploading the
+        // file but never fix the missing job_photos row.
+        _photoSession.uploadedUrls[side] = photoUrl;
       } catch(e) {
         console.error(`Photo upload error for ${side}:`, e);
         updateProgress(i, sides.length, null, side);
